@@ -1,0 +1,1581 @@
+openapi: 3.1.0
+info:
+  title: Fleet Operations API
+  version: 1.0.0
+  description: 车队经营管理系统统一 API 契约。详细业务规则以项目需求基线文档为准。
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+tags:
+  - {name: Auth}
+  - {name: Customers}
+  - {name: Products}
+  - {name: Drivers}
+  - {name: Vehicles}
+  - {name: Trailers}
+  - {name: Routes}
+  - {name: Imports}
+  - {name: Expenses}
+  - {name: DriverSalaries}
+  - {name: Approvals}
+  - {name: Tires}
+  - {name: OCR}
+  - {name: Reports}
+  - {name: Settlements}
+  - {name: Attachments}
+  - {name: System}
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: 手机号密码登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}}
+  /system/ping:
+    get:
+      tags: [System]
+      security: []
+      summary: 服务健康探测
+      responses: {'200': {description: OK}}
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 退出登录
+      responses: {'200': {description: OK}}
+  /me:
+    get:
+      tags: [Auth]
+      summary: 当前账号、角色、权限、小程序能力
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/CurrentUser'}
+  /auth/password:
+    put:
+      tags: [Auth]
+      summary: 修改本人密码
+      responses: {'200': {description: OK}}
+  /users/{id}/reset-password:
+    post:
+      tags: [Auth]
+      summary: 管理员重置密码
+      x-permission: user:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /users/{id}/status:
+    put:
+      tags: [Auth]
+      summary: 启用/停用账号
+      x-permission: user:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /users:
+    get:
+      tags: [System]
+      summary: 用户分页列表
+      x-permission: user:manage
+      responses: {'200': {description: OK}}
+    post:
+      tags: [System]
+      summary: 新增账号并分配单一角色
+      x-permission: user:manage
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /users/{id}:
+    get:
+      tags: [System]
+      summary: 用户详情
+      x-permission: user:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [System]
+      summary: 编辑账号并保持单一角色
+      x-permission: user:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /roles:
+    get:
+      tags: [System]
+      summary: 角色分页列表
+      x-permission: role:manage
+      responses: {'200': {description: OK}}
+    post:
+      tags: [System]
+      summary: 新增角色
+      x-permission: role:manage
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoleRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /roles/{id}:
+    get:
+      tags: [System]
+      summary: 角色详情
+      x-permission: role:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [System]
+      summary: 编辑角色
+      x-permission: role:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoleRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /roles/{id}/status:
+    put:
+      tags: [System]
+      summary: 启用/停用角色
+      x-permission: role:manage
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: status, in: query, required: true, schema: {type: integer, enum: [0, 1]}}
+      responses: {'200': {description: OK}}
+  /roles/{id}/permissions:
+    put:
+      tags: [System]
+      summary: 保存角色权限；权限码只能来自既定注册表
+      x-permission: role:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RolePermissionRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /permissions:
+    get:
+      tags: [System]
+      summary: 权限列表，支持按 MENU/BUTTON/API/MINI_PROGRAM 分类
+      x-permission: permission:manage
+      parameters:
+        - {name: permissionType, in: query, required: false, schema: {type: string, enum: [MENU, BUTTON, API, MINI_PROGRAM]}}
+      responses: {'200': {description: OK}}
+  /audit-logs:
+    get:
+      tags: [System]
+      summary: 操作日志分页查询
+      x-permission: audit:view
+      parameters:
+        - {name: module, in: query, required: false, schema: {type: string}}
+        - {name: businessType, in: query, required: false, schema: {type: string}}
+        - {name: operatorId, in: query, required: false, schema: {type: integer, format: int64}}
+        - {name: startTime, in: query, required: false, schema: {type: string, format: date-time}}
+        - {name: endTime, in: query, required: false, schema: {type: string, format: date-time}}
+      responses: {'200': {description: OK}}
+
+  /customers:
+    get:
+      tags: [Customers]
+      summary: 客户分页列表
+      x-permission: route:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Customers]
+      summary: 新增客户
+      x-permission: route:create
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /customers/{id}:
+    put:
+      tags: [Customers]
+      summary: 编辑客户
+      x-permission: route:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerRequest'}}}}
+      responses: {'200': {description: OK}}
+  /customers/{id}/status:
+    put:
+      tags: [Customers]
+      summary: 启用/停用客户
+      x-permission: route:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusRequest'}}}}
+      responses: {'200': {description: OK}}
+  /products:
+    get:
+      tags: [Products]
+      summary: 产品分页列表
+      x-permission: route:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Products]
+      summary: 新增产品
+      x-permission: route:create
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /products/{id}:
+    put:
+      tags: [Products]
+      summary: 编辑产品
+      x-permission: route:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
+      responses: {'200': {description: OK}}
+  /products/{id}/status:
+    put:
+      tags: [Products]
+      summary: 启用/停用产品
+      x-permission: route:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusRequest'}}}}
+      responses: {'200': {description: OK}}
+
+  /drivers:
+    get:
+      tags: [Drivers]
+      summary: 司机列表
+      x-permission: driver:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Drivers]
+      summary: 新增司机
+      x-permission: driver:add
+      responses: {'200': {description: OK}}
+  /drivers/{id}:
+    get:
+      tags: [Drivers]
+      summary: 司机详情
+      x-permission: driver:list
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [Drivers]
+      summary: 编辑司机
+      x-permission: driver:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /drivers/{id}/bind-vehicle:
+    post:
+      tags: [Drivers]
+      summary: 绑定车辆
+      x-permission: driver:bindVehicle
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /drivers/{id}/unbind-vehicle:
+    post:
+      tags: [Drivers]
+      summary: 解绑车辆
+      x-permission: driver:unbindVehicle
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+
+  /vehicles:
+    get:
+      tags: [Vehicles]
+      summary: 车辆列表
+      x-permission: vehicle:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Vehicles]
+      summary: 新增车辆
+      x-permission: vehicle:add
+      responses: {'200': {description: OK}}
+  /vehicles/{id}:
+    get:
+      tags: [Vehicles]
+      summary: 车辆详情
+      x-permission: vehicle:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [Vehicles]
+      summary: 编辑车辆
+      x-permission: vehicle:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    delete:
+      tags: [Vehicles]
+      summary: 删除车辆
+      x-permission: vehicle:delete
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /vehicles/{id}/binding-history:
+    get:
+      tags: [Vehicles]
+      summary: 车辆绑定历史
+      x-permission: vehicle:bindingHistory
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /trailers:
+    get:
+      tags: [Trailers]
+      summary: 车挂列表
+      x-permission: trailer:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Trailers]
+      summary: 新增车挂
+      x-permission: trailer:add
+      responses: {'200': {description: OK}}
+  /trailers/{id}:
+    put:
+      tags: [Trailers]
+      summary: 编辑车挂
+      x-permission: trailer:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /trailers/{id}/bind-vehicle:
+    post:
+      tags: [Trailers]
+      summary: 绑定车辆
+      x-permission: trailer:bindVehicle
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /trailers/{id}/unbind-vehicle:
+    post:
+      tags: [Trailers]
+      summary: 解绑车辆
+      x-permission: trailer:unbindVehicle
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+
+  /routes:
+    get:
+      tags: [Routes]
+      summary: 线路列表
+      x-permission: route:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Routes]
+      summary: 创建线路
+      x-permission: route:create
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteCreateRequest'}}}}
+      responses: {'200': {description: OK}}
+  /routes/{id}:
+    get:
+      tags: [Routes]
+      summary: 线路详情
+      x-permission: route:list
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [Routes]
+      summary: 发车前编辑线路
+      x-permission: route:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    delete:
+      tags: [Routes]
+      summary: 发车前逻辑删除
+      x-permission: route:delete
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /routes/{id}/publish:
+    post:
+      tags: [Routes]
+      summary: 发布线路并强校验司机车辆
+      x-permission: route:publish
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/depart:
+    post:
+      tags: [Routes]
+      summary: 发车并冻结司机车辆车挂快照
+      x-permission: route:depart
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/unload:
+    post:
+      tags: [Routes]
+      summary: 提交毛重皮重并卸货
+      x-permission: route:unload
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UnloadRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/cancel:
+    post:
+      tags: [Routes]
+      summary: 发车前取消
+      x-permission: route:cancel
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /routes/{id}/void:
+    post:
+      tags: [Routes]
+      summary: 运输中作废
+      x-permission: route:void
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /routes/{id}/reactivate:
+    post:
+      tags: [Routes]
+      summary: 作废线路重新启用并强校验
+      x-permission: route:reactivate
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/weight-adjustments:
+    post:
+      tags: [Routes]
+      summary: 财务调整毛重皮重
+      x-permission: route:weight:adjust
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WeightAdjustmentRequest'}}}}
+      responses: {'200': {description: OK}}
+  /routes/{id}/weight-versions:
+    get:
+      tags: [Routes]
+      summary: 查询线路重量版本历史
+      description: 返回司机原始重量和每次财务纠错版本，包含修改前后可比对字段、修改人、时间、原因和 WEIGHT_ADJUST 附件 ID。
+      x-permission: route:list
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: {$ref: '#/components/schemas/RouteWeightVersion'}
+
+  /imports/preview:
+    post:
+      tags: [Imports]
+      summary: 导入预览与预校验
+      description: 原始文件必须先通过附件中心上传为 IMPORT_FILE；预览阶段保存 import_task/import_row 并做格式、引用和重复预校验。
+      x-permission: import:preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ImportPreviewRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ImportTask'}
+  /imports/{id}/commit:
+    post:
+      tags: [Imports]
+      summary: 正式导入并再次校验
+      description: commit 按最新数据库状态逐行重新校验并独立事务落库；允许部分成功，最终行状态为 SUCCESS、UNPUBLISHED 或 FAILURE。
+      x-permission: import:commit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ImportTask'}
+  /imports:
+    get:
+      tags: [Imports]
+      summary: 导入任务历史
+      x-permission: import:history
+      responses: {'200': {description: OK}}
+  /imports/{id}/failures/export:
+    get:
+      tags: [Imports]
+      summary: 导出失败明细
+      x-permission: import:failure:export
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /expenses:
+    get:
+      tags: [Expenses]
+      summary: 费用列表
+      x-permission: expense:list
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Expenses]
+      summary: 人工新增费用
+      x-permission: expense:add
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ExpenseRequest'}}}}
+      responses: {'200': {description: OK}}
+  /expenses/{id}:
+    put:
+      tags: [Expenses]
+      summary: 编辑允许来源费用
+      x-permission: expense:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    delete:
+      tags: [Expenses]
+      summary: 逻辑删除允许来源费用
+      x-permission: expense:delete
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /expenses/{id}/reversal:
+    post:
+      tags: [Expenses]
+      summary: 冲销审批费用
+      x-permission: expense:reversal
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /expenses/{id}/attribution:
+    put:
+      tags: [Expenses]
+      summary: 修改线路或日常归属并留痕
+      x-permission: expense:attribution:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /expenses/{id}/attribution-history:
+    get:
+      tags: [Expenses]
+      summary: 查询费用归属调整历史
+      description: 返回归属修改前后的 attribution_type、route_id、status、操作人、操作时间和原因，用于解释线路作废后的能源费用待确认与财务确认过程。
+      x-permission: expense:attribution:edit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: {$ref: '#/components/schemas/ExpenseAttributionHistory'}
+  /expenses/{id}/approval:
+    get:
+      tags: [Expenses]
+      summary: 查看关联审批链
+      x-permission: expense:approval:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /driver-salaries:
+    get:
+      tags: [DriverSalaries]
+      summary: 财务/管理员查询司机工资
+      x-permission: salary:view
+      parameters:
+        - {name: driverId, in: query, required: false, schema: {type: integer, format: int64}}
+        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+      responses: {'200': {description: OK}}
+    post:
+      tags: [DriverSalaries]
+      summary: 人工录入或调整线路司机工资
+      description: 写入 driver_salary_entry 与 driver_salary_history，并同步 route_task.driver_salary 作为线路最终工资金额。
+      x-permission: salary:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DriverSalaryRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/DriverSalary'}
+  /driver-salaries/me:
+    get:
+      tags: [DriverSalaries]
+      summary: 自有司机查看本人工资单
+      description: 外协司机强制拒绝；司机只能看到本人线路工资。
+      x-permission: salary:mine
+      parameters:
+        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+      responses: {'200': {description: OK}}
+  /driver-salaries/drivers/{driverId}:
+    get:
+      tags: [DriverSalaries]
+      summary: 按司机查询工资单
+      description: 司机角色只能查询本人；管理角色按 salary:view 权限查询。
+      x-permission: salary:mine or salary:view
+      parameters:
+        - {name: driverId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+      responses: {'200': {description: OK}}
+  /driver-salaries/routes/{routeId}/history:
+    get:
+      tags: [DriverSalaries]
+      summary: 查询线路工资调整历史
+      x-permission: salary:view
+      parameters:
+        - {name: routeId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses: {'200': {description: OK}}
+
+  /approvals:
+    get:
+      tags: [Approvals]
+      summary: 审批列表
+      description: scope=TODO/DONE/MINE 按当前登录用户服务端过滤；scope=ALL 仅具有 approval:history:view 的角色可查看全量。
+      x-permission: approval:history:view / approval:process / approval:return / approval:create
+      parameters:
+        - {name: scope, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalListScope', default: ALL}}
+        - {name: approvalType, in: query, required: false, schema: {type: string}}
+        - {name: status, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalInstanceStatus'}}
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ApprovalPage'}
+    post:
+      tags: [Approvals]
+      summary: 发起审批
+      x-permission: approval:create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApprovalCreateRequest'}
+      responses: {'200': {description: OK}}
+  /approvals/{id}:
+    get:
+      tags: [Approvals]
+      summary: 审批详情与历史
+      description: 返回审批实例、全部 submission version、节点任务、实际审批人、动作、备注、时间和任务失效标记。
+      x-permission: approval:history:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ApprovalDetail'}
+  /approvals/{id}/approve:
+    post:
+      tags: [Approvals]
+      summary: 当前节点通过
+      x-permission: approval:process
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /approvals/{id}/return-applicant:
+    post:
+      tags: [Approvals]
+      summary: 打回申请人
+      x-permission: approval:return
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /approvals/{id}/return-node:
+    post:
+      tags: [Approvals]
+      summary: 打回指定前序节点
+      x-permission: approval:return
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /approvals/{id}/resubmit:
+    post:
+      tags: [Approvals]
+      summary: 修改后重新提交并生成新版本
+      x-permission: approval:create
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApprovalCreateRequest'}
+      responses: {'200': {description: OK}}
+  /approval-flows:
+    get:
+      tags: [Approvals]
+      summary: 审批流程列表，可按类型和状态筛选
+      x-permission: approval:flow:manage
+      parameters:
+        - {name: approvalType, in: query, required: false, schema: {type: string}}
+        - {name: status, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalFlowStatus'}}
+      responses: {'200': {description: OK}}
+  /approval-flows/types/{approvalType}/versions:
+    get:
+      tags: [Approvals]
+      summary: 查看某审批类型所有流程版本
+      x-permission: approval:flow:manage
+      parameters:
+        - {name: approvalType, in: path, required: true, schema: {type: string}}
+      responses: {'200': {description: OK}}
+  /approval-flows/types/{approvalType}/active:
+    get:
+      tags: [Approvals]
+      summary: 查看某审批类型当前 ACTIVE 版本及节点
+      x-permission: approval:flow:manage
+      parameters:
+        - {name: approvalType, in: path, required: true, schema: {type: string}}
+      responses: {'200': {description: OK}}
+  /approval-flows/{id}/maintenance:
+    post:
+      tags: [Approvals]
+      summary: 流程进入维护并禁止新发起
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /approval-flows/{id}:
+    get:
+      tags: [Approvals]
+      summary: 查看流程版本详情、节点顺序和审批人
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+    put:
+      tags: [Approvals]
+      summary: 无在途审批后修改流程版本
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApprovalFlowUpdateRequest'}
+      responses: {'200': {description: OK}}
+  /approval-flows/{id}/publish:
+    post:
+      tags: [Approvals]
+      summary: 发布流程版本
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /tires:
+    get:
+      tags: [Tires]
+      summary: 轮胎库存与历史
+      x-permission: tire:list
+      responses: {'200': {description: OK}}
+  /tire-requests:
+    post:
+      tags: [Tires]
+      summary: 发起换胎申请
+      x-permission: tire:request
+      responses: {'200': {description: OK}}
+  /tire-requests/{id}:
+    get:
+      tags: [Tires]
+      summary: 换胎申请详情
+      x-permission: tire:approval:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /ocr/tire-number:
+    post:
+      tags: [OCR]
+      summary: 识别胎号
+      x-permission: tire:request
+      responses: {'200': {description: OK}}
+  /ocr/{id}/confirm:
+    post:
+      tags: [OCR]
+      summary: 确认 OCR 最终胎号
+      x-permission: tire:request
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /reports/dashboard:
+    get:
+      tags: [Reports]
+      summary: 经营看板
+      description: 返回本月/年度收入、线路费用、日常费用、司机工资、线路利润、公司总利润、趟次及按月趋势；PENDING_ATTRIBUTION 不计入当前利润，工资缺失返回成本不完整标记。
+      x-permission: report:dashboard
+      responses: {'200': {description: OK}}
+  /reports/profit:
+    get:
+      tags: [Reports]
+      summary: 利润报表
+      description: 按线路返回客户、产品、司机、车牌、装卸地、实际载重、线路收入、费用分类、司机工资、支出合计和线路利润；日常费用不分摊到线路。
+      x-permission: report:profit
+      responses: {'200': {description: OK}}
+  /reports/vehicle-expense:
+    get:
+      tags: [Reports]
+      summary: 车辆支出
+      description: 按车辆汇总罚款、洗车、加水、维修、能源费用和趟次。
+      x-permission: report:vehicle
+      responses: {'200': {description: OK}}
+  /reports/driver-expense:
+    get:
+      tags: [Reports]
+      summary: 司机支出
+      description: 按司机汇总趟数、公里数、费用分类、司机工资和工资完整性标记。
+      x-permission: report:driver
+      responses: {'200': {description: OK}}
+  /reports/attendance:
+    get:
+      tags: [Reports]
+      summary: 出勤
+      description: 按司机、业务日期返回是否存在有效出车事实。
+      x-permission: report:attendance
+      responses: {'200': {description: OK}}
+  /reports/energy:
+    get:
+      tags: [Reports]
+      summary: 电费/气费
+      description: 按车牌和能源类型汇总充电/加气度数及金额。
+      x-permission: report:energy
+      responses: {'200': {description: OK}}
+
+  /settlements/{yearMonth}/versions:
+    get:
+      tags: [Settlements]
+      summary: 月度结算版本列表
+      x-permission: settlement:view
+      parameters: [{$ref: '#/components/parameters/YearMonth'}]
+      responses: {'200': {description: OK}}
+    post:
+      tags: [Settlements]
+      summary: 生成新的不可变结算版本
+      description: 按业务发生日期生成不可变快照，保存收入、线路费用、日常费用、司机工资、利润，并相对上一版本生成 ADD、DELETE、MODIFY、REASSIGN、WEIGHT_ADJUST、REVERSAL 差异。
+      x-permission: settlement:generate
+      parameters: [{$ref: '#/components/parameters/YearMonth'}]
+      responses: {'200': {description: OK}}
+  /settlements/versions/{id}/details:
+    get:
+      tags: [Settlements]
+      summary: 结算快照明细
+      x-permission: settlement:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /settlements/versions/{id}/diff:
+    get:
+      tags: [Settlements]
+      summary: 相对上一版本差异
+      description: 差异包含修改前后快照、收入/支出/利润影响、真实业务操作人、操作时间和原因；与结算版本生成人区分。
+      x-permission: settlement:diff:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+
+  /attachments:
+    get:
+      tags: [Attachments]
+      summary: 按 ownerType/ownerId/purpose 查询附件元数据
+      description: 文件读取权限由后端根据 owner_type、owner_id、purpose 映射到既有业务权限并校验业务归属。
+      parameters:
+        - {name: ownerType, in: query, required: false, schema: {type: string, maxLength: 64}}
+        - {name: ownerId, in: query, required: false, schema: {type: integer, format: int64}}
+        - {name: purpose, in: query, required: false, schema: {$ref: '#/components/schemas/AttachmentPurpose'}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: {$ref: '#/components/schemas/Attachment'}
+    post:
+      tags: [Attachments]
+      summary: 上传原始文件
+      description: 文件本体写入 StorageService，数据库仅保存元数据和 storageKey；后端按 purpose 校验既有业务权限，不注册 attachment:* 同义权限码。审批申请创建前上传图片时使用 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION；创建或重新提交审批成功后，后端原子绑定到对应 approval instance，并把附件 ID 固化进 submission snapshot。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [ownerType, ownerId, purpose, file]
+              properties:
+                ownerType: {type: string, maxLength: 64}
+                ownerId: {type: integer, format: int64}
+                purpose: {$ref: '#/components/schemas/AttachmentPurpose'}
+                file: {type: string, format: binary}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/Attachment'}
+        '409': {$ref: '#/components/responses/BusinessConflict'}
+  /attachments/{id}:
+    get:
+      tags: [Attachments]
+      summary: 读取附件原始文件
+      description: 必须认证；后端根据附件 owner_type、owner_id、purpose 做权限和业务归属检查，禁止猜测 ID 读取无关附件。
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: 原始文件内容
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '409': {$ref: '#/components/responses/BusinessConflict'}
+    delete:
+      tags: [Attachments]
+      summary: 普通删除入口
+      description: V1.0 不允许通过普通附件接口删除审批相关图片；当前实现统一拒绝删除，避免破坏审批、运输和审计历史。
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '409': {$ref: '#/components/responses/BusinessConflict'}
+
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: integer, format: int64}}
+    YearMonth: {name: yearMonth, in: path, required: true, schema: {type: string, pattern: '^\\d{4}-\\d{2}$'}}
+  responses:
+    BusinessConflict:
+      description: 业务规则冲突
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ApiResponse'}
+  schemas:
+    ApiResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string, examples: ['0']}
+        message: {type: string}
+        data: {}
+        requestId: {type: string}
+    LoginRequest:
+      type: object
+      required: [phone, password]
+      properties:
+        phone: {type: string}
+        password: {type: string}
+    CurrentUser:
+      type: object
+      description: 当前登录账号、单一角色、权限，以及司机账号的小程序身份扩展信息。
+      properties:
+        id: {type: integer, format: int64}
+        phone: {type: string}
+        role:
+          type: object
+          properties:
+            id: {type: integer, format: int64}
+            code: {type: string}
+            name: {type: string}
+        permissions:
+          type: array
+          items: {type: string}
+        driverId: {type: [integer, 'null'], format: int64}
+        driverType: {type: [string, 'null'], enum: [INTERNAL, OUTSOURCED, null]}
+        driverName: {type: [string, 'null']}
+        currentVehicleId: {type: [integer, 'null'], format: int64}
+        currentPlateNo: {type: [string, 'null']}
+    StatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: {type: integer, enum: [0, 1]}
+    CustomerRequest:
+      type: object
+      required: [customerName, status]
+      properties:
+        customerCode: {type: [string, 'null']}
+        customerName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        remark: {type: [string, 'null']}
+    Customer:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        customerCode: {type: [string, 'null']}
+        customerName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        remark: {type: [string, 'null']}
+    ProductRequest:
+      type: object
+      required: [productName, status]
+      properties:
+        productCode: {type: [string, 'null']}
+        productName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        remark: {type: [string, 'null']}
+    Product:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        productCode: {type: [string, 'null']}
+        productName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        remark: {type: [string, 'null']}
+    UserRequest:
+      type: object
+      required: [phone, roleId, status]
+      properties:
+        phone: {type: string}
+        password: {type: [string, 'null'], description: 新增账号必填；编辑账号不使用该字段重置密码}
+        roleId: {type: integer, format: int64}
+        status: {type: integer, enum: [0, 1]}
+    User:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        phone: {type: string}
+        roleId: {type: integer, format: int64}
+        roleCode: {type: string}
+        roleName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        lastLoginAt: {type: [string, 'null'], format: date-time}
+        createdBy: {type: [integer, 'null'], format: int64}
+        createdAt: {type: string, format: date-time}
+        updatedBy: {type: [integer, 'null'], format: int64}
+        updatedAt: {type: string, format: date-time}
+    RoleRequest:
+      type: object
+      required: [roleCode, roleName, status]
+      properties:
+        roleCode: {type: string}
+        roleName: {type: string}
+        status: {type: integer, enum: [0, 1]}
+    RolePermissionRequest:
+      type: object
+      properties:
+        permissionCodes:
+          type: array
+          items: {$ref: '#/components/schemas/PermissionCode'}
+    Role:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        roleCode: {type: string}
+        roleName: {type: string}
+        systemFixed: {type: boolean}
+        status: {type: integer, enum: [0, 1]}
+        permissions:
+          type: array
+          items: {$ref: '#/components/schemas/Permission'}
+    Permission:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        permissionCode: {$ref: '#/components/schemas/PermissionCode'}
+        permissionName: {type: string}
+        permissionType: {type: string, enum: [MENU, BUTTON, API, MINI_PROGRAM]}
+        status: {type: integer, enum: [0, 1]}
+    AuditLog:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        module: {type: string}
+        businessType: {type: string}
+        businessId: {type: [integer, 'null'], format: int64}
+        operationType: {type: string}
+        beforeJson: {type: [string, 'null']}
+        afterJson: {type: [string, 'null']}
+        operatorId: {type: integer, format: int64}
+        operationTime: {type: string, format: date-time}
+        reason: {type: [string, 'null']}
+        ip: {type: [string, 'null']}
+        terminal: {type: [string, 'null']}
+    RouteStatus:
+      type: string
+      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, COMPLETED, VOIDED, CANCELLED]
+    AttachmentPurpose:
+      type: string
+      enum: [TIRE_OCR, WEIGHT_ADJUST, APPROVAL_APPLICATION, APPROVAL_ACTION, IMPORT_FILE]
+    Attachment:
+      type: object
+      required: [id, ownerType, ownerId, purpose, storageKey, originalFilename, fileSize, fileHash, uploadedBy, uploadedAt]
+      properties:
+        id: {type: integer, format: int64}
+        ownerType: {type: string}
+        ownerId: {type: integer, format: int64}
+        purpose: {$ref: '#/components/schemas/AttachmentPurpose'}
+        originalFilename: {type: string}
+        contentType: {type: [string, 'null']}
+        fileSize: {type: integer, format: int64}
+        fileHash: {type: string}
+        storageKey: {type: string}
+        uploadedBy: {type: integer, format: int64}
+        uploadedAt: {type: string, format: date-time}
+    ApprovalFlowStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, MAINTENANCE]
+    ApprovalInstanceStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, RETURNED_TO_APPLICANT]
+    ApprovalTaskStatus:
+      type: string
+      enum: [PENDING, APPROVED, RETURNED, INVALIDATED]
+    ApprovalListScope:
+      type: string
+      enum: [TODO, DONE, MINE, ALL]
+    ApprovalCreateRequest:
+      type: object
+      required: [approvalType, businessType, businessId, businessSnapshot]
+      properties:
+        approvalType: {type: string}
+        businessType: {type: string}
+        businessId: {type: integer, format: int64}
+        businessSnapshot:
+          type: object
+          additionalProperties: true
+          description: 发起或重提时的申请快照；后端会把本次附件 ID 固化到 attachmentIds。
+        attachmentIds:
+          type: array
+          items: {type: integer, format: int64}
+          description: 已通过 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION 预上传的附件 ID。
+    ApprovalSummary:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        approvalNo: {type: string}
+        approvalType: {type: string}
+        businessType: {type: string}
+        businessId: {type: integer, format: int64}
+        applicantUserId: {type: integer, format: int64}
+        status: {$ref: '#/components/schemas/ApprovalInstanceStatus'}
+        currentNodeOrder: {type: [integer, 'null']}
+        createdAt: {type: string, format: date-time}
+    ApprovalPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items: {$ref: '#/components/schemas/ApprovalSummary'}
+        total: {type: integer, format: int64}
+        pageNo: {type: integer}
+        pageSize: {type: integer}
+    ApprovalFlowUpdateRequest:
+      type: object
+      required: [flowName, nodes]
+      properties:
+        flowName: {type: string}
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [nodeOrder, nodeName, approverUserId]
+            properties:
+              nodeOrder: {type: integer, minimum: 1}
+              nodeName: {type: string}
+              positionId: {type: [integer, 'null'], format: int64}
+              approverUserId: {type: integer, format: int64}
+              allowReturn: {type: boolean, default: true}
+    ApprovalFlow:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        approvalType: {type: string}
+        flowName: {type: string}
+        versionNo: {type: integer}
+        status: {$ref: '#/components/schemas/ApprovalFlowStatus'}
+    ApprovalFlowNode:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        flowId: {type: integer, format: int64}
+        nodeOrder: {type: integer}
+        nodeName: {type: string}
+        positionId: {type: [integer, 'null'], format: int64}
+        approverUserId: {type: integer, format: int64}
+        allowReturn: {type: boolean}
+    ApprovalFlowDetail:
+      type: object
+      properties:
+        flow: {$ref: '#/components/schemas/ApprovalFlow'}
+        nodes:
+          type: array
+          items: {$ref: '#/components/schemas/ApprovalFlowNode'}
+    ApprovalDetail:
+      type: object
+      properties:
+        approval:
+          type: object
+          properties:
+            id: {type: integer, format: int64}
+            approvalNo: {type: string}
+            approvalType: {type: string}
+            flowId: {type: integer, format: int64}
+            flowVersion: {type: integer}
+            status: {$ref: '#/components/schemas/ApprovalInstanceStatus'}
+            currentNodeOrder: {type: [integer, 'null']}
+        submissions:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer, format: int64}
+              versionNo: {type: integer}
+              businessSnapshotJson: {type: string}
+              submittedBy: {type: integer, format: int64}
+              submittedAt: {type: string, format: date-time}
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer, format: int64}
+              submissionVersionId: {type: integer, format: int64}
+              submissionVersionNo: {type: integer}
+              nodeOrder: {type: integer}
+              nodeName: {type: string}
+              approverUserId: {type: integer, format: int64}
+              status: {$ref: '#/components/schemas/ApprovalTaskStatus'}
+              invalidated: {type: boolean}
+              createdAt: {type: string, format: date-time}
+              completedAt: {type: [string, 'null'], format: date-time}
+              actions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: integer, format: int64}
+                    actionType: {type: string, enum: [APPROVE, RETURN_APPLICANT, RETURN_NODE]}
+                    operatorId: {type: integer, format: int64}
+                    comment: {type: [string, 'null']}
+                    targetNodeOrder: {type: [integer, 'null']}
+                    operatedAt: {type: string, format: date-time}
+    ExpenseType:
+      type: string
+      enum: [PENALTY, CARRYING, REPAIR, ELECTRIC, GAS, TEMP_ELECTRIC, WATER, TOLL, CAR_WASH, INFORMATION, DRIVER_SALARY, OTHER]
+    ExpenseStatus:
+      type: string
+      enum: [ACTIVE, PENDING_ATTRIBUTION, REVERSED, REVERSAL]
+    ExpenseAttributionType:
+      type: string
+      enum: [ROUTE, DAILY]
+    ExpenseAttributionHistory:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        expenseId: {type: integer, format: int64}
+        beforeAttributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
+        beforeRouteId: {type: [integer, 'null'], format: int64}
+        beforeStatus: {$ref: '#/components/schemas/ExpenseStatus'}
+        afterAttributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
+        afterRouteId: {type: [integer, 'null'], format: int64}
+        afterStatus: {$ref: '#/components/schemas/ExpenseStatus'}
+        operatorId: {type: integer, format: int64}
+        operationTime: {type: string, format: date-time}
+        reason: {type: string}
+    ImportBusinessType:
+      type: string
+      enum: [ROUTE, TIRE, EXPENSE, SALARY]
+    ImportFinalStatus:
+      type: string
+      enum: [SUCCESS, UNPUBLISHED, FAILURE]
+    ImportPreviewRequest:
+      type: object
+      required: [businessType, originalFileId, rows]
+      properties:
+        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
+        templateId: {type: [integer, 'null'], format: int64}
+        originalFileId: {type: integer, format: int64, description: 附件中心 IMPORT_FILE 文件 ID}
+        rows:
+          type: array
+          items: {$ref: '#/components/schemas/ImportRowInput'}
+    ImportRowInput:
+      type: object
+      required: [rowNo, rawData]
+      properties:
+        rowNo: {type: integer}
+        businessUniqueKey: {type: [string, 'null'], description: 可选；为空时后端按业务类型计算。费用导入仅在存在 expenseNo、能源站点+订单号、罚款号、维修发票/收据、过路费收据等稳定标识时自动计算；无天然唯一编号的费用必须提供该字段}
+        rawData:
+          oneOf:
+            - {$ref: '#/components/schemas/ImportRouteRawData'}
+            - {$ref: '#/components/schemas/ImportTireRawData'}
+            - {$ref: '#/components/schemas/ImportExpenseRawData'}
+            - {$ref: '#/components/schemas/ImportSalaryRawData'}
+    ImportRouteRawData:
+      type: object
+      required: [businessDate, customerId, productId, direction, loadingPlace, unloadingPlace, taxUnitPrice]
+      properties:
+        routeNo: {type: [string, 'null']}
+        businessDate: {type: string, format: date}
+        customerId: {type: integer, format: int64}
+        productId: {type: integer, format: int64}
+        direction: {type: string, enum: [OUTBOUND, RETURN]}
+        loadingPlace: {type: string}
+        unloadingPlace: {type: string}
+        taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
+        assignedDriverId: {type: [integer, 'null'], format: int64}
+        vehicleId: {type: [integer, 'null'], format: int64, description: 若提供，必须与司机当前绑定车辆一致}
+    ImportTireRawData:
+      type: object
+      required: [tireNo]
+      properties:
+        tireNo: {type: string}
+        barcode: {type: [string, 'null']}
+        used: {type: boolean, description: false 表示未使用库存；true 表示历史已使用数据，后端使用 CLAIMED + tire_claim.install_time 表示}
+        status: {type: [string, 'null'], enum: [IN_STOCK, APPROVAL_RESERVED, CLAIMED, null]}
+        installTime: {type: [string, 'null'], format: date-time}
+        vehicleId: {type: [integer, 'null'], format: int64}
+        driverId: {type: [integer, 'null'], format: int64}
+    ImportExpenseRawData:
+      type: object
+      required: [expenseType, businessDate, vehicleId, attributionType, amount]
+      properties:
+        expenseNo: {type: [string, 'null'], description: 费用业务单号；存在时优先用于导入查重}
+        expenseType: {$ref: '#/components/schemas/ExpenseType'}
+        businessDate: {type: string, format: date}
+        vehicleId: {type: integer, format: int64}
+        driverId: {type: [integer, 'null'], format: int64}
+        attributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
+        routeId: {type: [integer, 'null'], format: int64}
+        amount: {$ref: '#/components/schemas/DecimalMoney'}
+        energyDetail:
+          type: [object, 'null']
+          properties:
+            energyType: {type: string, enum: [ELECTRIC, GAS, TEMP_ELECTRIC]}
+            stationId: {type: [integer, 'null'], format: int64, description: 能源站点；与 orderNo 共同构成电费/气费/临电费导入稳定业务键}
+            orderNo: {type: string, description: 能源订单号；与 stationId 共同构成电费/气费/临电费导入稳定业务键}
+            startTime: {type: string, format: date-time}
+            quantity: {$ref: '#/components/schemas/DecimalWeight'}
+    ImportSalaryRawData:
+      type: object
+      required: [routeId, driverId, salaryAmount]
+      properties:
+        routeId: {type: integer, format: int64}
+        driverId: {type: integer, format: int64}
+        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
+    DriverSalaryRequest:
+      type: object
+      required: [routeId, driverId, salaryAmount]
+      properties:
+        routeId: {type: integer, format: int64}
+        driverId: {type: integer, format: int64}
+        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
+        reason: {type: [string, 'null']}
+    DriverSalary:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        routeId: {type: integer, format: int64}
+        routeNo: {type: string}
+        driverId: {type: integer, format: int64}
+        driverName: {type: string}
+        businessMonth: {type: string}
+        businessDate: {type: string, format: date}
+        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
+        sourceType: {type: string, enum: [MANUAL, IMPORT]}
+        importTaskId: {type: [integer, 'null'], format: int64}
+        importRowId: {type: [integer, 'null'], format: int64}
+        createdBy: {type: integer, format: int64}
+        createdAt: {type: string, format: date-time}
+        updatedBy: {type: [integer, 'null'], format: int64}
+        updatedAt: {type: string, format: date-time}
+    DriverSalaryHistory:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        salaryEntryId: {type: [integer, 'null'], format: int64}
+        routeId: {type: integer, format: int64}
+        driverId: {type: integer, format: int64}
+        beforeAmount: {$ref: '#/components/schemas/DecimalMoney'}
+        afterAmount: {$ref: '#/components/schemas/DecimalMoney'}
+        beforeSourceType: {type: [string, 'null']}
+        afterSourceType: {type: string}
+        operatorId: {type: integer, format: int64}
+        operationTime: {type: string, format: date-time}
+        reason: {type: [string, 'null']}
+        importTaskId: {type: [integer, 'null'], format: int64}
+        importRowId: {type: [integer, 'null'], format: int64}
+    ImportTask:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        batchNo: {type: string}
+        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
+        originalFileId: {type: integer, format: int64}
+        totalCount: {type: integer}
+        successCount: {type: integer}
+        unpublishedCount: {type: integer}
+        failureCount: {type: integer}
+        status: {type: string, enum: [PREVIEWED, COMMITTED]}
+        rows:
+          type: array
+          items: {$ref: '#/components/schemas/ImportRow'}
+    ImportRow:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        rowNo: {type: integer}
+        previewStatus: {type: string, enum: [SUCCESS, FAILURE]}
+        previewErrorCode: {type: [string, 'null']}
+        previewErrorMessage: {type: [string, 'null']}
+        finalStatus: {$ref: '#/components/schemas/ImportFinalStatus'}
+        finalErrorCode: {type: [string, 'null']}
+        finalErrorMessage: {type: [string, 'null']}
+        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
+        businessId: {type: [integer, 'null'], format: int64}
+        businessUniqueKey: {type: [string, 'null']}
+    DecimalMoney:
+      type: string
+      pattern: '^\\d{1,16}(\\.\\d{1,2})?$'
+      description: 金额 DECIMAL(18,2)，接口以字符串传输避免浮点误差。
+    DecimalWeight:
+      type: string
+      pattern: '^\\d{1,15}(\\.\\d{1,3})?$'
+      description: 重量/电量/气量 DECIMAL(18,3)，接口以字符串传输避免浮点误差。
+    DecimalUnitPrice:
+      type: string
+      pattern: '^\\d{1,14}(\\.\\d{1,4})?$'
+      description: 单价 DECIMAL(18,4)，接口以字符串传输避免浮点误差。
+    DecimalMileage:
+      type: string
+      pattern: '^\\d{1,16}(\\.\\d{1,2})?$'
+      description: 里程 DECIMAL(18,2)，接口以字符串传输避免浮点误差。
+    RouteCreateRequest:
+      type: object
+      required: [businessDate, customerId, productId, direction, loadingPlace, unloadingPlace, taxUnitPrice]
+      properties:
+        businessDate: {type: string, format: date}
+        customerId: {type: integer, format: int64}
+        productId: {type: integer, format: int64}
+        direction: {type: string, enum: [OUTBOUND, RETURN]}
+        loadingPlace: {type: string}
+        unloadingPlace: {type: string}
+        assignedDriverId: {type: [integer, 'null'], format: int64}
+        taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
+        externalRouteNo: {type: [string, 'null']}
+        tripSequence: {type: [string, 'null']}
+    UnloadRequest:
+      type: object
+      required: [grossWeight, tareWeight]
+      properties:
+        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
+    WeightAdjustmentRequest:
+      type: object
+      required: [grossWeight, tareWeight, reason]
+      properties:
+        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        reason: {type: string, minLength: 1}
+        attachmentIds: {type: array, items: {type: integer, format: int64}}
+    RouteWeightVersion:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        routeId: {type: integer, format: int64}
+        versionNo: {type: integer}
+        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        netWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        loadStandardThreshold: {$ref: '#/components/schemas/DecimalWeight'}
+        loadStandardMet: {type: boolean}
+        sourceType: {type: string, enum: [UNLOAD, ADJUSTMENT]}
+        operatorId: {type: integer, format: int64}
+        operationTime: {type: string, format: date-time}
+        reason: {type: [string, 'null']}
+        attachmentIds: {type: array, items: {type: integer, format: int64}}
+    ExpenseRequest:
+      type: object
+      required: [expenseType, businessDate, vehicleId, attributionType, amount, sourceType]
+      properties:
+        expenseType: {$ref: '#/components/schemas/ExpenseType'}
+        businessDate: {type: string, format: date}
+        vehicleId: {type: integer, format: int64}
+        attributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
+        routeId: {type: [integer, 'null'], format: int64}
+        amount: {$ref: '#/components/schemas/DecimalMoney'}
+        sourceType: {type: string, enum: [APPROVAL, MANUAL, IMPORT, SYSTEM]}
+        energyDetail:
+          type: [object, 'null']
+          description: 电费、气费、临时电费明细；存在 startTime 时后端按车辆和订单时间自动匹配 departure_time <= startTime <= unload_time 的线路。
+          properties:
+            energyType: {type: string, enum: [ELECTRIC, GAS, TEMP_ELECTRIC]}
+            stationId: {type: [integer, 'null'], format: int64}
+            orderNo: {type: [string, 'null']}
+            startTime: {type: string, format: date-time}
+            quantity: {$ref: '#/components/schemas/DecimalWeight'}
+    PermissionCode:
+      type: string
+      enum:
+        - vehicle:list
+        - vehicle:add
+        - vehicle:view
+        - vehicle:edit
+        - vehicle:delete
+        - vehicle:bindDriver
+        - vehicle:unbindDriver
+        - vehicle:bindingHistory
+        - trailer:list
+        - trailer:add
+        - trailer:edit
+        - trailer:bindVehicle
+        - trailer:unbindVehicle
+        - trailer:bindingHistory
+        - driver:list
+        - driver:add
+        - driver:edit
+        - driver:bindVehicle
+        - driver:unbindVehicle
+        - driver:resetPassword
+        - route:list
+        - route:create
+        - route:edit
+        - route:publish
+        - route:cancel
+        - route:delete
+        - route:depart
+        - route:unload
+        - route:void
+        - route:reactivate
+        - route:weight:adjust
+        - expense:list
+        - expense:add
+        - expense:edit
+        - expense:delete
+        - expense:attribution:edit
+        - expense:reversal
+        - expense:approval:view
+        - approval:create
+        - approval:process
+        - approval:return
+        - approval:history:view
+        - approval:flow:manage
+        - tire:list
+        - tire:import
+        - tire:request
+        - tire:approval:view
+        - import:preview
+        - import:commit
+        - import:history
+        - import:failure:export
+        - salary:view
+        - salary:manage
+        - salary:mine
+        - report:dashboard
+        - report:profit
+        - report:vehicle
+        - report:driver
+        - report:attendance
+        - report:energy
+        - settlement:view
+        - settlement:generate
+        - settlement:diff:view
+        - user:manage
+        - role:manage
+        - permission:manage
+        - audit:view

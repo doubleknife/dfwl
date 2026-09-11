@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="panel">
+    <view class="title">{{driver.name || user.phone}}</view>
+    <view class="muted">{{user.role.name || user.roleCode}} · {{driver.driverType || '非司机角色'}}</view>
+  </view>
+
+  <view class="panel">
+    <view class="row">
+      <view>
+        <view>当前绑定车辆</view>
+        <view class="muted">{{vehicle.plateNo || driver.currentVehicleId || '暂无绑定车辆'}}</view>
+      </view>
+      <view class="tag">{{driver.status === 1 ? '启用' : '状态未知'}}</view>
+    </view>
+  </view>
+
+  <view class="grid-menu">
+    <view wx:for="{{cards}}" wx:key="key" class="menu-card" bindtap="open" data-url="{{item.url}}">
+      <view class="menu-title">{{item.title}}</view>
+      <view class="muted">进入</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="panel">
+    <view class="row">
+      <view class="title">{{route.routeNo}}</view>
+      <view class="tag">{{route.status}}</view>
+    </view>
+    <view class="muted">{{route.loadingPlace}} → {{route.unloadingPlace}}</view>
+    <view class="muted">司机 {{route.assignedDriverId || route.departureDriverId}} · 车辆 {{route.departureVehicleId || route.importVehicleId}}</view>
+    <view class="muted">发车 {{route.departureTime || '-'}} · 卸货 {{route.unloadTime || '-'}}</view>
+    <view class="muted">毛重 {{route.grossWeight || '-'}} · 皮重 {{route.tareWeight || '-'}} · 净重 {{route.netWeight || '-'}}</view>
+    <view class="tag">{{route.loadStandardMet === true ? '达标' : (route.loadStandardMet === false ? '不达标' : '未称重')}}</view>
+  </view>
+  <button wx:if="{{route.status === 'PUBLISHED'}}" class="primary" bindtap="depart">发车</button>
+  <button wx:if="{{route.status === 'IN_TRANSIT'}}" class="primary" bindtap="weight">卸货称重</button>
+  <view wx:if="{{route.status === 'COMPLETED'}}" class="panel muted">已卸货完成，重量只读。</view>
+</view>

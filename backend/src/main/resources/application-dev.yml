@@ -1,0 +1,8 @@
+spring:
+  flyway:
+    enabled: true
+
+logging:
+  level:
+    com.dfwl.fleet: DEBUG
+

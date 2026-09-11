@@ -1,0 +1,15 @@
+<view class="page">
+  <view class="tabs panel">
+    <button data-tab="pending" bindtap="switchTab">待审批</button>
+    <button data-tab="mine" bindtap="switchTab">我的申请</button>
+    <button data-tab="history" bindtap="switchTab">审批历史</button>
+  </view>
+  <view wx:for="{{visible}}" wx:key="id" class="panel" bindtap="open" data-id="{{item.id}}">
+    <view class="row">
+      <view>{{item.approvalNo}}</view>
+      <view class="tag">{{item.status}}</view>
+    </view>
+    <view class="muted">{{item.approvalType}} · {{item.businessType}} · V{{item.flowVersion}}</view>
+  </view>
+  <view wx:if="{{visible.length === 0}}" class="panel muted">暂无审批</view>
+</view>

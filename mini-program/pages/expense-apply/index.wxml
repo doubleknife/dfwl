@@ -1,0 +1,44 @@
+<view class="page">
+  <view class="panel">
+    <view class="title">费用审批申请</view>
+    <view class="field">
+      <text class="label">费用类型</text>
+      <picker mode="selector" range="{{expenseTypes}}" bindchange="chooseType">
+        <view class="picker-box">{{form.expenseType}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">业务日期</text>
+      <picker mode="date" bindchange="setField" data-field="businessDate">
+        <view class="picker-box">{{form.businessDate || '选择日期'}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">车辆</text>
+      <picker mode="selector" range="{{vehicles}}" range-key="plateNo" bindchange="chooseVehicle">
+        <view class="picker-box">{{form.vehicleId || '选择车辆'}}</view>
+      </picker>
+    </view>
+    <radio-group bindchange="chooseAttribution" class="radio-row">
+      <label><radio value="0" checked="{{form.attributionType === 'DAILY'}}" />日常</label>
+      <label><radio value="1" checked="{{form.attributionType === 'ROUTE'}}" />线路</label>
+    </radio-group>
+    <view wx:if="{{form.attributionType === 'ROUTE'}}" class="field">
+      <text class="label">线路</text>
+      <picker mode="selector" range="{{routes}}" range-key="routeNo" bindchange="chooseRoute">
+        <view class="picker-box">{{form.routeId || '选择线路'}}</view>
+      </picker>
+    </view>
+    <view class="field">
+      <text class="label">金额</text>
+      <input value="{{form.amount}}" bindinput="setField" data-field="amount" type="digit" />
+    </view>
+    <view class="field">
+      <text class="label">说明</text>
+      <textarea value="{{form.remark}}" bindinput="setField" data-field="remark" />
+    </view>
+    <button bindtap="chooseImage">选择单据图片</button>
+    <view class="muted">{{uploadStatus || imagePath}}</view>
+    <button class="primary" loading="{{loading}}" bindtap="submit">提交审批</button>
+  </view>
+</view>

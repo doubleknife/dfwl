@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: fleet-ops-backend
+  datasource:
+    url: ${FLEET_DB_URL:jdbc:mysql://localhost:3306/fleet_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${FLEET_DB_USERNAME:fleet_ops}
+    password: ${FLEET_DB_PASSWORD:fleet_ops}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: ${FLEET_FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  jackson:
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-}]"
+

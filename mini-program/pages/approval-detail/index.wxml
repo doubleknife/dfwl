@@ -1,0 +1,47 @@
+<view class="page">
+  <view class="panel">
+    <view class="row">
+      <view class="title">{{detail.approval.approvalNo}}</view>
+      <view class="tag">{{detail.approval.status}}</view>
+    </view>
+    <view class="muted">{{detail.approval.approvalType}} · {{detail.approval.businessType}}</view>
+  </view>
+  <view class="panel">
+    <view class="title">申请版本</view>
+    <view wx:for="{{detail.submissions}}" wx:key="id" class="timeline">
+      <view>V{{item.versionNo}} · {{item.submittedAt}}</view>
+      <view class="json-text">{{item.businessSnapshotJson}}</view>
+    </view>
+  </view>
+  <view class="panel">
+    <view class="title">审批时间线</view>
+    <view wx:for="{{detail.tasks}}" wx:key="id" class="timeline">
+      <view>{{item.submissionVersionNo}} / {{item.nodeName}} / 审批人 {{item.approverUserId}}</view>
+      <view class="muted">{{item.status}} · {{item.createdAt}} · 失效 {{item.invalidated ? '是' : '否'}}</view>
+      <view wx:for="{{item.actions}}" wx:key="id" class="muted">{{item.actionType}} · {{item.comment || '-'}} · {{item.operatedAt}}</view>
+    </view>
+  </view>
+  <view class="panel">
+    <view class="title">图片附件</view>
+    <view wx:for="{{attachments}}" wx:key="id" class="row">
+      <text>{{item.purpose}}</text>
+      <text class="muted">{{item.originalFilename}}</text>
+    </view>
+    <view wx:if="{{attachments.length === 0}}" class="muted">暂无图片</view>
+  </view>
+  <view class="panel">
+    <view class="field">
+      <text class="label">备注</text>
+      <textarea value="{{comment}}" bindinput="onComment" />
+    </view>
+    <view class="field">
+      <text class="label">打回节点序号</text>
+      <input value="{{targetNodeOrder}}" bindinput="onTarget" type="number" />
+    </view>
+    <button bindtap="chooseImage">上传补充图片</button>
+    <view class="muted">{{uploadStatus || imagePath}}</view>
+    <button class="primary" loading="{{loading}}" bindtap="approve">通过</button>
+    <button loading="{{loading}}" bindtap="returnApplicant">打回申请人</button>
+    <button loading="{{loading}}" bindtap="returnNode">打回节点</button>
+  </view>
+</view>

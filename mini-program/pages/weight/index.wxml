@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="panel">
+    <view class="field">
+      <text class="label">毛重</text>
+      <input value="{{grossWeight}}" bindinput="onGross" type="digit" />
+    </view>
+    <view class="field">
+      <text class="label">皮重</text>
+      <input value="{{tareWeight}}" bindinput="onTare" type="digit" />
+    </view>
+    <view class="row">
+      <text>实际载重</text>
+      <text class="tag">{{netWeight || '-'}}</text>
+    </view>
+    <view class="row">
+      <text>达标状态</text>
+      <text class="tag">{{standardText}}</text>
+    </view>
+    <button wx:if="{{route.status !== 'COMPLETED'}}" class="primary" loading="{{loading}}" bindtap="submit">提交卸货</button>
+    <view wx:if="{{route.status === 'COMPLETED'}}" class="muted">卸货已完成，司机不可修改重量。</view>
+  </view>
+</view>

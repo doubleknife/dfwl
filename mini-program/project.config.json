@@ -1,0 +1,12 @@
+{
+  "appid": "touristappid",
+  "projectname": "dfwl-mini-program",
+  "miniprogramRoot": "./",
+  "compileType": "miniprogram",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true
+  }
+}

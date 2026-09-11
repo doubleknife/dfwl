@@ -1,0 +1,21 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/login/index",
+    "pages/routes/index",
+    "pages/route-detail/index",
+    "pages/weight/index",
+    "pages/salary/index",
+    "pages/tire-request/index",
+    "pages/expense-apply/index",
+    "pages/approvals/index",
+    "pages/approval-detail/index",
+    "pages/profile/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "车队司机端",
+    "navigationBarBackgroundColor": "#182230",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f4f6f8"
+  }
+}
