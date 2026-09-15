@@ -58,7 +58,7 @@ public class TireController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody OcrTireNumberRequest request) {
         currentUserService.denyOutsourcedDriver(user);
-        return ApiResponse.success(tireService.recognize(request), RequestIdHolder.get());
+        return ApiResponse.success(tireService.recognize(request, user), RequestIdHolder.get());
     }
 
     @PostMapping("/ocr/{id}/confirm")

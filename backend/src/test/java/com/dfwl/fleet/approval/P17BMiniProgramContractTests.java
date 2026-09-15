@@ -2,6 +2,7 @@ package com.dfwl.fleet.approval;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -230,6 +231,136 @@ class P17BMiniProgramContractTests {
         assertThat(firstSnapshot).doesNotContain(String.valueOf(secondAttachment));
         assertThat(secondSnapshot).contains("\"attachmentIds\":[" + secondAttachment + "]");
         assertThat(secondSnapshot).doesNotContain(String.valueOf(firstAttachment));
+
+        mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
+                        .header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submissions[0].attachments[0].id").value(firstAttachment))
+                .andExpect(jsonPath("$.data.submissions[1].attachments[0].id").value(secondAttachment));
+    }
+
+    @Test
+    void approveBindsActionImageToApprovalAction() throws Exception {
+        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        long actionAttachment = uploadTemporaryApprovalActionAttachment(approverToken, 2);
+
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"同意\",\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isOk());
+
+        Long actionId = jdbcTemplate.queryForObject("SELECT id FROM approval_action WHERE action_type = 'APPROVE'", Long.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT owner_type FROM file_attachment WHERE id = ?", String.class, actionAttachment))
+                .isEqualTo("APPROVAL_ACTION");
+        assertThat(jdbcTemplate.queryForObject("SELECT owner_id FROM file_attachment WHERE id = ?", Long.class, actionAttachment))
+                .isEqualTo(actionId);
+        mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tasks[0].actions[0].attachments[0].id").value(actionAttachment));
+    }
+
+    @Test
+    void returnApplicantBindsActionImage() throws Exception {
+        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        long actionAttachment = uploadTemporaryApprovalActionAttachment(approverToken, 2);
+
+        mockMvc.perform(post("/api/v1/approvals/%d/return-applicant".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"补材料\",\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForObject("SELECT owner_type FROM file_attachment WHERE id = ?", String.class, actionAttachment))
+                .isEqualTo("APPROVAL_ACTION");
+        mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tasks[0].actions[0].actionType").value("RETURN_APPLICANT"))
+                .andExpect(jsonPath("$.data.tasks[0].actions[0].attachments[0].id").value(actionAttachment));
+    }
+
+    @Test
+    void returnNodeBindsActionImage() throws Exception {
+        jdbcTemplate.update("INSERT INTO approval_flow_node (id, flow_id, node_order, node_name, approver_user_id) VALUES (11, 1, 2, '复审', 2)");
+        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"一审通过\"}"))
+                .andExpect(status().isOk());
+        long actionAttachment = uploadTemporaryApprovalActionAttachment(approverToken, 2);
+
+        mockMvc.perform(post("/api/v1/approvals/%d/return-node".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"回到一审\",\"targetNodeOrder\":1,\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tasks[1].actions[0].actionType").value("RETURN_NODE"))
+                .andExpect(jsonPath("$.data.tasks[1].actions[0].attachments[0].id").value(actionAttachment));
+    }
+
+    @Test
+    void approverCannotUseOtherUserTemporaryActionAttachment() throws Exception {
+        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        long otherAttachment = uploadTemporaryApprovalActionAttachment(otherApproverToken, 4);
+
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"越权附件\",\"attachmentIds\":[%d]}".formatted(otherAttachment)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_004"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT owner_type FROM file_attachment WHERE id = ?", String.class, otherAttachment))
+                .isEqualTo("APPROVAL_UPLOAD");
+    }
+
+    @Test
+    void historicalSubmissionAndActionAttachmentsCannotBeOrdinaryDeleted() throws Exception {
+        long submissionAttachment = uploadTemporaryApprovalAttachment(applicantToken, 1);
+        long approvalId = createApprovalWithAttachments(applicantToken, submissionAttachment);
+        long actionAttachment = uploadTemporaryApprovalActionAttachment(approverToken, 2);
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"同意\",\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/attachments/%d".formatted(submissionAttachment))
+                        .header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_005"));
+        mockMvc.perform(delete("/api/v1/attachments/%d".formatted(actionAttachment))
+                        .header("Authorization", "Bearer " + approverToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_005"));
+    }
+
+    @Test
+    void repeatedApprovalDoesNotBindActionImageTwice() throws Exception {
+        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        long actionAttachment = uploadTemporaryApprovalActionAttachment(approverToken, 2);
+
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"同意\",\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
+                        .header("Authorization", "Bearer " + approverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"重复\",\"attachmentIds\":[%d]}".formatted(actionAttachment)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("APPROVAL_002"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_action", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM file_attachment WHERE owner_type = 'APPROVAL_ACTION'", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -287,6 +418,19 @@ class P17BMiniProgramContractTests {
                         .param("ownerType", "APPROVAL_UPLOAD")
                         .param("ownerId", String.valueOf(ownerId))
                         .param("purpose", "APPROVAL_APPLICATION")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ownerType").value("APPROVAL_UPLOAD"))
+                .andReturn();
+        return readId(result);
+    }
+
+    private long uploadTemporaryApprovalActionAttachment(String token, long ownerId) throws Exception {
+        MvcResult result = mockMvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "action.jpg", "image/jpeg", new byte[]{4, 5, 6}))
+                        .param("ownerType", "APPROVAL_UPLOAD")
+                        .param("ownerId", String.valueOf(ownerId))
+                        .param("purpose", "APPROVAL_ACTION")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.ownerType").value("APPROVAL_UPLOAD"))

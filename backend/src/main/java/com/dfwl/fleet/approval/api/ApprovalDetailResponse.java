@@ -1,5 +1,6 @@
 package com.dfwl.fleet.approval.api;
 
+import com.dfwl.fleet.attachment.api.AttachmentResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,7 +14,8 @@ public record ApprovalDetailResponse(
             Integer versionNo,
             String businessSnapshotJson,
             Long submittedBy,
-            LocalDateTime submittedAt
+            LocalDateTime submittedAt,
+            List<AttachmentResponse> attachments
     ) {
     }
 
@@ -38,7 +40,8 @@ public record ApprovalDetailResponse(
             Long operatorId,
             String comment,
             Integer targetNodeOrder,
-            LocalDateTime operatedAt
+            LocalDateTime operatedAt,
+            List<AttachmentResponse> attachments
     ) {
     }
 }

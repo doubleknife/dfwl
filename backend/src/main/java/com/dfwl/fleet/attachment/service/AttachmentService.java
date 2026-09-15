@@ -98,6 +98,18 @@ public class AttachmentService {
         if (attachmentIds == null || attachmentIds.isEmpty()) {
             return;
         }
+        requireTemporaryApprovalAttachments(userId, attachmentIds, "APPROVAL_APPLICATION");
+    }
+
+    @Transactional(readOnly = true)
+    public void requireTemporaryApprovalActionAttachments(long userId, List<Long> attachmentIds) {
+        if (attachmentIds == null || attachmentIds.isEmpty()) {
+            return;
+        }
+        requireTemporaryApprovalAttachments(userId, attachmentIds, "APPROVAL_ACTION");
+    }
+
+    private void requireTemporaryApprovalAttachments(long userId, List<Long> attachmentIds, String purpose) {
         List<FileAttachment> attachments = repository.findByIds(attachmentIds);
         if (attachments.size() != Set.copyOf(attachmentIds).size()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_001);
@@ -105,7 +117,7 @@ public class AttachmentService {
         boolean invalid = attachments.stream().anyMatch(attachment ->
                 !"APPROVAL_UPLOAD".equals(attachment.ownerType())
                         || attachment.ownerId() != userId
-                        || !"APPROVAL_APPLICATION".equals(attachment.purpose())
+                        || !purpose.equals(attachment.purpose())
                         || attachment.uploadedBy() != userId);
         if (invalid) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
@@ -120,6 +132,18 @@ public class AttachmentService {
         }
         requireTemporaryApprovalAttachments(userId, attachmentIds);
         int updated = repository.bindTemporaryApprovalAttachments(userId, attachmentIds, approvalInstanceId, submissionVersionId);
+        if (updated != Set.copyOf(attachmentIds).size()) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
+        }
+    }
+
+    @Transactional
+    public void bindApprovalActionAttachments(long userId, List<Long> attachmentIds, long actionId) {
+        if (attachmentIds == null || attachmentIds.isEmpty()) {
+            return;
+        }
+        requireTemporaryApprovalActionAttachments(userId, attachmentIds);
+        int updated = repository.bindTemporaryApprovalActionAttachments(userId, attachmentIds, actionId);
         if (updated != Set.copyOf(attachmentIds).size()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }

@@ -15,12 +15,22 @@
       <text class="label">确认胎号</text>
       <input value="{{confirmedTireNo}}" bindinput="onTireNo" />
     </view>
+    <view wx:if="{{ocrCandidates.length}}" class="field">
+      <text class="label">识别候选</text>
+      <view wx:for="{{ocrCandidates}}" wx:key="candidate" class="row">
+        <text>{{item.candidate}}</text>
+        <text class="muted">{{item.inventoryMatched ? '库存匹配' : '未匹配'}} · {{item.confidence || '-'}}</text>
+        <button size="mini" data-index="{{index}}" bindtap="chooseCandidate">选择</button>
+      </view>
+    </view>
+    <view wx:if="{{ocrError}}" class="muted">{{ocrError}}</view>
     <view class="field">
       <button bindtap="chooseImage">拍摄 / 选择图片</button>
       <view class="muted">{{uploadStatus || imagePath}}</view>
     </view>
     <button bindtap="uploadImage">上传原图</button>
-    <button bindtap="recognize">OCR 识别并确认</button>
+    <button bindtap="recognize">OCR 识别</button>
+    <button bindtap="confirmOcr">确认胎号</button>
     <button bindtap="addItem">添加轮胎</button>
   </view>
   <view class="panel">

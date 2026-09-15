@@ -199,8 +199,8 @@ public class ReportRepository {
     }
 
     private Map<String, Object> monthSummary() {
-        return summary("FORMATDATETIME(r.business_date, 'yyyy-MM') = FORMATDATETIME(CURRENT_DATE, 'yyyy-MM')",
-                "FORMATDATETIME(e.business_date, 'yyyy-MM') = FORMATDATETIME(CURRENT_DATE, 'yyyy-MM')");
+        return summary("DATE_FORMAT(r.business_date, '%Y-%m') = DATE_FORMAT(CURRENT_DATE, '%Y-%m')",
+                "DATE_FORMAT(e.business_date, '%Y-%m') = DATE_FORMAT(CURRENT_DATE, '%Y-%m')");
     }
 
     private Map<String, Object> yearSummary() {
@@ -243,24 +243,24 @@ public class ReportRepository {
                        COALESCE(e.expenseAmount, 0) AS expenseAmount,
                        COALESCE(i.incomeAmount, 0) - COALESCE(e.expenseAmount, 0) AS profitAmount
                 FROM (
-                    SELECT FORMATDATETIME(business_date, 'yyyy-MM') AS monthValue FROM route_task WHERE deleted_at IS NULL
+                    SELECT DATE_FORMAT(business_date, '%Y-%m') AS monthValue FROM route_task WHERE deleted_at IS NULL
                     UNION
-                    SELECT FORMATDATETIME(business_date, 'yyyy-MM') AS monthValue FROM expense_entry WHERE deleted_at IS NULL
+                    SELECT DATE_FORMAT(business_date, '%Y-%m') AS monthValue FROM expense_entry WHERE deleted_at IS NULL
                 ) m
                 LEFT JOIN (
-                    SELECT FORMATDATETIME(r.business_date, 'yyyy-MM') AS monthValue,
+                    SELECT DATE_FORMAT(r.business_date, '%Y-%m') AS monthValue,
                            SUM(w.net_weight * r.tax_unit_price) - COALESCE(SUM(r.driver_salary), 0) AS incomeAmount
                     FROM route_task r
                     JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                     WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
-                    GROUP BY FORMATDATETIME(r.business_date, 'yyyy-MM')
+                    GROUP BY DATE_FORMAT(r.business_date, '%Y-%m')
                 ) i ON i.monthValue = m.monthValue
                 LEFT JOIN (
-                    SELECT FORMATDATETIME(e.business_date, 'yyyy-MM') AS monthValue,
+                    SELECT DATE_FORMAT(e.business_date, '%Y-%m') AS monthValue,
                            SUM(e.amount) AS expenseAmount
                     FROM expense_entry e
                     WHERE e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL') AND e.deleted_at IS NULL
-                    GROUP BY FORMATDATETIME(e.business_date, 'yyyy-MM')
+                    GROUP BY DATE_FORMAT(e.business_date, '%Y-%m')
                 ) e ON e.monthValue = m.monthValue
                 ORDER BY m.monthValue
                 """);

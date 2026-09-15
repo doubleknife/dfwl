@@ -2,9 +2,11 @@ package com.dfwl.fleet.tire.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.tire.api.OcrRecordResponse;
-import com.dfwl.fleet.tire.api.OcrTireNumberRequest;
 import com.dfwl.fleet.tire.api.TireRequestResponse;
 import com.dfwl.fleet.tire.api.TireResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -19,9 +21,11 @@ import org.springframework.stereotype.Repository;
 public class TireRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
-    public TireRepository(JdbcTemplate jdbcTemplate) {
+    public TireRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
     }
 
     public PageResponse<TireResponse> list(int pageNo, int pageSize) {
@@ -46,24 +50,35 @@ public class TireRepository {
 
     public Optional<OcrRecordResponse> findOcr(long id) {
         return jdbcTemplate.query("""
-                SELECT id, attachment_id, ocr_provider, raw_result_json, recognized_text,
+                SELECT id, attachment_id, ocr_provider, provider_request_id, raw_result_json, recognized_text,
+                       candidate_text, candidates_json, ocr_status, error_code, error_message,
                        confirmed_text, confirmed_by, confirmed_at
                 FROM ocr_record
                 WHERE id = ?
                 """, this::mapOcr, id).stream().findFirst();
     }
 
-    public long createOcr(OcrTireNumberRequest request) {
+    public long createOcr(long attachmentId, String provider, String providerRequestId, String rawResultJson,
+                          String recognizedText, String candidateText, List<OcrRecordResponse.Candidate> candidates,
+                          String status, String errorCode, String errorMessage) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO ocr_record (attachment_id, ocr_provider, raw_result_json, recognized_text)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO ocr_record (attachment_id, ocr_provider, provider_request_id, raw_result_json,
+                                            recognized_text, candidate_text, candidates_json, ocr_status,
+                                            error_code, error_message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
-            ps.setLong(1, request.attachmentId());
-            ps.setString(2, request.ocrProvider());
-            ps.setString(3, request.rawResultJson());
-            ps.setString(4, request.recognizedText());
+            ps.setLong(1, attachmentId);
+            ps.setString(2, provider);
+            ps.setString(3, providerRequestId);
+            ps.setString(4, rawResultJson);
+            ps.setString(5, recognizedText);
+            ps.setString(6, candidateText);
+            ps.setString(7, toJson(candidates));
+            ps.setString(8, status);
+            ps.setString(9, errorCode);
+            ps.setString(10, errorMessage);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -159,6 +174,15 @@ public class TireRepository {
         return count != null && count > 0;
     }
 
+    public boolean tireNoExists(String tireNo) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM tire
+                WHERE tire_no = ? AND status = 'IN_STOCK' AND deleted_at IS NULL
+                """, Integer.class, tireNo);
+        return count != null && count > 0;
+    }
+
     public boolean driverExists(long id) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver WHERE id = ? AND deleted_at IS NULL", Integer.class, id);
         return count != null && count > 0;
@@ -217,11 +241,37 @@ public class TireRepository {
                 rs.getLong("id"),
                 rs.getLong("attachment_id"),
                 rs.getString("ocr_provider"),
+                rs.getString("provider_request_id"),
                 rs.getString("raw_result_json"),
                 rs.getString("recognized_text"),
+                rs.getString("candidate_text"),
+                rs.getString("ocr_status"),
+                rs.getString("error_code"),
+                rs.getString("error_message"),
+                fromJson(rs.getString("candidates_json")),
                 rs.getString("confirmed_text"),
                 readLong(rs, "confirmed_by"),
                 confirmedAt == null ? null : confirmedAt.toLocalDateTime());
+    }
+
+    private String toJson(List<OcrRecordResponse.Candidate> candidates) {
+        try {
+            return objectMapper.writeValueAsString(candidates == null ? List.of() : candidates);
+        } catch (JsonProcessingException ex) {
+            return "[]";
+        }
+    }
+
+    private List<OcrRecordResponse.Candidate> fromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {
+            });
+        } catch (JsonProcessingException ex) {
+            return List.of();
+        }
     }
 
     private Long readLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {

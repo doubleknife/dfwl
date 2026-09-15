@@ -11,6 +11,9 @@ Page({
     imagePath: '',
     attachmentId: null,
     ocrRecordId: null,
+    ocrCandidates: [],
+    ocrStatus: '',
+    ocrError: '',
     items: [],
     loading: false,
     uploadStatus: ''
@@ -40,6 +43,10 @@ Page({
     this.setData({ tireId: tire ? tire.id : '', confirmedTireNo: tire?.tireNo || this.data.confirmedTireNo });
   },
   onTireNo(e) { this.setData({ confirmedTireNo: e.detail.value }); },
+  chooseCandidate(e) {
+    const candidate = this.data.ocrCandidates[e.currentTarget.dataset.index];
+    if (candidate) this.setData({ confirmedTireNo: candidate.candidate });
+  },
   async chooseImage() {
     wx.chooseMedia({
       count: 1,
@@ -51,8 +58,8 @@ Page({
     });
   },
   async uploadImage() {
-    if (!this.data.imagePath || !this.data.tireId) {
-      wx.showToast({ title: '请选择轮胎和图片', icon: 'none' });
+    if (!this.data.imagePath) {
+      wx.showToast({ title: '请选择图片', icon: 'none' });
       return;
     }
     this.setData({ uploadStatus: '上传中' });
@@ -60,8 +67,8 @@ Page({
       url: '/attachments',
       filePath: this.data.imagePath,
       formData: {
-        ownerType: 'TIRE',
-        ownerId: this.data.tireId,
+        ownerType: 'TIRE_OCR',
+        ownerId: 0,
         purpose: 'TIRE_OCR'
       }
     });
@@ -69,17 +76,39 @@ Page({
   },
   async recognize() {
     if (!this.data.attachmentId) await this.uploadImage();
+    if (!this.data.attachmentId) return;
+    this.setData({ uploadStatus: '正在识别', ocrError: '' });
     const ocr = await request({
       url: '/ocr/tire-number',
       method: 'POST',
-      data: { attachmentId: Number(this.data.attachmentId), ocrProvider: 'WECHAT', recognizedText: this.data.confirmedTireNo, rawResultJson: '{}' }
+      data: { attachmentId: Number(this.data.attachmentId) }
     });
+    const candidates = ocr.candidates || [];
+    const nextTireNo = candidates.length ? candidates[0].candidate : this.data.confirmedTireNo;
+    this.setData({
+      ocrRecordId: ocr.id,
+      ocrCandidates: candidates,
+      ocrStatus: ocr.ocrStatus,
+      ocrError: ocr.errorMessage || '',
+      confirmedTireNo: nextTireNo,
+      uploadStatus: candidates.length ? `识别到胎号：${nextTireNo}` : '未识别到胎号，可手动输入'
+    });
+  },
+  async confirmOcr() {
+    if (!this.data.ocrRecordId) {
+      wx.showToast({ title: '请先识别或上传图片', icon: 'none' });
+      return;
+    }
+    if (!this.data.confirmedTireNo) {
+      wx.showToast({ title: '请输入胎号', icon: 'none' });
+      return;
+    }
     const confirmed = await request({
-      url: `/ocr/${ocr.id}/confirm`,
+      url: `/ocr/${this.data.ocrRecordId}/confirm`,
       method: 'POST',
       data: { confirmedText: this.data.confirmedTireNo }
     });
-    this.setData({ ocrRecordId: confirmed.id });
+    this.setData({ ocrRecordId: confirmed.id, uploadStatus: '胎号已确认' });
   },
   addItem() {
     if (!this.data.tireId || !this.data.confirmedTireNo) {
@@ -102,6 +131,9 @@ Page({
       imagePath: '',
       attachmentId: null,
       ocrRecordId: null,
+      ocrCandidates: [],
+      ocrStatus: '',
+      ocrError: '',
       uploadStatus: ''
     });
   },

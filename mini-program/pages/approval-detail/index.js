@@ -1,17 +1,14 @@
 const { request, uploadFile } = require('../../utils/request');
 
 Page({
-  data: { id: null, detail: null, attachments: [], comment: '', targetNodeOrder: '', imagePath: '', uploadStatus: '', loading: false },
+  data: { id: null, detail: null, comment: '', targetNodeOrder: '', imagePath: '', attachmentIds: [], uploadStatus: '', loading: false },
   onLoad(query) {
     this.setData({ id: query.id });
     this.load();
   },
   async load() {
-    const [detail, attachments] = await Promise.all([
-      request({ url: `/approvals/${this.data.id}` }),
-      request({ url: `/attachments?ownerType=APPROVAL&ownerId=${this.data.id}` }).catch(() => [])
-    ]);
-    this.setData({ detail, attachments });
+    const detail = await request({ url: `/approvals/${this.data.id}` });
+    this.setData({ detail });
   },
   onComment(e) { this.setData({ comment: e.detail.value }); },
   onTarget(e) { this.setData({ targetNodeOrder: e.detail.value }); },
@@ -24,14 +21,18 @@ Page({
     });
   },
   async uploadActionImage() {
-    if (!this.data.imagePath) return;
+    if (!this.data.imagePath) return [];
+    const user = getApp().globalData.user || wx.getStorageSync('user') || {};
+    if (!user.id) throw new Error('当前账号信息缺失');
     this.setData({ uploadStatus: '上传中' });
-    await uploadFile({
+    const file = await uploadFile({
       url: '/attachments',
       filePath: this.data.imagePath,
-      formData: { ownerType: 'APPROVAL', ownerId: this.data.id, purpose: 'APPROVAL_ACTION' }
+      formData: { ownerType: 'APPROVAL_UPLOAD', ownerId: user.id, purpose: 'APPROVAL_ACTION' }
     });
-    this.setData({ uploadStatus: '上传完成' });
+    const attachmentIds = [file.id];
+    this.setData({ attachmentIds, uploadStatus: '上传完成' });
+    return attachmentIds;
   },
   async approve() {
     await this.process(`/approvals/${this.data.id}/approve`, { comment: this.data.comment });
@@ -48,9 +49,10 @@ Page({
   async process(url, data) {
     this.setData({ loading: true });
     try {
-      if (this.data.imagePath) await this.uploadActionImage();
-      await request({ url, method: 'POST', data });
+      const attachmentIds = this.data.imagePath ? await this.uploadActionImage() : [];
+      await request({ url, method: 'POST', data: { ...data, attachmentIds } });
       wx.showToast({ title: '已处理' });
+      this.setData({ imagePath: '', attachmentIds: [], uploadStatus: '', comment: '', targetNodeOrder: '' });
       await this.load();
     } finally {
       this.setData({ loading: false });

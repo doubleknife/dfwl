@@ -3,23 +3,49 @@ package com.dfwl.fleet.tire.service;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
+import com.dfwl.fleet.attachment.service.AttachmentService;
+import com.dfwl.fleet.attachment.service.AttachmentService.FileDownload;
+import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.tire.api.OcrConfirmRequest;
 import com.dfwl.fleet.tire.api.OcrRecordResponse;
 import com.dfwl.fleet.tire.api.OcrTireNumberRequest;
 import com.dfwl.fleet.tire.api.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.api.TireRequestResponse;
 import com.dfwl.fleet.tire.api.TireResponse;
+import com.dfwl.fleet.tire.ocr.OcrProperties;
+import com.dfwl.fleet.tire.ocr.OcrProvider;
+import com.dfwl.fleet.tire.ocr.OcrProviderException;
+import com.dfwl.fleet.tire.ocr.OcrProviderResult;
+import com.dfwl.fleet.tire.ocr.TireNumberCandidateExtractor;
 import com.dfwl.fleet.tire.repository.TireRepository;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.Base64;
+import java.util.List;
+import java.util.Set;
+import org.springframework.util.StreamUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TireService {
 
-    private final TireRepository repository;
+    private static final long MAX_OCR_IMAGE_SIZE = 10L * 1024L * 1024L;
+    private static final Set<String> OCR_IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif");
 
-    public TireService(TireRepository repository) {
+    private final TireRepository repository;
+    private final AttachmentService attachmentService;
+    private final OcrProvider ocrProvider;
+    private final TireNumberCandidateExtractor candidateExtractor;
+    private final OcrProperties ocrProperties;
+
+    public TireService(TireRepository repository, AttachmentService attachmentService, OcrProvider ocrProvider,
+                       TireNumberCandidateExtractor candidateExtractor, OcrProperties ocrProperties) {
         this.repository = repository;
+        this.attachmentService = attachmentService;
+        this.ocrProvider = ocrProvider;
+        this.candidateExtractor = candidateExtractor;
+        this.ocrProperties = ocrProperties;
     }
 
     public PageResponse<TireResponse> list(int pageNo, int pageSize) {
@@ -31,11 +57,53 @@ public class TireService {
     }
 
     @Transactional
-    public OcrRecordResponse recognize(OcrTireNumberRequest request) {
-        if (!repository.attachmentExists(request.attachmentId())) {
-            throw new BusinessException(ErrorCode.DATA_001);
+    public OcrRecordResponse recognize(OcrTireNumberRequest request, AuthenticatedUser user) {
+        FileDownload download = attachmentService.download(request.attachmentId(), user);
+        if (!"TIRE_OCR".equals(download.attachment().purpose())
+                || download.attachment().uploadedBy() != user.id()) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
-        long id = repository.createOcr(request);
+        if (!OCR_IMAGE_TYPES.contains(download.attachment().contentType())
+                || download.attachment().fileSize() <= 0
+                || download.attachment().fileSize() > MAX_OCR_IMAGE_SIZE) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_003);
+        }
+        byte[] imageBytes;
+        try {
+            imageBytes = StreamUtils.copyToByteArray(download.resource().getInputStream());
+        } catch (IOException ex) {
+            throw new UncheckedIOException(ex);
+        }
+        long id;
+        try {
+            OcrProviderResult result = ocrProvider.recognize(Base64.getEncoder().encodeToString(imageBytes),
+                    download.attachment().contentType());
+            List<OcrRecordResponse.Candidate> candidates = toResponseCandidates(candidateExtractor.extract(result.detections()));
+            String candidateText = candidates.isEmpty() ? null : candidates.getFirst().candidate();
+            id = repository.createOcr(
+                    request.attachmentId(),
+                    result.provider(),
+                    result.requestId(),
+                    result.rawResultJson(),
+                    candidateExtractor.joinedText(result.detections()),
+                    candidateText,
+                    candidates,
+                    candidates.isEmpty() ? "NO_CANDIDATE" : "SUCCESS",
+                    null,
+                    null);
+        } catch (OcrProviderException ex) {
+            id = repository.createOcr(
+                    request.attachmentId(),
+                    configuredProviderName(),
+                    null,
+                    "{}",
+                    null,
+                    null,
+                    List.of(),
+                    "FAILED",
+                    ex.errorCode(),
+                    ex.getMessage());
+        }
         return findOcr(id);
     }
 
@@ -64,6 +132,22 @@ public class TireService {
 
     private OcrRecordResponse findOcr(long id) {
         return repository.findOcr(id).orElseThrow(() -> new BusinessException(ErrorCode.TIRE_003));
+    }
+
+    private List<OcrRecordResponse.Candidate> toResponseCandidates(List<TireNumberCandidateExtractor.Candidate> candidates) {
+        return candidates.stream()
+                .map(candidate -> new OcrRecordResponse.Candidate(
+                        candidate.candidate(),
+                        candidate.confidence(),
+                        candidate.sourceText(),
+                        candidate.inventoryMatched()))
+                .toList();
+    }
+
+    private String configuredProviderName() {
+        return "TENCENT".equalsIgnoreCase(ocrProperties.getProvider())
+                ? "TENCENT_GENERAL_ACCURATE"
+                : ocrProperties.getProvider();
     }
 
     private void validateRequestItem(TireRequestCreateRequest.Item item) {

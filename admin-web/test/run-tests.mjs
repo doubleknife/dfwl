@@ -27,7 +27,7 @@ globalThis.fetch = async (url, options = {}) => {
   };
 };
 
-const { masterApi, approvalApi, systemApi } = await import('../src/api/modules.js');
+const { masterApi, approvalApi, systemApi, tireApi } = await import('../src/api/modules.js');
 
 const tests = [
   ['permission helpers allow matching single permission', () => {
@@ -88,6 +88,14 @@ const tests = [
     await systemApi.resetPassword(3, { newPassword: 'fresh' });
     assert.match(requests[0].url, /\/users\/3\/reset-password$/);
     assert.equal(JSON.parse(requests[0].options.body).newPassword, 'fresh');
+  }],
+  ['tire OCR client uses current JSON attachmentId contract', async () => {
+    requests.length = 0;
+    await tireApi.ocr(9);
+    assert.match(requests[0].url, /\/ocr\/tire-number$/);
+    assert.equal(requests[0].options.method, 'POST');
+    assert.equal(JSON.parse(requests[0].options.body).attachmentId, 9);
+    assert.doesNotMatch(String(requests[0].options.body), /FormData|recognizedText|rawResultJson|ocrProvider/);
   }]
 ];
 

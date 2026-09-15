@@ -84,6 +84,30 @@ public class ImportRepository {
         return count != null && count > 0;
     }
 
+    public Optional<ImportTemplateRecord> findTemplate(long templateId, String businessType) {
+        return jdbcTemplate.query("""
+                SELECT id, template_name, business_type, status
+                FROM import_template
+                WHERE id = ? AND business_type = ? AND status = 1
+                """, (rs, rowNum) -> new ImportTemplateRecord(
+                rs.getLong("id"),
+                rs.getString("template_name"),
+                rs.getString("business_type"),
+                rs.getInt("status")), templateId, businessType).stream().findFirst();
+    }
+
+    public List<FieldMappingRecord> fieldMappings(long templateId) {
+        return jdbcTemplate.query("""
+                SELECT source_column, target_field, required_flag
+                FROM import_field_mapping
+                WHERE template_id = ?
+                ORDER BY id
+                """, (rs, rowNum) -> new FieldMappingRecord(
+                rs.getString("source_column"),
+                rs.getString("target_field"),
+                rs.getInt("required_flag") == 1), templateId);
+    }
+
     public void linkImportFile(long attachmentId, long taskId) {
         jdbcTemplate.update("""
                 UPDATE file_attachment
@@ -491,5 +515,11 @@ public class ImportRepository {
     }
 
     public record RouteSalarySnapshot(long routeId, Long driverId, LocalDate businessDate) {
+    }
+
+    public record ImportTemplateRecord(long id, String templateName, String businessType, int status) {
+    }
+
+    public record FieldMappingRecord(String sourceColumn, String targetField, boolean required) {
     }
 }

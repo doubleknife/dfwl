@@ -1,3 +1,5 @@
+CREATE ALIAS IF NOT EXISTS DATE_FORMAT FOR "com.dfwl.fleet.testsupport.H2Functions.dateFormat";
+
 CREATE TABLE sys_role (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   role_code VARCHAR(64) NOT NULL,
@@ -479,8 +481,14 @@ CREATE TABLE ocr_record (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   attachment_id BIGINT NOT NULL,
   ocr_provider VARCHAR(64) NULL,
+  provider_request_id VARCHAR(128) NULL,
   raw_result_json VARCHAR(4000) NULL,
   recognized_text VARCHAR(512) NULL,
+  candidate_text VARCHAR(512) NULL,
+  candidates_json VARCHAR(4000) NULL,
+  ocr_status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+  error_code VARCHAR(128) NULL,
+  error_message VARCHAR(1000) NULL,
   confirmed_text VARCHAR(512) NULL,
   confirmed_by BIGINT NULL,
   confirmed_at TIMESTAMP NULL

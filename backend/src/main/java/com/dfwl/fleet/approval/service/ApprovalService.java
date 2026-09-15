@@ -104,10 +104,12 @@ public class ApprovalService {
     public ApprovalResponse approve(long id, ApprovalActionRequest request, long operatorId) {
         ApprovalResponse approval = requirePending(id);
         TaskRecord task = requireCurrentTask(id, operatorId);
+        attachmentService.requireTemporaryApprovalActionAttachments(operatorId, actionAttachmentIds(request));
         if (!repository.finishTask(task.id(), "APPROVED")) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
-        repository.insertAction(task.id(), "APPROVE", operatorId, request == null ? null : request.comment(), null);
+        long actionId = repository.insertAction(task.id(), "APPROVE", operatorId, request == null ? null : request.comment(), null);
+        attachmentService.bindApprovalActionAttachments(operatorId, actionAttachmentIds(request), actionId);
         repository.nextNode(approval.flowId(), task.nodeOrder())
                 .ifPresentOrElse(next -> {
                     repository.moveToNode(id, next.nodeOrder());
@@ -126,10 +128,12 @@ public class ApprovalService {
     public ApprovalResponse returnApplicant(long id, ApprovalActionRequest request, long operatorId) {
         ApprovalResponse approval = requirePending(id);
         TaskRecord task = requireCurrentTask(id, operatorId);
+        attachmentService.requireTemporaryApprovalActionAttachments(operatorId, actionAttachmentIds(request));
         if (!repository.finishTask(task.id(), "RETURNED")) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
-        repository.insertAction(task.id(), "RETURN_APPLICANT", operatorId, request == null ? null : request.comment(), null);
+        long actionId = repository.insertAction(task.id(), "RETURN_APPLICANT", operatorId, request == null ? null : request.comment(), null);
+        attachmentService.bindApprovalActionAttachments(operatorId, actionAttachmentIds(request), actionId);
         repository.invalidatePendingTasksForSubmission(id, task.submissionVersionId());
         SubmissionRecord submission = requireSubmission(task.submissionVersionId());
         businessHandlers.stream()
@@ -147,10 +151,12 @@ public class ApprovalService {
         if (targetOrder >= task.nodeOrder() || repository.nodeByOrder(approval.flowId(), targetOrder).isEmpty()) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
+        attachmentService.requireTemporaryApprovalActionAttachments(operatorId, actionAttachmentIds(request));
         if (!repository.finishTask(task.id(), "RETURNED")) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
-        repository.insertAction(task.id(), "RETURN_NODE", operatorId, request == null ? null : request.comment(), targetOrder);
+        long actionId = repository.insertAction(task.id(), "RETURN_NODE", operatorId, request == null ? null : request.comment(), targetOrder);
+        attachmentService.bindApprovalActionAttachments(operatorId, actionAttachmentIds(request), actionId);
         repository.invalidatePendingTasksForSubmission(id, task.submissionVersionId());
         FlowNodeRecord target = repository.nodeByOrder(approval.flowId(), targetOrder)
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_002));
@@ -273,6 +279,10 @@ public class ApprovalService {
             snapshot.put("attachmentIds", List.copyOf(attachmentIds));
         }
         return snapshot;
+    }
+
+    private List<Long> actionAttachmentIds(ApprovalActionRequest request) {
+        return request == null ? null : request.attachmentIds();
     }
 
     private String nextApprovalNo() {

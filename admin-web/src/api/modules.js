@@ -87,7 +87,7 @@ export const tireApi = {
   list: () => apiClient.get('/tires?pageNo=1&pageSize=100'),
   request: (body) => apiClient.post('/tire-requests', body),
   requestDetail: (id) => apiClient.get(`/tire-requests/${id}`),
-  ocr: (formData) => apiClient.upload('/ocr/tire-number', formData),
+  ocr: (attachmentId) => apiClient.post('/ocr/tire-number', { attachmentId }),
   confirmOcr: (id, body) => apiClient.post(`/ocr/${id}/confirm`, body)
 };
 

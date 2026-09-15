@@ -123,6 +123,27 @@ public class FileAttachmentRepository {
                 """.formatted(placeholders), args.toArray());
     }
 
+    public int bindTemporaryApprovalActionAttachments(long uploadedBy, List<Long> ids, long actionId) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", ids.stream().map(id -> "?").toList());
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(actionId);
+        args.add(uploadedBy);
+        args.add(uploadedBy);
+        args.addAll(ids);
+        return jdbcTemplate.update("""
+                UPDATE file_attachment
+                SET owner_type = 'APPROVAL_ACTION', owner_id = ?
+                WHERE owner_type = 'APPROVAL_UPLOAD'
+                  AND owner_id = ?
+                  AND purpose = 'APPROVAL_ACTION'
+                  AND uploaded_by = ?
+                  AND id IN (%s)
+                """.formatted(placeholders), args.toArray());
+    }
+
     public boolean ownerExists(String ownerType, long ownerId) {
         if (ownerId == 0) {
             return true;
@@ -130,7 +151,8 @@ public class FileAttachmentRepository {
         return switch (ownerType) {
             case "ROUTE" -> exists("route_task", ownerId, "deleted_at IS NULL");
             case "TIRE", "TIRE_OCR" -> exists("tire", ownerId, "deleted_at IS NULL");
-            case "APPROVAL", "APPROVAL_APPLICATION", "APPROVAL_ACTION" -> exists("approval_instance", ownerId, null);
+            case "APPROVAL", "APPROVAL_APPLICATION" -> exists("approval_instance", ownerId, null);
+            case "APPROVAL_ACTION" -> exists("approval_action", ownerId, null);
             case "APPROVAL_UPLOAD" -> true;
             case "IMPORT", "IMPORT_FILE" -> exists("import_task", ownerId, null);
             default -> false;

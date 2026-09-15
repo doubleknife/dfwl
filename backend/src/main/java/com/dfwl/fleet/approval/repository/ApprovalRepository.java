@@ -7,6 +7,7 @@ import com.dfwl.fleet.approval.api.ApprovalFlowNodeResponse;
 import com.dfwl.fleet.approval.api.ApprovalFlowResponse;
 import com.dfwl.fleet.approval.api.ApprovalFlowUpdateRequest;
 import com.dfwl.fleet.approval.api.ApprovalListScope;
+import com.dfwl.fleet.attachment.api.AttachmentResponse;
 import com.dfwl.fleet.common.api.PageResponse;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
@@ -341,11 +342,21 @@ public class ApprovalRepository {
                 """, status, Timestamp.valueOf(LocalDateTime.now()), taskId) == 1;
     }
 
-    public void insertAction(long taskId, String actionType, long operatorId, String comment, Integer targetNodeOrder) {
-        jdbcTemplate.update("""
-                INSERT INTO approval_action (task_id, action_type, operator_id, comment, target_node_order)
-                VALUES (?, ?, ?, ?, ?)
-                """, taskId, actionType, operatorId, comment, targetNodeOrder);
+    public long insertAction(long taskId, String actionType, long operatorId, String comment, Integer targetNodeOrder) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement("""
+                    INSERT INTO approval_action (task_id, action_type, operator_id, comment, target_node_order)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, new String[]{"id"});
+            ps.setLong(1, taskId);
+            ps.setString(2, actionType);
+            ps.setLong(3, operatorId);
+            ps.setString(4, comment);
+            ps.setObject(5, targetNodeOrder);
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
     }
 
     public int invalidatePendingTasks(long instanceId) {
@@ -414,17 +425,27 @@ public class ApprovalRepository {
         if (approval.isEmpty()) {
             return Optional.empty();
         }
-        List<ApprovalDetailResponse.SubmissionVersion> submissions = jdbcTemplate.query("""
+        List<MutableSubmissionVersion> rawSubmissions = jdbcTemplate.query("""
                 SELECT *
                 FROM approval_submission_version
                 WHERE approval_instance_id = ?
                 ORDER BY version_no
-                """, (rs, rowNum) -> new ApprovalDetailResponse.SubmissionVersion(
+                """, (rs, rowNum) -> new MutableSubmissionVersion(
                 rs.getLong("id"),
                 rs.getInt("version_no"),
                 rs.getString("business_snapshot_json"),
                 rs.getLong("submitted_by"),
                 rs.getTimestamp("submitted_at").toLocalDateTime()), instanceId);
+        Map<Long, AttachmentResponse> approvalAttachments = attachmentsForApprovalInstance(instanceId);
+        List<ApprovalDetailResponse.SubmissionVersion> submissions = rawSubmissions.stream()
+                .map(submission -> new ApprovalDetailResponse.SubmissionVersion(
+                        submission.id(), submission.versionNo(), submission.businessSnapshotJson(),
+                        submission.submittedBy(), submission.submittedAt(),
+                        attachmentIdsFromSnapshot(submission.businessSnapshotJson()).stream()
+                                .map(approvalAttachments::get)
+                                .filter(java.util.Objects::nonNull)
+                                .toList()))
+                .toList();
         Map<Long, MutableTaskHistory> tasks = new LinkedHashMap<>();
         jdbcTemplate.query("""
                 SELECT t.*, s.version_no AS submission_version_no, n.node_name
@@ -448,6 +469,7 @@ public class ApprovalRepository {
                     rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toLocalDateTime(),
                     new ArrayList<>()));
         }, instanceId);
+        List<Long> actionIds = new ArrayList<>();
         if (!tasks.isEmpty()) {
             String placeholders = String.join(",", tasks.keySet().stream().map(id -> "?").toList());
             List<Object> args = new ArrayList<>(tasks.keySet());
@@ -459,8 +481,10 @@ public class ApprovalRepository {
                     """.formatted(placeholders), rs -> {
                 MutableTaskHistory task = tasks.get(rs.getLong("task_id"));
                 if (task != null) {
-                    task.actions().add(new ApprovalDetailResponse.ActionHistory(
-                            rs.getLong("id"),
+                    long actionId = rs.getLong("id");
+                    actionIds.add(actionId);
+                    task.actions().add(new MutableActionHistory(
+                            actionId,
                             rs.getString("action_type"),
                             rs.getLong("operator_id"),
                             rs.getString("comment"),
@@ -469,13 +493,105 @@ public class ApprovalRepository {
                 }
             }, args.toArray());
         }
+        Map<Long, List<AttachmentResponse>> actionAttachments = attachmentsByOwner("APPROVAL_ACTION", actionIds);
         List<ApprovalDetailResponse.TaskHistory> histories = tasks.values().stream()
                 .map(task -> new ApprovalDetailResponse.TaskHistory(
                         task.id(), task.submissionVersionId(), task.submissionVersionNo(), task.nodeOrder(),
                         task.nodeName(), task.approverUserId(), task.status(), task.invalidated(),
-                        task.createdAt(), task.completedAt(), List.copyOf(task.actions())))
+                        task.createdAt(), task.completedAt(), task.actions().stream()
+                        .map(action -> new ApprovalDetailResponse.ActionHistory(
+                                action.id(), action.actionType(), action.operatorId(), action.comment(),
+                                action.targetNodeOrder(), action.operatedAt(),
+                                actionAttachments.getOrDefault(action.id(), List.of())))
+                        .toList()))
                 .toList();
         return Optional.of(new ApprovalDetailResponse(approval.get(), submissions, histories));
+    }
+
+    private Map<Long, List<AttachmentResponse>> attachmentsByOwner(String ownerType, List<Long> ownerIds) {
+        if (ownerIds == null || ownerIds.isEmpty()) {
+            return Map.of();
+        }
+        String placeholders = String.join(",", ownerIds.stream().map(id -> "?").toList());
+        List<Object> args = new ArrayList<>();
+        args.add(ownerType);
+        args.addAll(ownerIds);
+        Map<Long, List<AttachmentResponse>> result = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT id, owner_type, owner_id, purpose, storage_key, original_filename,
+                       content_type, file_size, file_hash, uploaded_by, uploaded_at
+                FROM file_attachment
+                WHERE owner_type = ?
+                  AND owner_id IN (%s)
+                ORDER BY id
+                """.formatted(placeholders), rs -> {
+            long ownerId = rs.getLong("owner_id");
+            result.computeIfAbsent(ownerId, ignored -> new ArrayList<>()).add(new AttachmentResponse(
+                    rs.getLong("id"),
+                    rs.getString("owner_type"),
+                    ownerId,
+                    rs.getString("purpose"),
+                    rs.getString("original_filename"),
+                    rs.getString("content_type"),
+                    rs.getLong("file_size"),
+                    rs.getString("file_hash"),
+                    rs.getString("storage_key"),
+                    rs.getLong("uploaded_by"),
+                    rs.getTimestamp("uploaded_at") == null ? null : rs.getTimestamp("uploaded_at").toLocalDateTime()));
+        }, args.toArray());
+        return result;
+    }
+
+    private Map<Long, AttachmentResponse> attachmentsForApprovalInstance(long approvalInstanceId) {
+        Map<Long, AttachmentResponse> result = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT id, owner_type, owner_id, purpose, storage_key, original_filename,
+                       content_type, file_size, file_hash, uploaded_by, uploaded_at
+                FROM file_attachment
+                WHERE owner_type = 'APPROVAL'
+                  AND owner_id = ?
+                ORDER BY id
+                """, rs -> {
+            long id = rs.getLong("id");
+            result.put(id, new AttachmentResponse(
+                    id,
+                    rs.getString("owner_type"),
+                    rs.getLong("owner_id"),
+                    rs.getString("purpose"),
+                    rs.getString("original_filename"),
+                    rs.getString("content_type"),
+                    rs.getLong("file_size"),
+                    rs.getString("file_hash"),
+                    rs.getString("storage_key"),
+                    rs.getLong("uploaded_by"),
+                    rs.getTimestamp("uploaded_at") == null ? null : rs.getTimestamp("uploaded_at").toLocalDateTime()));
+        }, approvalInstanceId);
+        return result;
+    }
+
+    private List<Long> attachmentIdsFromSnapshot(String snapshotJson) {
+        if (snapshotJson == null || !snapshotJson.contains("\"attachmentIds\"")) {
+            return List.of();
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"attachmentIds\"\\s*:\\s*\\[(?<ids>[^]]*)]")
+                .matcher(snapshotJson);
+        if (!matcher.find()) {
+            return List.of();
+        }
+        String ids = matcher.group("ids").trim();
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<Long> result = new ArrayList<>();
+        for (String id : ids.split(",")) {
+            try {
+                result.add(Long.parseLong(id.trim()));
+            } catch (NumberFormatException ignored) {
+                return List.of();
+            }
+        }
+        return result;
     }
 
     private ApprovalResponse mapApproval(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
@@ -537,7 +653,26 @@ public class ApprovalRepository {
             Boolean invalidated,
             LocalDateTime createdAt,
             LocalDateTime completedAt,
-            List<ApprovalDetailResponse.ActionHistory> actions
+            List<MutableActionHistory> actions
+    ) {
+    }
+
+    private record MutableSubmissionVersion(
+            Long id,
+            Integer versionNo,
+            String businessSnapshotJson,
+            Long submittedBy,
+            LocalDateTime submittedAt
+    ) {
+    }
+
+    private record MutableActionHistory(
+            Long id,
+            String actionType,
+            Long operatorId,
+            String comment,
+            Integer targetNodeOrder,
+            LocalDateTime operatedAt
     ) {
     }
 }

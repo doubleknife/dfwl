@@ -7,7 +7,6 @@ import com.dfwl.fleet.approval.api.ApprovalCreateRequest;
 import com.dfwl.fleet.approval.service.ApprovalService;
 import com.dfwl.fleet.expense.api.ExpenseReversalRequest;
 import com.dfwl.fleet.expense.service.ExpenseService;
-import com.dfwl.fleet.imports.api.ImportPreviewRequest;
 import com.dfwl.fleet.imports.service.ImportService;
 import com.dfwl.fleet.master.service.MasterDataService;
 import com.dfwl.fleet.route.api.UnloadRequest;
@@ -16,6 +15,9 @@ import com.dfwl.fleet.settlement.service.SettlementService;
 import com.dfwl.fleet.tire.api.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.service.TireService;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +38,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "spring.datasource.password=",
         "spring.flyway.enabled=false",
         "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql"
+        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql",
+        "fleet.storage.local-root=${java.io.tmpdir}/fleet-concurrency-import-tests"
 })
 class CriticalConcurrencyTests {
 
@@ -167,13 +170,17 @@ class CriticalConcurrencyTests {
 
     @Test
     void concurrentCommitSameImportTaskDoesNotDuplicateBusinessRows() throws Exception {
+        Path importFile = Path.of(System.getProperty("java.io.tmpdir"), "fleet-concurrency-import-tests", "import", "a.csv");
+        Files.createDirectories(importFile.getParent());
+        Files.writeString(importFile, """
+                tireNo,barcode
+                TIRE-NEW,BNEW
+                """, StandardCharsets.UTF_8);
         jdbcTemplate.update("""
                 INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key, original_filename, content_type, file_size, uploaded_by)
                 VALUES (1, 'IMPORT', 0, 'IMPORT_FILE', 'import/a.csv', 'a.csv', 'text/csv', 10, 1)
                 """);
-        ImportPreviewRequest request = new ImportPreviewRequest("TIRE", null, 1L, List.of(
-                new ImportPreviewRequest.ImportRowRequest(1, Map.of("tireNo", "TIRE-NEW", "barcode", "BNEW"), null)));
-        long taskId = importService.preview(request, 1).id();
+        long taskId = importService.preview(new com.dfwl.fleet.imports.api.ImportPreviewRequest("TIRE", null, 1L, null), 1).id();
 
         Results results = runConcurrently(2, () -> importService.commit(taskId, 1));
 

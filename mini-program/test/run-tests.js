@@ -69,7 +69,7 @@ const tests = [
   }],
   ['no mock placeholder or todo remains in mini program source', () => {
     const files = walk(root).filter((file) => /\.(js|wxml|json|wxss)$/.test(file) && !file.includes(`${path.sep}test${path.sep}`));
-    const offenders = files.filter((file) => /mock|placeholder|TODO|占位|尚未提供/i.test(fs.readFileSync(file, 'utf8')));
+    const offenders = files.filter((file) => /mock|placeholder|\/\/\s*TODO|\/\*\s*TODO|占位|尚未提供/i.test(fs.readFileSync(file, 'utf8')));
     assert.deepEqual(offenders.map((file) => path.relative(root, file)), []);
   }],
   ['driver-facing route pages do not render sensitive money fields', () => {
@@ -90,6 +90,15 @@ const tests = [
     assert.match(approvals, /\/approvals\/\$\{this\.data\.id\}\/approve/);
     assert.match(approvals, /return-applicant/);
     assert.match(approvals, /return-node/);
+  }],
+  ['approval list tabs request server-side scopes', () => {
+    const approvals = fs.readFileSync(path.join(root, 'pages/approvals/index.js'), 'utf8');
+    assert.match(approvals, /pending:\s*'TODO'/);
+    assert.match(approvals, /mine:\s*'MINE'/);
+    assert.match(approvals, /history:\s*'DONE'/);
+    assert.match(approvals, /scope=\$\{scope\}/);
+    assert.doesNotMatch(approvals, /\/approvals\?pageNo=1&pageSize=100/);
+    assert.doesNotMatch(approvals, /filter\(/);
   }]
 ];
 

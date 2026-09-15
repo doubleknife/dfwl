@@ -11,6 +11,12 @@
     <view wx:for="{{detail.submissions}}" wx:key="id" class="timeline">
       <view>V{{item.versionNo}} · {{item.submittedAt}}</view>
       <view class="json-text">{{item.businessSnapshotJson}}</view>
+      <view class="muted">申请人提交的原始单据</view>
+      <view wx:for="{{item.attachments}}" wx:for-item="file" wx:key="id" class="row">
+        <text>{{file.originalFilename}}</text>
+        <text class="muted">#{{file.id}}</text>
+      </view>
+      <view wx:if="{{item.attachments.length === 0}}" class="muted">本版本无申请图片</view>
     </view>
   </view>
   <view class="panel">
@@ -18,16 +24,16 @@
     <view wx:for="{{detail.tasks}}" wx:key="id" class="timeline">
       <view>{{item.submissionVersionNo}} / {{item.nodeName}} / 审批人 {{item.approverUserId}}</view>
       <view class="muted">{{item.status}} · {{item.createdAt}} · 失效 {{item.invalidated ? '是' : '否'}}</view>
-      <view wx:for="{{item.actions}}" wx:key="id" class="muted">{{item.actionType}} · {{item.comment || '-'}} · {{item.operatedAt}}</view>
+      <view wx:for="{{item.actions}}" wx:for-item="action" wx:key="id" class="muted">
+        <view>{{action.actionType}} · {{action.comment || '-'}} · {{action.operatedAt}}</view>
+        <view>审批节点补充图片</view>
+        <view wx:for="{{action.attachments}}" wx:for-item="file" wx:key="id" class="row">
+          <text>{{file.originalFilename}}</text>
+          <text class="muted">#{{file.id}}</text>
+        </view>
+        <view wx:if="{{action.attachments.length === 0}}">本动作无补充图片</view>
+      </view>
     </view>
-  </view>
-  <view class="panel">
-    <view class="title">图片附件</view>
-    <view wx:for="{{attachments}}" wx:key="id" class="row">
-      <text>{{item.purpose}}</text>
-      <text class="muted">{{item.originalFilename}}</text>
-    </view>
-    <view wx:if="{{attachments.length === 0}}" class="muted">暂无图片</view>
   </view>
   <view class="panel">
     <view class="field">

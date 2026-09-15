@@ -9,7 +9,7 @@ const { loading, error, run } = useRequest();
 const history = ref([]);
 const task = ref(null);
 const file = ref(null);
-const form = reactive({ businessType: 'ROUTE', originalFileId: '', rowsJson: '[]' });
+const form = reactive({ businessType: 'ROUTE', originalFileId: '', templateId: '' });
 
 async function loadHistory() {
   await run(async () => {
@@ -36,8 +36,8 @@ async function preview() {
   await run(async () => {
     task.value = await importApi.preview({
       businessType: form.businessType,
-      originalFileId: Number(form.originalFileId),
-      rows: JSON.parse(form.rowsJson)
+      templateId: form.templateId ? Number(form.templateId) : null,
+      originalFileId: Number(form.originalFileId)
     });
     await loadHistory();
   });
@@ -73,7 +73,7 @@ onMounted(loadHistory);
         <select v-model="form.businessType"><option>ROUTE</option><option>TIRE</option><option>EXPENSE</option><option>SALARY</option></select>
         <input type="file" @change="uploadFile" />
         <input v-model="form.originalFileId" aria-label="IMPORT_FILE 附件 ID" />
-        <textarea v-model="form.rowsJson" rows="8" aria-label='[{"rowNo":1,"rawData":{...}}]'></textarea>
+        <input v-model="form.templateId" aria-label="导入模板 ID（可选）" />
         <button v-permission="'import:preview'" class="primary" :disabled="loading" @click="preview">预览校验</button>
         <button v-permission="'import:commit'" :disabled="!task || loading" @click="commit">确认 commit</button>
       </div>

@@ -28,11 +28,14 @@ public class ImportService {
     private final ImportRepository repository;
     private final ObjectMapper objectMapper;
     private final ImportRowCommitService rowCommitService;
+    private final ImportFileParser fileParser;
 
-    public ImportService(ImportRepository repository, ObjectMapper objectMapper, ImportRowCommitService rowCommitService) {
+    public ImportService(ImportRepository repository, ObjectMapper objectMapper, ImportRowCommitService rowCommitService,
+                         ImportFileParser fileParser) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.rowCommitService = rowCommitService;
+        this.fileParser = fileParser;
     }
 
     @Transactional
@@ -41,6 +44,8 @@ public class ImportService {
         if (!repository.importFileExists(request.originalFileId())) {
             throw new BusinessException(ErrorCode.ATTACHMENT_001);
         }
+        List<ImportPreviewRequest.ImportRowRequest> rows = fileParser.parse(
+                businessType, request.templateId(), request.originalFileId(), operatorId);
         Set<String> keysInBatch = new HashSet<>();
         int successCount = 0;
         int failureCount = 0;
@@ -49,12 +54,12 @@ public class ImportService {
                 businessType,
                 request.templateId(),
                 request.originalFileId(),
-                request.rows().size(),
+                rows.size(),
                 0,
                 0,
                 operatorId);
 
-        for (ImportPreviewRequest.ImportRowRequest row : request.rows()) {
+        for (ImportPreviewRequest.ImportRowRequest row : rows) {
             RowPreparation preparation = rowCommitService.preparePreview(businessType, row, keysInBatch);
             ValidationResult validation = preparation.validation();
             if (validation.success()) {

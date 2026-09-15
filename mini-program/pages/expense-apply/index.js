@@ -17,6 +17,7 @@ Page({
       remark: ''
     },
     imagePath: '',
+    attachmentIds: [],
     createdApprovalId: null,
     uploadStatus: '',
     loading: false
@@ -54,16 +55,19 @@ Page({
       success: (res) => this.setData({ imagePath: res.tempFiles[0].tempFilePath, uploadStatus: '已选择图片' })
     });
   },
-  async uploadAfterCreate(approvalId) {
-    if (!this.data.imagePath || !approvalId) return null;
+  async uploadBeforeCreate() {
+    if (!this.data.imagePath) return [];
+    const user = getApp().globalData.user || wx.getStorageSync('user') || {};
+    if (!user.id) throw new Error('当前账号信息缺失');
     this.setData({ uploadStatus: '上传中' });
     const file = await uploadFile({
       url: '/attachments',
       filePath: this.data.imagePath,
-      formData: { ownerType: 'APPROVAL', ownerId: approvalId, purpose: 'APPROVAL_APPLICATION' }
+      formData: { ownerType: 'APPROVAL_UPLOAD', ownerId: user.id, purpose: 'APPROVAL_APPLICATION' }
     });
-    this.setData({ uploadStatus: '上传完成' });
-    return file;
+    const attachmentIds = [file.id];
+    this.setData({ attachmentIds, uploadStatus: '上传完成' });
+    return attachmentIds;
   },
   async submit() {
     const form = this.data.form;
@@ -73,6 +77,7 @@ Page({
     }
     this.setData({ loading: true });
     try {
+      const attachmentIds = await this.uploadBeforeCreate();
       const snapshot = {
         expenseType: form.expenseType,
         businessDate: form.businessDate,
@@ -90,17 +95,12 @@ Page({
           approvalType: 'EXPENSE',
           businessType: 'EXPENSE',
           businessId: null,
-          businessSnapshot: snapshot
+          businessSnapshot: snapshot,
+          attachmentIds
         }
       });
       this.setData({ createdApprovalId: approval.id });
-      try {
-        const file = await this.uploadAfterCreate(approval.id);
-        if (file) wx.showToast({ title: '申请已提交，图片已上传' });
-        else wx.showToast({ title: '申请已提交' });
-      } catch (error) {
-        wx.showToast({ title: '申请已提交，图片上传失败', icon: 'none' });
-      }
+      wx.showToast({ title: attachmentIds.length ? '申请已提交，图片已固化' : '申请已提交' });
     } finally {
       this.setData({ loading: false });
     }

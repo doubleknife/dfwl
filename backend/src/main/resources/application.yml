@@ -31,3 +31,10 @@ logging:
   pattern:
     level: "%5p [requestId:%X{requestId:-}]"
 
+fleet:
+  ocr:
+    provider: ${FLEET_OCR_PROVIDER:DISABLED}
+    tencent:
+      secret-id: ${TENCENT_CLOUD_SECRET_ID:}
+      secret-key: ${TENCENT_CLOUD_SECRET_KEY:}
+      region: ${TENCENT_OCR_REGION:}

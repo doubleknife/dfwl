@@ -11,6 +11,9 @@ import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +32,8 @@ import org.springframework.test.web.servlet.MvcResult;
         "spring.datasource.password=",
         "spring.flyway.enabled=false",
         "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql"
+        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql",
+        "fleet.storage.local-root=${java.io.tmpdir}/fleet-salary-import-tests"
 })
 @AutoConfigureMockMvc
 class DriverSalaryApiTests {
@@ -251,13 +255,18 @@ class DriverSalaryApiTests {
     }
 
     private long previewSalaryImport(long routeId, long driverId, String amount) throws Exception {
+        Path importFile = Path.of(System.getProperty("java.io.tmpdir"), "fleet-salary-import-tests", "import-1");
+        Files.createDirectories(importFile.getParent());
+        Files.writeString(importFile, """
+                routeId,driverId,salaryAmount
+                %d,%d,%s
+                """.formatted(routeId, driverId, amount), StandardCharsets.UTF_8);
         MvcResult result = mockMvc.perform(post("/api/v1/imports/preview")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"businessType":"SALARY","originalFileId":1,
-                                 "rows":[{"rowNo":1,"rawData":{"routeId":%d,"driverId":%d,"salaryAmount":"%s"}}]}
-                                """.formatted(routeId, driverId, amount)))
+                                {"businessType":"SALARY","originalFileId":1}
+                                """))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
