@@ -60,20 +60,6 @@ public class FileAttachmentRepository {
                 """.formatted(placeholders), this::mapAttachment, ids.toArray());
     }
 
-    public Optional<FileAttachment> findDuplicate(String ownerType, long ownerId, String purpose,
-                                                  String fileHash, String originalFilename, long fileSize) {
-        return jdbcTemplate.query("""
-                SELECT id, owner_type, owner_id, purpose, storage_key, original_filename,
-                       content_type, file_size, file_hash, uploaded_by, uploaded_at
-                FROM file_attachment
-                WHERE owner_type = ? AND owner_id = ? AND purpose = ?
-                  AND file_hash = ? AND original_filename = ? AND file_size = ?
-                ORDER BY id DESC LIMIT 1
-                """, this::mapAttachment, ownerType, ownerId, purpose, fileHash, originalFilename, fileSize)
-                .stream()
-                .findFirst();
-    }
-
     public long create(String ownerType, long ownerId, String purpose, String storageKey,
                        String originalFilename, String contentType, long fileSize, String fileHash,
                        long uploadedBy) {
@@ -142,6 +128,23 @@ public class FileAttachmentRepository {
                   AND uploaded_by = ?
                   AND id IN (%s)
                 """.formatted(placeholders), args.toArray());
+    }
+
+    public boolean importTaskMatches(long taskId, long attachmentId, long operatorId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM import_task
+                WHERE id = ? AND original_file_id = ? AND uploaded_by = ?
+                """, Integer.class, taskId, attachmentId, operatorId);
+        return count != null && count == 1;
+    }
+
+    public int bindImportFile(long attachmentId, long taskId, long operatorId) {
+        return jdbcTemplate.update("""
+                UPDATE file_attachment
+                SET owner_type = 'IMPORT', owner_id = ?
+                WHERE id = ? AND purpose = 'IMPORT_FILE' AND uploaded_by = ?
+                  AND owner_type IN ('IMPORT', 'IMPORT_FILE') AND owner_id = 0
+                """, taskId, attachmentId, operatorId);
     }
 
     public boolean ownerExists(String ownerType, long ownerId) {

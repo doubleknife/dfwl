@@ -2,17 +2,18 @@ package com.dfwl.fleet.concurrency;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dfwl.fleet.approval.api.ApprovalActionRequest;
-import com.dfwl.fleet.approval.api.ApprovalCreateRequest;
+import com.dfwl.fleet.approval.dto.request.ApprovalActionRequest;
+import com.dfwl.fleet.approval.dto.request.ApprovalCreateRequest;
 import com.dfwl.fleet.approval.service.ApprovalService;
-import com.dfwl.fleet.expense.api.ExpenseReversalRequest;
+import com.dfwl.fleet.expense.dto.request.ExpenseReversalRequest;
 import com.dfwl.fleet.expense.service.ExpenseService;
 import com.dfwl.fleet.imports.service.ImportService;
 import com.dfwl.fleet.master.service.MasterDataService;
-import com.dfwl.fleet.route.api.UnloadRequest;
+import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
+import com.dfwl.fleet.route.dto.request.UnloadRequest;
 import com.dfwl.fleet.route.service.RouteService;
 import com.dfwl.fleet.settlement.service.SettlementService;
-import com.dfwl.fleet.tire.api.TireRequestCreateRequest;
+import com.dfwl.fleet.tire.dto.request.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.service.TireService;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -56,7 +57,7 @@ class CriticalConcurrencyTests {
     void setUp() {
         for (String table : List.of(
                 "settlement_diff", "settlement_detail", "settlement_version", "settlement_month",
-                "import_row", "import_task", "expense_reversal_link", "expense_energy_detail",
+                "import_row", "import_task", "expense_reversal_link", "expense_attribution_history", "expense_energy_detail",
                 "expense_penalty_detail", "expense_repair_detail", "expense_toll_detail", "expense_entry",
                 "tire_claim", "tire_request_item", "tire_request", "approval_action", "approval_task",
                 "approval_submission_version", "approval_instance", "approval_flow_node", "approval_flow",
@@ -180,7 +181,7 @@ class CriticalConcurrencyTests {
                 INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key, original_filename, content_type, file_size, uploaded_by)
                 VALUES (1, 'IMPORT', 0, 'IMPORT_FILE', 'import/a.csv', 'a.csv', 'text/csv', 10, 1)
                 """);
-        long taskId = importService.preview(new com.dfwl.fleet.imports.api.ImportPreviewRequest("TIRE", null, 1L, null), 1).id();
+        long taskId = importService.preview(new com.dfwl.fleet.imports.dto.request.ImportPreviewRequest("TIRE", null, 1L, null), 1).id();
 
         Results results = runConcurrently(2, () -> importService.commit(taskId, 1));
 
@@ -197,6 +198,35 @@ class CriticalConcurrencyTests {
         assertThat(jdbcTemplate.queryForList("SELECT version_no FROM settlement_version ORDER BY version_no", Integer.class))
                 .containsExactly(1, 2);
     }
+
+    @Test
+    void concurrentVoidCreatesOneRouteAndEnergyAttributionHistory() throws Exception {
+        insertPublishedRoute(1, 1);
+        routeService.depart(1, 1);
+        jdbcTemplate.update("DELETE FROM expense_attribution_history");
+        jdbcTemplate.update("""
+                INSERT INTO expense_entry (id, expense_no, expense_type, business_date, vehicle_id,
+                                           attribution_type, route_id, amount, source_type, status, created_by)
+                VALUES (1, 'E-VOID-CONCURRENT', 'ELECTRIC', CURRENT_DATE, 1, 'ROUTE', 1, 50.00, 'MANUAL', 'ACTIVE', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO expense_energy_detail (expense_id, energy_type, order_no, start_time, quantity,
+                                                   auto_matched_route_id, match_status)
+                VALUES (1, 'ELECTRIC', 'VOID-CONCURRENT', CURRENT_TIMESTAMP, 10.000, 1, 'AUTO_MATCHED')
+                """);
+
+        Results results = runConcurrently(2, () -> routeService.voidRoute(1, new RouteReasonRequest("并发作废"), 1));
+
+        assertThat(results.success()).isEqualTo(1);
+        assertThat(results.failure()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE route_id = 1 AND operation_type = 'VOID'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = 1", String.class)).isEqualTo("PENDING_ATTRIBUTION");
+        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = 1", Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = 1", Integer.class)).isEqualTo(1);
+    }
+
 
     private void insertPublishedRoute(long id, long driverId) {
         jdbcTemplate.update("""

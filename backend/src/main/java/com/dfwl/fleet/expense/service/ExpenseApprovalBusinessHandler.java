@@ -1,13 +1,13 @@
 package com.dfwl.fleet.expense.service;
 
-import com.dfwl.fleet.approval.api.ApprovalResponse;
-import com.dfwl.fleet.approval.repository.ApprovalRepository.SubmissionRecord;
-import com.dfwl.fleet.approval.service.ApprovalBusinessHandler;
-import com.dfwl.fleet.common.domain.ExpenseStatus;
-import com.dfwl.fleet.common.domain.ExpenseType;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessContext;
+import com.dfwl.fleet.approval.spi.ApprovalSubmissionContext;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessHandler;
+import com.dfwl.fleet.expense.domain.ExpenseStatus;
+import com.dfwl.fleet.expense.domain.ExpenseType;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.expense.api.ExpenseRequest;
+import com.dfwl.fleet.expense.dto.request.ExpenseRequest;
 import com.dfwl.fleet.expense.repository.ExpenseRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,17 +33,17 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
     }
 
     @Override
-    public boolean supports(ApprovalResponse approval) {
+    public boolean supports(ApprovalBusinessContext approval) {
         return "EXPENSE".equals(approval.approvalType()) || "EXPENSE".equals(approval.businessType());
     }
 
     @Override
-    public void onApproved(ApprovalResponse approval, SubmissionRecord submission, long operatorId) {
-        if (repository.findByApprovalInstanceId(approval.id()).isPresent()) {
+    public void onApproved(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
+        if (repository.findByApprovalInstanceId(approval.approvalInstanceId()).isPresent()) {
             return;
         }
         JsonNode snapshot = readSnapshot(submission);
-        ExpenseRequest request = buildRequest(approval.id(), snapshot);
+        ExpenseRequest request = buildRequest(approval.approvalInstanceId(), snapshot);
         validate(request);
         Long routeId = request.routeId();
         long expenseId = repository.create(nextExpenseNo(), request, ExpenseStatus.ACTIVE.name(), routeId, operatorId);
@@ -130,7 +130,7 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
         }
     }
 
-    private JsonNode readSnapshot(SubmissionRecord submission) {
+    private JsonNode readSnapshot(ApprovalSubmissionContext submission) {
         try {
             return objectMapper.readTree(submission.businessSnapshotJson());
         } catch (Exception ex) {

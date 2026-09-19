@@ -1,14 +1,17 @@
 package com.dfwl.fleet.approval.service;
 
-import com.dfwl.fleet.approval.api.ApprovalActionRequest;
-import com.dfwl.fleet.approval.api.ApprovalCreateRequest;
-import com.dfwl.fleet.approval.api.ApprovalDetailResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowDetailResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowUpdateRequest;
-import com.dfwl.fleet.approval.api.ApprovalListScope;
-import com.dfwl.fleet.approval.api.ApprovalResponse;
+import com.dfwl.fleet.approval.dto.request.ApprovalActionRequest;
+import com.dfwl.fleet.approval.dto.request.ApprovalCreateRequest;
+import com.dfwl.fleet.approval.dto.response.ApprovalDetailResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalFlowDetailResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalFlowResponse;
+import com.dfwl.fleet.approval.dto.request.ApprovalFlowUpdateRequest;
+import com.dfwl.fleet.approval.dto.query.ApprovalListScope;
+import com.dfwl.fleet.approval.dto.response.ApprovalResponse;
 import com.dfwl.fleet.approval.repository.ApprovalRepository;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessContext;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessHandler;
+import com.dfwl.fleet.approval.spi.ApprovalSubmissionContext;
 import com.dfwl.fleet.attachment.service.AttachmentService;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowNodeRecord;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowRecord;
@@ -93,10 +96,11 @@ public class ApprovalService {
         attachmentService.bindApprovalApplicationAttachments(operatorId, request.attachmentIds(), instanceId, submissionId);
         repository.createTask(instanceId, submissionId, firstNode);
         ApprovalResponse approval = find(instanceId);
-        SubmissionRecord submission = requireSubmission(submissionId);
+        ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
+        ApprovalBusinessContext context = toBusinessContext(approval);
         businessHandlers.stream()
-                .filter(handler -> handler.supports(approval))
-                .forEach(handler -> handler.onCreated(approval, submission, operatorId));
+                .filter(handler -> handler.supports(context))
+                .forEach(handler -> handler.onCreated(context, submission, operatorId));
         return find(instanceId);
     }
 
@@ -115,10 +119,11 @@ public class ApprovalService {
                     repository.moveToNode(id, next.nodeOrder());
                     repository.createTask(id, task.submissionVersionId(), next);
                 }, () -> {
-                    SubmissionRecord submission = requireSubmission(task.submissionVersionId());
+                    ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(task.submissionVersionId()));
+                    ApprovalBusinessContext context = toBusinessContext(approval);
                     businessHandlers.stream()
-                            .filter(handler -> handler.supports(approval))
-                            .forEach(handler -> handler.onApproved(approval, submission, operatorId));
+                            .filter(handler -> handler.supports(context))
+                            .forEach(handler -> handler.onApproved(context, submission, operatorId));
                     repository.complete(id);
                 });
         return find(id);
@@ -135,10 +140,11 @@ public class ApprovalService {
         long actionId = repository.insertAction(task.id(), "RETURN_APPLICANT", operatorId, request == null ? null : request.comment(), null);
         attachmentService.bindApprovalActionAttachments(operatorId, actionAttachmentIds(request), actionId);
         repository.invalidatePendingTasksForSubmission(id, task.submissionVersionId());
-        SubmissionRecord submission = requireSubmission(task.submissionVersionId());
+        ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(task.submissionVersionId()));
+        ApprovalBusinessContext context = toBusinessContext(approval);
         businessHandlers.stream()
-                .filter(handler -> handler.supports(approval))
-                .forEach(handler -> handler.onReturnedToApplicant(approval, submission, operatorId));
+                .filter(handler -> handler.supports(context))
+                .forEach(handler -> handler.onReturnedToApplicant(context, submission, operatorId));
         repository.returnApplicant(id);
         return find(id);
     }
@@ -259,6 +265,14 @@ public class ApprovalService {
                 throw new BusinessException(ErrorCode.APPROVAL_002);
             }
         }
+    }
+
+    private ApprovalBusinessContext toBusinessContext(ApprovalResponse approval) {
+        return new ApprovalBusinessContext(approval.id(), approval.approvalType(), approval.businessType(), approval.businessId());
+    }
+
+    private ApprovalSubmissionContext toSubmissionContext(SubmissionRecord submission) {
+        return new ApprovalSubmissionContext(submission.businessSnapshotJson());
     }
 
     private SubmissionRecord requireSubmission(long id) {

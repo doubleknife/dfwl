@@ -1,6 +1,7 @@
 package com.dfwl.fleet.tire;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dfwl.fleet.security.AuthenticatedUser;
+import com.dfwl.fleet.tire.policy.TireAccessPolicy;
+import org.springframework.security.access.AccessDeniedException;
 import com.dfwl.fleet.security.TokenAuthenticationService;
 import com.dfwl.fleet.tire.ocr.OcrProvider;
 import com.dfwl.fleet.tire.ocr.OcrProviderException;
@@ -20,6 +23,9 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -60,6 +66,9 @@ class TireApiTests {
     @Autowired
     private FakeOcrProvider fakeOcrProvider;
 
+    @Autowired
+    private TireAccessPolicy tireAccess;
+
     private String token;
     private String otherToken;
 
@@ -71,6 +80,7 @@ class TireApiTests {
         jdbcTemplate.update("DELETE FROM ocr_record");
         jdbcTemplate.update("DELETE FROM file_attachment");
         jdbcTemplate.update("DELETE FROM tire");
+        jdbcTemplate.update("DELETE FROM driver_vehicle_current");
         jdbcTemplate.update("DELETE FROM vehicle");
         jdbcTemplate.update("DELETE FROM driver");
         fakeOcrProvider.reset();
@@ -199,7 +209,7 @@ class TireApiTests {
         long ocrId = readId(recognize(uploadTireOcrImage(token, new byte[]{1}), token).andReturn());
         confirm(ocrId, "H621769799").andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/tire-requests")
+        long requestId = readId(mockMvc.perform(post("/api/v1/tire-requests")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -208,9 +218,9 @@ class TireApiTests {
                                 """.formatted(ocrId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PENDING"))
-                .andExpect(jsonPath("$.data.items[0].ocrRecordId").value(ocrId));
+                .andExpect(jsonPath("$.data.items[0].ocrRecordId").value(ocrId)).andReturn());
 
-        mockMvc.perform(get("/api/v1/tire-requests/1")
+        mockMvc.perform(get("/api/v1/tire-requests/" + requestId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].confirmedTireNo").value("H621769799"));
@@ -235,6 +245,86 @@ class TireApiTests {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TIRE_001"));
+    }
+
+
+    @ParameterizedTest
+    @CsvSource({"1,1,true,true", "2,1,true,false", "1,2,true,false", "1,1,false,false"})
+    void driverRequestRequiresOwnDriverAndCurrentVehicle(long requestDriver, long vehicle, boolean bound, boolean allowed) throws Exception {
+        AuthenticatedUser user = tireDriver();
+        if (bound) {
+            jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
+        }
+        if (!allowed) {
+            assertThatThrownBy(() -> tireAccess.ensureDriverCanUseTireRequest(user, requestDriver, vehicle))
+                    .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("tire request is outside current driver scope");
+        }
+        String auth = tokenAuthenticationService.issueToken(user);
+        var result = mockMvc.perform(post("/api/v1/tire-requests")
+                .header("Authorization", "Bearer " + auth).header("X-Request-Id", "r43-request")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"driverId\":%d,\"vehicleId\":%d,\"items\":[{\"tireId\":1,\"confirmedTireNo\":\"H621769799\"}]}".formatted(requestDriver, vehicle)));
+        if (allowed) {
+            result.andExpect(status().isOk());
+        } else {
+            result.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"))
+                    .andExpect(jsonPath("$.message").value("无权限"))
+                    .andExpect(jsonPath("$.requestId").value("r43-request"));
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_request", Integer.class)).isZero();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"OUTSOURCED", " outsource ", "EXTERNAL", " 外协 "})
+    void outsourcedTypesAreRejectedBeforeRequestOcrAndConfirmBusiness(String driverType) throws Exception {
+        jdbcTemplate.update("UPDATE driver SET driver_type = ? WHERE id = 1", driverType);
+        AuthenticatedUser user = tireDriver();
+        String auth = tokenAuthenticationService.issueToken(user);
+        assertThatThrownBy(() -> tireAccess.ensureDriverCanUseTireRequest(user, 999, 999))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("outsourced driver cannot request tires");
+        assertThatThrownBy(() -> tireAccess.ensureDriverCanUseTireOcr(user))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("outsourced driver is not allowed");
+        String[] urls = {"/api/v1/tire-requests", "/api/v1/ocr/tire-number", "/api/v1/ocr/999/confirm"};
+        String[] bodies = {"{\"driverId\":999,\"vehicleId\":999,\"items\":[{\"tireId\":999,\"confirmedTireNo\":\"missing\"}]}",
+                "{\"attachmentId\":999}", "{\"confirmedText\":\"missing\"}"};
+        for (int i = 0; i < urls.length; i++) {
+            mockMvc.perform(post(urls[i]).header("Authorization", "Bearer " + auth)
+                            .header("X-Request-Id", "r43-outsourced").contentType(MediaType.APPLICATION_JSON).content(bodies[i]))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"))
+                    .andExpect(jsonPath("$.message").value("无权限"))
+                    .andExpect(jsonPath("$.requestId").value("r43-outsourced"));
+        }
+        assertThat(fakeOcrProvider.lastImageBase64).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ocr_record", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_request", Integer.class)).isZero();
+    }
+
+    @Test
+    void internalDriverCanRecognizeAndConfirmWithoutVehicleBinding() throws Exception {
+        token = tokenAuthenticationService.issueToken(tireDriver());
+        long attachmentId = uploadTireOcrImage(token, new byte[] {1, 2, 3});
+        long ocrId = readId(recognize(attachmentId, token).andExpect(status().isOk()).andReturn());
+        confirm(ocrId, "H621769799").andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.confirmedText").value("H621769799"));
+        assertThat(fakeOcrProvider.lastImageBase64).isEqualTo("AQID");
+    }
+
+    @Test
+    void tireAuthorizationPreservesNonDriverBypassAndMissingIdentityMessage() {
+        for (AuthenticatedUser user : new AuthenticatedUser[] {null,
+                new AuthenticatedUser(99L, "admin", 1L, "ADMIN", "admin", Set.of())}) {
+            tireAccess.ensureDriverCanUseTireRequest(user, 999, 999);
+            tireAccess.ensureDriverCanUseTireOcr(user);
+        }
+        jdbcTemplate.update("UPDATE driver SET status = 0 WHERE id = 1");
+        assertThatThrownBy(() -> tireAccess.ensureDriverCanUseTireRequest(tireDriver(), 1, 1))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("driver binding required");
+        assertThatThrownBy(() -> tireAccess.ensureDriverCanUseTireOcr(tireDriver()))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("driver binding required");
+    }
+
+    private AuthenticatedUser tireDriver() {
+        return new AuthenticatedUser(101L, "13800000001", 2L, "DRIVER", "driver", Set.of("tire:request"));
     }
 
     private org.springframework.test.web.servlet.ResultActions recognize(long attachmentId, String authToken) throws Exception {

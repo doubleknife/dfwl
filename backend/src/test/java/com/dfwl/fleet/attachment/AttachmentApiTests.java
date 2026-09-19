@@ -1,5 +1,15 @@
 package com.dfwl.fleet.attachment;
 
+import com.dfwl.fleet.attachment.storage.StorageService;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Callable;
+import java.util.List;
+import java.util.ArrayList;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -146,14 +156,75 @@ class AttachmentApiTests {
                 .andExpect(jsonPath("$.code").value("AUTH_003"));
     }
 
-    @Test
-    void duplicateUploadReturnsExistingMetadata() throws Exception {
-        long firstId = uploadImportFile();
-        long secondId = uploadImportFile();
+    @Autowired private StorageService storageService;
 
-        assertThat(secondId).isEqualTo(firstId);
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM file_attachment", Integer.class);
-        assertThat(count).isEqualTo(1);
+    @ParameterizedTest
+    @CsvSource({
+            "IMPORT_FILE,IMPORT,0,text/csv,same.csv",
+            "TIRE_OCR,TIRE,0,image/jpeg,same.jpg",
+            "APPROVAL_APPLICATION,APPROVAL_UPLOAD,1,image/jpeg,same.jpg",
+            "APPROVAL_ACTION,APPROVAL_UPLOAD,1,image/jpeg,same.jpg",
+            "WEIGHT_ADJUST,ROUTE,9000001,image/jpeg,same.jpg"})
+    void identicalUploadsAreIndependentForEveryPurpose(String purpose, String ownerType, long ownerId,
+                                                       String contentType, String filename) throws Exception {
+        if ("WEIGHT_ADJUST".equals(purpose)) {
+            jdbcTemplate.update("""
+                    INSERT INTO route_task (id, route_no, business_unique_key, business_date, customer_id, product_id,
+                                            direction, loading_place, unloading_place, tax_unit_price, created_by)
+                    VALUES (9000001, 'R22-WEIGHT', 'R22-WEIGHT', '2026-09-18', 1, 1, 'OUTBOUND', 'A', 'B', 1, 1)
+                    """);
+        }
+        String allToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                1L, "13800000001", 1L, "tester", "测试员", Set.of("import:preview", "import:history",
+                "tire:request", "approval:create", "approval:process", "route:weight:adjust")));
+        try {
+            List<JsonNode> uploads = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                var result = mockMvc.perform(multipart("/api/v1/attachments")
+                                .file(new MockMultipartFile("file", filename, contentType, new byte[]{1, 2, 3}))
+                                .param("ownerType", ownerType).param("ownerId", Long.toString(ownerId))
+                                .param("purpose", purpose).header("Authorization", "Bearer " + allToken))
+                        .andExpect(status().isOk()).andReturn();
+                uploads.add(objectMapper.readTree(result.getResponse().getContentAsByteArray()).path("data"));
+            }
+            assertThat(uploads.get(1).path("id").asLong()).isNotEqualTo(uploads.get(0).path("id").asLong());
+            assertThat(uploads.get(1).path("storageKey").asText()).isNotEqualTo(uploads.get(0).path("storageKey").asText());
+            assertThat(uploads.get(1).path("fileHash").asText()).isEqualTo(uploads.get(0).path("fileHash").asText());
+            for (JsonNode upload : uploads) {
+                assertThat(upload.path("originalFilename").asText()).isEqualTo(filename);
+                assertThat(upload.path("uploadedAt").asText()).isNotBlank();
+                try (var input = storageService.load(upload.path("storageKey").asText()).getInputStream()) {
+                    assertThat(input.readAllBytes()).containsExactly(1, 2, 3);
+                }
+            }
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM file_attachment", Integer.class)).isEqualTo(2);
+        } finally {
+            if ("WEIGHT_ADJUST".equals(purpose)) jdbcTemplate.update("DELETE FROM route_task WHERE id = 9000001");
+        }
+    }
+
+    @Test
+    void concurrentIdenticalUploadsBothSucceedWithIndependentFiles() throws Exception {
+        var barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            Callable<Long> upload = () -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                return uploadImportFile();
+            };
+            var a = executor.submit(upload);
+            var b = executor.submit(upload);
+            long first = a.get(20, TimeUnit.SECONDS);
+            long second = b.get(20, TimeUnit.SECONDS);
+            assertThat(first).isNotEqualTo(second);
+            var keys = jdbcTemplate.queryForList("SELECT storage_key FROM file_attachment", String.class);
+            assertThat(keys).hasSize(2).doesNotHaveDuplicates();
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT file_hash) FROM file_attachment", Integer.class)).isEqualTo(1);
+            for (String key : keys) {
+                try (var input = storageService.load(key).getInputStream()) {
+                    assertThat(input.readAllBytes()).isEqualTo("a,b\n1,2".getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        }
     }
 
     @Test

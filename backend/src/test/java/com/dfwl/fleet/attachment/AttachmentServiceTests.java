@@ -49,12 +49,6 @@ class AttachmentServiceTests {
         }
 
         @Override
-        public Optional<FileAttachment> findDuplicate(String ownerType, long ownerId, String purpose,
-                                                      String fileHash, String originalFilename, long fileSize) {
-            return Optional.empty();
-        }
-
-        @Override
         public long create(String ownerType, long ownerId, String purpose, String storageKey,
                            String originalFilename, String contentType, long fileSize, String fileHash,
                            long uploadedBy) {

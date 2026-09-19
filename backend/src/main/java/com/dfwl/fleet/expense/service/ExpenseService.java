@@ -1,15 +1,15 @@
 package com.dfwl.fleet.expense.service;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.common.domain.ExpenseStatus;
-import com.dfwl.fleet.common.domain.ExpenseType;
+import com.dfwl.fleet.expense.domain.ExpenseStatus;
+import com.dfwl.fleet.expense.domain.ExpenseType;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.expense.api.ExpenseAttributionHistoryResponse;
-import com.dfwl.fleet.expense.api.ExpenseAttributionRequest;
-import com.dfwl.fleet.expense.api.ExpenseRequest;
-import com.dfwl.fleet.expense.api.ExpenseResponse;
-import com.dfwl.fleet.expense.api.ExpenseReversalRequest;
+import com.dfwl.fleet.expense.dto.response.ExpenseAttributionHistoryResponse;
+import com.dfwl.fleet.expense.dto.request.ExpenseAttributionRequest;
+import com.dfwl.fleet.expense.dto.request.ExpenseRequest;
+import com.dfwl.fleet.expense.dto.response.ExpenseResponse;
+import com.dfwl.fleet.expense.dto.request.ExpenseReversalRequest;
 import com.dfwl.fleet.expense.repository.ExpenseRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;

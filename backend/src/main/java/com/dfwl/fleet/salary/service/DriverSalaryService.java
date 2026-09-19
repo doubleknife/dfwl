@@ -3,9 +3,10 @@ package com.dfwl.fleet.salary.service;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.salary.api.DriverSalaryHistoryResponse;
-import com.dfwl.fleet.salary.api.DriverSalaryRequest;
-import com.dfwl.fleet.salary.api.DriverSalaryResponse;
+import com.dfwl.fleet.route.service.RouteSalaryService;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
+import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository.RouteSalaryContext;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository.SalaryEntry;
@@ -27,10 +28,13 @@ public class DriverSalaryService {
 
     private final DriverSalaryRepository repository;
     private final CurrentUserService currentUserService;
+    private final RouteSalaryService routeSalaryService;
 
-    public DriverSalaryService(DriverSalaryRepository repository, CurrentUserService currentUserService) {
+    public DriverSalaryService(DriverSalaryRepository repository, CurrentUserService currentUserService,
+                               RouteSalaryService routeSalaryService) {
         this.repository = repository;
         this.currentUserService = currentUserService;
+        this.routeSalaryService = routeSalaryService;
     }
 
     @Transactional
@@ -78,7 +82,7 @@ public class DriverSalaryService {
             repository.insertHistory(entryId, routeId, driverId, before.amount(), amount, before.sourceType(), sourceType,
                     operatorId, StringUtils.hasText(reason) ? reason : "工资调整", importTaskId, importRowId);
         }
-        repository.updateRouteSalary(routeId, amount, sourceType, operatorId);
+        routeSalaryService.updateSalary(routeId, amount, sourceType, operatorId);
         return repository.findByRoute(routeId).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }
 

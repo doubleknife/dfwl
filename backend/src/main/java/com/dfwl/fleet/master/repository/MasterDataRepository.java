@@ -1,17 +1,17 @@
 package com.dfwl.fleet.master.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.master.api.BindingHistoryResponse;
-import com.dfwl.fleet.master.api.CustomerRequest;
-import com.dfwl.fleet.master.api.CustomerResponse;
-import com.dfwl.fleet.master.api.DriverRequest;
-import com.dfwl.fleet.master.api.DriverResponse;
-import com.dfwl.fleet.master.api.ProductRequest;
-import com.dfwl.fleet.master.api.ProductResponse;
-import com.dfwl.fleet.master.api.TrailerRequest;
-import com.dfwl.fleet.master.api.TrailerResponse;
-import com.dfwl.fleet.master.api.VehicleRequest;
-import com.dfwl.fleet.master.api.VehicleResponse;
+import com.dfwl.fleet.master.dto.response.BindingHistoryResponse;
+import com.dfwl.fleet.master.dto.request.CustomerRequest;
+import com.dfwl.fleet.master.dto.response.CustomerResponse;
+import com.dfwl.fleet.master.dto.request.DriverRequest;
+import com.dfwl.fleet.master.dto.response.DriverResponse;
+import com.dfwl.fleet.master.dto.request.ProductRequest;
+import com.dfwl.fleet.master.dto.response.ProductResponse;
+import com.dfwl.fleet.master.dto.request.TrailerRequest;
+import com.dfwl.fleet.master.dto.response.TrailerResponse;
+import com.dfwl.fleet.master.dto.request.VehicleRequest;
+import com.dfwl.fleet.master.dto.response.VehicleResponse;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -295,6 +295,25 @@ public class MasterDataRepository {
                 readLong(rs, "current_driver_id"),
                 readLong(rs, "current_trailer_id")), driverId, driverId, pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
+    }
+
+    public boolean canDriverViewVehicle(long vehicleId, long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM vehicle v
+                WHERE v.id = ? AND v.deleted_at IS NULL
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM driver_vehicle_current dvc
+                      WHERE dvc.driver_id = ? AND dvc.vehicle_id = v.id
+                    )
+                    OR EXISTS (
+                      SELECT 1 FROM route_task r
+                      WHERE r.departure_driver_id = ? AND r.departure_vehicle_id = v.id AND r.deleted_at IS NULL
+                    )
+                  )
+                """, Integer.class, vehicleId, driverId, driverId);
+        return count != null && count > 0;
     }
 
     public Optional<VehicleResponse> findVehicle(long id) {

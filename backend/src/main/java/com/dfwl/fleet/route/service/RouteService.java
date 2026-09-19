@@ -1,20 +1,21 @@
 package com.dfwl.fleet.route.service;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.common.domain.RouteStatus;
+import com.dfwl.fleet.route.domain.RouteStatus;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.expense.repository.ExpenseRepository;
-import com.dfwl.fleet.route.api.DriverRouteResponse;
-import com.dfwl.fleet.route.api.RouteReasonRequest;
-import com.dfwl.fleet.route.api.RouteRequest;
-import com.dfwl.fleet.route.api.RouteResponse;
-import com.dfwl.fleet.route.api.RouteWeightVersionResponse;
-import com.dfwl.fleet.route.api.UnloadRequest;
-import com.dfwl.fleet.route.api.WeightAdjustmentRequest;
+import com.dfwl.fleet.expense.service.ExpenseAttributionService;
+import com.dfwl.fleet.route.dto.response.DriverRouteResponse;
+import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
+import com.dfwl.fleet.route.dto.request.RouteRequest;
+import com.dfwl.fleet.route.dto.response.RouteResponse;
+import com.dfwl.fleet.route.dto.response.RouteWeightVersionResponse;
+import com.dfwl.fleet.route.dto.request.UnloadRequest;
+import com.dfwl.fleet.route.dto.request.WeightAdjustmentRequest;
 import com.dfwl.fleet.route.repository.RouteRepository;
 import com.dfwl.fleet.route.repository.RouteRepository.LoadStandardConfig;
 import com.dfwl.fleet.route.repository.RouteRepository.RouteBindingSnapshot;
+import com.dfwl.fleet.route.policy.RouteAccessPolicy;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.CurrentUserService;
@@ -35,12 +36,14 @@ public class RouteService {
 
     private final RouteRepository repository;
     private final CurrentUserService currentUserService;
-    private final ExpenseRepository expenseRepository;
+    private final RouteAccessPolicy routeAccessPolicy;
+    private final ExpenseAttributionService expenseAttributionService;
 
-    public RouteService(RouteRepository repository, CurrentUserService currentUserService, ExpenseRepository expenseRepository) {
+    public RouteService(RouteRepository repository, CurrentUserService currentUserService, ExpenseAttributionService expenseAttributionService, RouteAccessPolicy routeAccessPolicy) {
         this.repository = repository;
         this.currentUserService = currentUserService;
-        this.expenseRepository = expenseRepository;
+        this.routeAccessPolicy = routeAccessPolicy;
+        this.expenseAttributionService = expenseAttributionService;
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize) {
@@ -62,7 +65,7 @@ public class RouteService {
     }
 
     public DriverRouteResponse findForDriver(AuthenticatedUser user, long id) {
-        currentUserService.ensureDriverCanViewRoute(user, id);
+        routeAccessPolicy.ensureDriverCanViewRoute(user, id);
         return DriverRouteResponse.from(find(id));
     }
 
@@ -215,7 +218,7 @@ public class RouteService {
                 request == null ? null : request.reason())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        expenseRepository.markEnergyExpensesPendingForVoidedRoute(
+        expenseAttributionService.onRouteVoided(
                 id,
                 operatorId,
                 request == null || request.reason() == null ? "线路作废，能源费用待确认归属" : request.reason());

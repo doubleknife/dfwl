@@ -1,9 +1,37 @@
 package com.dfwl.fleet.salary;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+
+import com.dfwl.fleet.common.error.BusinessException;
+import com.dfwl.fleet.report.repository.ReportRepository;
+import com.dfwl.fleet.route.repository.RouteRepository;
+import com.dfwl.fleet.route.service.RouteSalaryService;
+import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
+import com.dfwl.fleet.salary.repository.DriverSalaryRepository;
+import com.dfwl.fleet.salary.service.DriverSalaryService;
+import java.math.BigDecimal;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.stubbing.Answer;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,8 +40,6 @@ import com.dfwl.fleet.security.TokenAuthenticationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +48,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -93,7 +120,6 @@ class DriverSalaryApiTests {
         seedCompletedRoute(1, 1, "2026-09-10", null);
         seedCompletedRoute(2, 2, "2026-09-11", null);
         seedCompletedRoute(3, 1, "2026-08-31", null);
-        seedImportFile(1);
 
         adminToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "admin", 1L, "ADMIN", "管理员", Set.of(
                 "salary:manage", "salary:view", "import:preview", "import:commit",
@@ -114,6 +140,18 @@ class DriverSalaryApiTests {
 
         assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", String.class))
                 .isEqualTo("120.50");
+        var entry = salaryRepository.findByRoute(1).orElseThrow();
+        assertThat(entry.salaryAmount()).isEqualByComparingTo("120.50");
+        assertThat(entry.sourceType()).isEqualTo("MANUAL");
+        var history = salaryService.history(1).get(0);
+        assertThat(history.beforeAmount()).isNull();
+        assertThat(history.afterAmount()).isEqualByComparingTo("120.50");
+        assertThat(history.afterSourceType()).isEqualTo("MANUAL");
+        assertThat(history.operatorId()).isEqualTo(1);
+        assertThat(history.reason()).isEqualTo("人工录入");
+        assertThat(jdbcTemplate.queryForObject("SELECT salary_source FROM route_task WHERE id = 1", String.class)).isEqualTo("MANUAL");
+        assertThat(jdbcTemplate.queryForObject("SELECT updated_by FROM route_task WHERE id = 1", Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("SELECT updated_at FROM route_task WHERE id = 1", java.sql.Timestamp.class)).isNotNull();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_history WHERE route_id = 1", Integer.class))
                 .isEqualTo(1);
     }
@@ -131,6 +169,13 @@ class DriverSalaryApiTests {
                 .isEqualTo("88.00");
         assertThat(jdbcTemplate.queryForObject("SELECT source_type FROM driver_salary_entry WHERE route_id = 1", String.class))
                 .isEqualTo("IMPORT");
+        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", BigDecimal.class)).isEqualByComparingTo("88.00");
+        assertThat(jdbcTemplate.queryForObject("SELECT salary_source FROM route_task WHERE id = 1", String.class)).isEqualTo("IMPORT");
+        var history = salaryService.history(1).get(0);
+        assertThat(history.afterSourceType()).isEqualTo("IMPORT");
+        assertThat(history.afterAmount()).isEqualByComparingTo("88.00");
+        assertThat(history.importTaskId()).isEqualTo(taskId);
+        assertThat(history.importRowId()).isNotNull();
     }
 
     @Test
@@ -207,6 +252,7 @@ class DriverSalaryApiTests {
         generateSettlement("2026-09");
         postSalary(1, 1, "150.00", "历史工资调整").andExpect(status().isOk());
         long v2 = generateSettlement("2026-09");
+        assertThat(objectMapper.readTree(detailJson(v2, 1)).path("driverSalary").decimalValue()).isEqualByComparingTo("150.00");
 
         mockMvc.perform(get("/api/v1/settlements/versions/%d/diff".formatted(v2)).header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -245,6 +291,125 @@ class DriverSalaryApiTests {
                 .andExpect(jsonPath("$.data.total").value(1));
     }
 
+    @Autowired private DriverSalaryService salaryService;
+    @Autowired private RouteSalaryService routeSalaryService;
+    @Autowired private ReportRepository reportRepository;
+    @Autowired private PlatformTransactionManager transactionManager;
+    @SpyBean private DriverSalaryRepository salaryRepository;
+    @SpyBean private RouteRepository routeRepository;
+
+    @ParameterizedTest
+    @CsvSource({"false,ENTRY", "true,ENTRY", "false,HISTORY", "true,HISTORY", "false,ROUTE", "true,ROUTE"})
+    void salaryWritesRemainAtomicAfterAnyWriteFails(boolean adjustment, String failingStep) {
+        if (adjustment) salaryService.upsertManual(salaryRequest("100.00"), 1);
+        var entries = jdbcTemplate.queryForList("SELECT * FROM driver_salary_entry ORDER BY id");
+        var histories = jdbcTemplate.queryForList("SELECT * FROM driver_salary_history ORDER BY id");
+        var routes = jdbcTemplate.queryForList("SELECT * FROM route_task ORDER BY id");
+        Answer<Object> failAfterWrite = invocation -> {
+            invocation.callRealMethod();
+            throw new DataAccessResourceFailureException("injected " + failingStep);
+        };
+        switch (failingStep) {
+            case "ENTRY" -> {
+                if (adjustment) {
+                    doAnswer(failAfterWrite).when(salaryRepository).updateEntry(anyLong(), anyLong(), anyString(),
+                            any(), any(), anyString(), any(), any(), anyLong());
+                } else {
+                    doAnswer(failAfterWrite).when(salaryRepository).insertEntry(anyLong(), anyLong(), anyString(),
+                            any(), any(), anyString(), any(), any(), anyLong());
+                }
+            }
+            case "HISTORY" -> doAnswer(failAfterWrite).when(salaryRepository).insertHistory(any(), anyLong(), anyLong(),
+                    any(), any(), any(), anyString(), anyLong(), any(), any(), any());
+            case "ROUTE" -> doAnswer(failAfterWrite).when(routeRepository)
+                    .updateRouteSalary(anyLong(), any(), anyString(), anyLong());
+            default -> throw new IllegalArgumentException(failingStep);
+        }
+        assertThatThrownBy(() -> salaryService.upsertManual(salaryRequest("150.00"), 2))
+                .isInstanceOf(DataAccessResourceFailureException.class).hasMessage("injected " + failingStep);
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM driver_salary_entry ORDER BY id")).isEqualTo(entries);
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM driver_salary_history ORDER BY id")).isEqualTo(histories);
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM route_task ORDER BY id")).isEqualTo(routes);
+    }
+
+    @Test
+    void laterHistoryFailureRollsBackAlreadySynchronizedRouteInSameTransaction() {
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).execute(status -> {
+            var salary = salaryService.upsertManual(salaryRequest("120.00"), 1);
+            assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", BigDecimal.class))
+                    .isEqualByComparingTo("120.00");
+            // Force a real NOT NULL history failure after the route has already been synchronized.
+            salaryRepository.insertHistory(salary.id(), 1, 1, new BigDecimal("120.00"), null,
+                    "MANUAL", "MANUAL", 1, "late history failure", null, null);
+            return null;
+        })).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_entry", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_history", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", BigDecimal.class)).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT salary_source FROM route_task WHERE id = 1", String.class)).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT updated_by FROM route_task WHERE id = 1", Long.class)).isNull();
+    }
+
+    @Test
+    void concurrentAdjustmentsKeepEntryHistoryAndRouteInOneSerializedOrder() throws Exception {
+        salaryService.upsertManual(salaryRequest("100.00"), 1);
+        var barrier = new CyclicBarrier(2);
+        doAnswer(invocation -> {
+            barrier.await(10, TimeUnit.SECONDS);
+            return invocation.callRealMethod();
+        }).when(salaryRepository).findEntryByRouteForUpdate(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> salaryService.upsertManual(salaryRequest("130.00"), 2));
+            var second = executor.submit(() -> salaryService.upsertManual(salaryRequest("170.00"), 3));
+            assertThat(first.get(20, TimeUnit.SECONDS).salaryAmount()).isEqualByComparingTo("130.00");
+            assertThat(second.get(20, TimeUnit.SECONDS).salaryAmount()).isEqualByComparingTo("170.00");
+        }
+        var history = salaryService.history(1);
+        assertThat(history).hasSize(3);
+        assertThat(history.get(1).beforeAmount()).isEqualByComparingTo("100.00");
+        assertThat(history.get(2).beforeAmount()).isEqualByComparingTo(history.get(1).afterAmount());
+        BigDecimal finalSalary = history.get(2).afterAmount();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_entry WHERE route_id = 1", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT salary_amount FROM driver_salary_entry WHERE route_id = 1", BigDecimal.class))
+                .isEqualByComparingTo(finalSalary);
+        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", BigDecimal.class))
+                .isEqualByComparingTo(finalSalary);
+        assertThat(jdbcTemplate.queryForObject("SELECT updated_by FROM route_task WHERE id = 1", Long.class))
+                .isEqualTo(history.get(2).operatorId());
+        assertThat(jdbcTemplate.queryForObject("SELECT salary_source FROM route_task WHERE id = 1", String.class)).isEqualTo("MANUAL");
+    }
+
+    @Test
+    void missingAndDeletedRouteSynchronizationRetainsOriginalNoOpSemantics() {
+        jdbcTemplate.update("UPDATE route_task SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1");
+        var routes = jdbcTemplate.queryForList("SELECT * FROM route_task ORDER BY id");
+        routeSalaryService.updateSalary(Long.MAX_VALUE, new BigDecimal("10.00"), "MANUAL", 1);
+        routeSalaryService.updateSalary(1, new BigDecimal("10.00"), "MANUAL", 1);
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM route_task ORDER BY id")).isEqualTo(routes);
+        for (long id : new long[]{1L, Long.MAX_VALUE}) {
+            assertThatThrownBy(() -> salaryService.upsertManual(new DriverSalaryRequest(id, 1L, new BigDecimal("10.00"), "missing"), 1))
+                    .isInstanceOf(BusinessException.class).extracting("code").isEqualTo("ROUTE_001");
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_entry", Integer.class)).isZero();
+    }
+
+    @Test
+    void companyProfitTracksSalaryAdjustmentsWithoutChangingIncomeOrOtherExpenses() {
+        salaryService.upsertManual(salaryRequest("100.00"), 1);
+        var before = reportRepository.dashboard();
+        salaryService.upsertManual(salaryRequest("130.00"), 2);
+        var after = reportRepository.dashboard();
+        assertThat((BigDecimal) after.get("companyTotalProfit"))
+                .isEqualByComparingTo(((BigDecimal) before.get("companyTotalProfit")).subtract(new BigDecimal("30.00")));
+        assertThat(after.get("incomeAmount")).isEqualTo(before.get("incomeAmount"));
+        assertThat(after.get("routeExpense")).isEqualTo(before.get("routeExpense"));
+        assertThat(after.get("dailyExpense")).isEqualTo(before.get("dailyExpense"));
+    }
+
+    private DriverSalaryRequest salaryRequest(String amount) {
+        return new DriverSalaryRequest(1L, 1L, new BigDecimal(amount), "工资测试");
+    }
+
     private org.springframework.test.web.servlet.ResultActions postSalary(long routeId, long driverId, String amount, String reason) throws Exception {
         return mockMvc.perform(post("/api/v1/driver-salaries")
                 .header("Authorization", "Bearer " + adminToken)
@@ -255,18 +420,22 @@ class DriverSalaryApiTests {
     }
 
     private long previewSalaryImport(long routeId, long driverId, String amount) throws Exception {
-        Path importFile = Path.of(System.getProperty("java.io.tmpdir"), "fleet-salary-import-tests", "import-1");
-        Files.createDirectories(importFile.getParent());
-        Files.writeString(importFile, """
+        byte[] csv = """
                 routeId,driverId,salaryAmount
                 %d,%d,%s
-                """.formatted(routeId, driverId, amount), StandardCharsets.UTF_8);
+                """.formatted(routeId, driverId, amount).getBytes(StandardCharsets.UTF_8);
+        MvcResult upload = mockMvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "salary.csv", "text/csv", csv))
+                        .param("ownerType", "IMPORT").param("ownerId", "0").param("purpose", "IMPORT_FILE")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andReturn();
+        long fileId = objectMapper.readTree(upload.getResponse().getContentAsByteArray()).path("data").path("id").asLong();
         MvcResult result = mockMvc.perform(post("/api/v1/imports/preview")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"businessType":"SALARY","originalFileId":1}
-                                """))
+                                {"businessType":"SALARY","originalFileId":%d}
+                                """.formatted(fileId)))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsByteArray());
@@ -315,11 +484,4 @@ class DriverSalaryApiTests {
                 new java.math.BigDecimal(amount), routeId);
     }
 
-    private void seedImportFile(long id) {
-        jdbcTemplate.update("""
-                INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key, original_filename,
-                                             content_type, file_size, file_hash, uploaded_by)
-                VALUES (?, 'IMPORT', 0, 'IMPORT_FILE', ?, ?, 'text/csv', 10, ?, 1)
-                """, id, "import-" + id, "import-" + id + ".csv", "hash-" + id);
-    }
 }

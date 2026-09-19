@@ -1,6 +1,5 @@
 package com.dfwl.fleet.security;
 
-import com.dfwl.fleet.common.domain.RouteStatus;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,106 +55,9 @@ public class CurrentUserService {
                 readLong(rs, "current_vehicle_id")), user.phone()).stream().findFirst();
     }
 
-    public void denyOutsourcedDriver(AuthenticatedUser user) {
-        if (isDriverUser(user) && requireDriver(user).outsourced()) {
-            throw new AccessDeniedException("outsourced driver is not allowed");
-        }
-    }
-
     public void denyAllDrivers(AuthenticatedUser user) {
         if (isDriverUser(user)) {
             throw new AccessDeniedException("driver is not allowed");
-        }
-    }
-
-    public void ensureDriverCanViewRoute(AuthenticatedUser user, long routeId) {
-        if (!isDriverUser(user)) {
-            return;
-        }
-        CurrentDriverContext driver = requireDriver(user);
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND (
-                    assigned_driver_id = ?
-                    OR departure_driver_id = ?
-                  )
-                """, Integer.class, routeId, driver.driverId(), driver.driverId());
-        if (count == null || count == 0) {
-            throw new AccessDeniedException("route is outside current driver scope");
-        }
-    }
-
-    public void ensureDriverCanDepart(AuthenticatedUser user, long routeId) {
-        if (!isDriverUser(user)) {
-            return;
-        }
-        CurrentDriverContext driver = requireDriver(user);
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND status = ?
-                  AND assigned_driver_id = ?
-                """, Integer.class, routeId, RouteStatus.PUBLISHED.name(), driver.driverId());
-        if (count == null || count == 0) {
-            throw new AccessDeniedException("route is outside current driver departure scope");
-        }
-    }
-
-    public void ensureDriverCanUnload(AuthenticatedUser user, long routeId) {
-        if (!isDriverUser(user)) {
-            return;
-        }
-        CurrentDriverContext driver = requireDriver(user);
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND status = ?
-                  AND departure_driver_id = ?
-                """, Integer.class, routeId, RouteStatus.IN_TRANSIT.name(), driver.driverId());
-        if (count == null || count == 0) {
-            throw new AccessDeniedException("route is outside current driver unload scope");
-        }
-    }
-
-    public void ensureDriverCanViewVehicle(AuthenticatedUser user, long vehicleId) {
-        if (!isDriverUser(user)) {
-            return;
-        }
-        CurrentDriverContext driver = requireDriver(user);
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*)
-                FROM vehicle v
-                WHERE v.id = ? AND v.deleted_at IS NULL
-                  AND (
-                    EXISTS (
-                      SELECT 1 FROM driver_vehicle_current dvc
-                      WHERE dvc.driver_id = ? AND dvc.vehicle_id = v.id
-                    )
-                    OR EXISTS (
-                      SELECT 1 FROM route_task r
-                      WHERE r.departure_driver_id = ? AND r.departure_vehicle_id = v.id AND r.deleted_at IS NULL
-                    )
-                  )
-                """, Integer.class, vehicleId, driver.driverId(), driver.driverId());
-        if (count == null || count == 0) {
-            throw new AccessDeniedException("vehicle is outside current driver scope");
-        }
-    }
-
-    public void ensureDriverCanUseTireRequest(AuthenticatedUser user, long requestDriverId, long vehicleId) {
-        if (!isDriverUser(user)) {
-            return;
-        }
-        CurrentDriverContext driver = requireDriver(user);
-        if (driver.outsourced()) {
-            throw new AccessDeniedException("outsourced driver cannot request tires");
-        }
-        if (driver.driverId() != requestDriverId || driver.currentVehicleId() == null || driver.currentVehicleId() != vehicleId) {
-            throw new AccessDeniedException("tire request is outside current driver scope");
         }
     }
 

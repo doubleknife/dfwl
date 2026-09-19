@@ -1,11 +1,11 @@
 package com.dfwl.fleet.auth.service;
 
-import com.dfwl.fleet.auth.api.ChangePasswordRequest;
-import com.dfwl.fleet.auth.api.CurrentUserResponse;
-import com.dfwl.fleet.auth.api.LoginRequest;
-import com.dfwl.fleet.auth.api.LoginResponse;
-import com.dfwl.fleet.auth.api.ResetPasswordRequest;
-import com.dfwl.fleet.auth.api.UpdateUserStatusRequest;
+import com.dfwl.fleet.auth.dto.request.ChangePasswordRequest;
+import com.dfwl.fleet.auth.dto.response.CurrentUserResponse;
+import com.dfwl.fleet.auth.dto.request.LoginRequest;
+import com.dfwl.fleet.auth.dto.response.LoginResponse;
+import com.dfwl.fleet.auth.dto.request.ResetPasswordRequest;
+import com.dfwl.fleet.auth.dto.request.UpdateUserStatusRequest;
 import com.dfwl.fleet.auth.domain.RoleSummary;
 import com.dfwl.fleet.auth.domain.UserAccount;
 import com.dfwl.fleet.auth.repository.UserAccountRepository;

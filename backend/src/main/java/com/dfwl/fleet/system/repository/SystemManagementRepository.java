@@ -1,12 +1,12 @@
 package com.dfwl.fleet.system.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.system.api.AuditLogResponse;
-import com.dfwl.fleet.system.api.PermissionResponse;
-import com.dfwl.fleet.system.api.RoleRequest;
-import com.dfwl.fleet.system.api.RoleResponse;
-import com.dfwl.fleet.system.api.UserRequest;
-import com.dfwl.fleet.system.api.UserResponse;
+import com.dfwl.fleet.system.dto.response.AuditLogResponse;
+import com.dfwl.fleet.system.dto.response.PermissionResponse;
+import com.dfwl.fleet.system.dto.request.RoleRequest;
+import com.dfwl.fleet.system.dto.response.RoleResponse;
+import com.dfwl.fleet.system.dto.request.UserRequest;
+import com.dfwl.fleet.system.dto.response.UserResponse;
 import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;

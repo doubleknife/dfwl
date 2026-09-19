@@ -1,6 +1,7 @@
 package com.dfwl.fleet.attachment.service;
 
-import com.dfwl.fleet.attachment.api.AttachmentResponse;
+import com.dfwl.fleet.attachment.dto.response.AttachmentResponse;
+import com.dfwl.fleet.attachment.domain.AttachmentFile;
 import com.dfwl.fleet.attachment.domain.AttachmentPurpose;
 import com.dfwl.fleet.attachment.domain.FileAttachment;
 import com.dfwl.fleet.attachment.repository.FileAttachmentRepository;
@@ -63,12 +64,6 @@ public class AttachmentService {
         try {
             byte[] bytes = file.getBytes();
             StoredFile stored = storageService.store(bytes, originalFilename, contentType);
-            FileAttachment duplicate = repository.findDuplicate(
-                    normalizedOwnerType, ownerId, normalizedPurpose.name(), stored.sha256(), originalFilename, stored.fileSize())
-                    .orElse(null);
-            if (duplicate != null) {
-                return AttachmentResponse.from(duplicate);
-            }
             try {
                 long id = repository.create(
                         normalizedOwnerType,
@@ -91,6 +86,36 @@ public class AttachmentService {
         } catch (IOException ex) {
             throw new UncheckedIOException(ex);
         }
+    }
+
+    /** Binds one independent upload to its import task in the caller's transaction. */
+    @Transactional
+    public void bindImportFile(long attachmentId, long importTaskId, long operatorId) {
+        FileAttachment attachment = repository.find(attachmentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ATTACHMENT_001));
+        if (!"IMPORT_FILE".equals(attachment.purpose())) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_001);
+        }
+        if (attachment.uploadedBy() != operatorId) {
+            throw new BusinessException(ErrorCode.AUTH_003);
+        }
+        if (!Set.of("IMPORT", "IMPORT_FILE").contains(attachment.ownerType())) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
+        }
+        if (attachment.ownerId() != 0) {
+            throw importFileAlreadyBound();
+        }
+        if (!repository.importTaskMatches(importTaskId, attachmentId, operatorId)) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
+        }
+        if (repository.bindImportFile(attachmentId, importTaskId, operatorId) != 1) {
+            throw importFileAlreadyBound();
+        }
+    }
+
+    private BusinessException importFileAlreadyBound() {
+        return new BusinessException(ErrorCode.ATTACHMENT_004.name(),
+                "该上传文件已用于导入任务，请重新上传文件后创建新的导入任务");
     }
 
     @Transactional(readOnly = true)
@@ -150,7 +175,7 @@ public class AttachmentService {
     }
 
     @Transactional(readOnly = true)
-    public FileDownload download(long id, AuthenticatedUser user) {
+    public AttachmentFile download(long id, AuthenticatedUser user) {
         FileAttachment attachment = repository.find(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ATTACHMENT_001));
         requireRead(attachment, user);
@@ -158,7 +183,7 @@ public class AttachmentService {
         if (!resource.exists() || !resource.isReadable()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_001);
         }
-        return new FileDownload(attachment, resource);
+        return new AttachmentFile(attachment, resource);
     }
 
     public void rejectOrdinaryDelete(long id, AuthenticatedUser user) {
@@ -294,6 +319,4 @@ public class AttachmentService {
         return filename;
     }
 
-    public record FileDownload(FileAttachment attachment, Resource resource) {
-    }
 }

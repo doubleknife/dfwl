@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.dfwl.fleet.route.api.WeightAdjustmentRequest;
+import com.dfwl.fleet.route.dto.request.WeightAdjustmentRequest;
 import com.dfwl.fleet.route.service.RouteService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;

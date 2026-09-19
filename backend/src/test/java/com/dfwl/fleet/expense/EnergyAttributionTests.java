@@ -1,12 +1,15 @@
 package com.dfwl.fleet.expense;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
+import com.dfwl.fleet.route.service.RouteService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
 import java.math.BigDecimal;
@@ -14,12 +17,16 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:energyattrdb;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
@@ -41,6 +48,12 @@ class EnergyAttributionTests {
 
     @Autowired
     private TokenAuthenticationService tokenAuthenticationService;
+
+    @Autowired
+    private RouteService routeService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private String token;
 
@@ -102,9 +115,10 @@ class EnergyAttributionTests {
                 .isEqualTo("AUTO_MATCHED");
     }
 
-    @Test
-    void routeVoidMovesMatchedEnergyExpensesToPendingAttribution() throws Exception {
-        long expenseId = createEnergyExpense("E-VOID", "GAS", "2026-09-10T09:00:00");
+    @ParameterizedTest
+    @ValueSource(strings = {"ELECTRIC", "GAS", "TEMP_ELECTRIC"})
+    void routeVoidMovesMatchedEnergyExpensesToPendingAttribution(String energyType) throws Exception {
+        long expenseId = createEnergyExpense("E-VOID", energyType, "2026-09-10T09:00:00");
 
         mockMvc.perform(post("/api/v1/routes/1/void")
                         .header("Authorization", "Bearer " + token)
@@ -121,6 +135,17 @@ class EnergyAttributionTests {
                 .isEqualTo(1L);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = ?", Integer.class, expenseId))
                 .isEqualTo(1);
+        var history = jdbcTemplate.queryForMap("SELECT * FROM expense_attribution_history WHERE expense_id = ?", expenseId);
+        assertThat(history.get("before_attribution_type")).isEqualTo("ROUTE");
+        assertThat(history.get("after_attribution_type")).isEqualTo("ROUTE");
+        assertThat(history.get("before_route_id")).isEqualTo(1L);
+        assertThat(history.get("after_route_id")).isEqualTo(1L);
+        assertThat(history.get("before_status")).isEqualTo("ACTIVE");
+        assertThat(history.get("after_status")).isEqualTo("PENDING_ATTRIBUTION");
+        assertThat(history.get("operator_id")).isEqualTo(1L);
+        assertThat(history.get("operation_time")).isNotNull();
+        assertThat(history.get("reason")).isEqualTo("异常作废");
+        assertThat(jdbcTemplate.queryForObject("SELECT updated_by FROM expense_entry WHERE id = ?", Long.class, expenseId)).isEqualTo(1L);
     }
 
     @Test
@@ -231,6 +256,7 @@ class EnergyAttributionTests {
     @Test
     void voidTransactionRollsBackExpensePendingUpdateWhenHistoryWriteFails() throws Exception {
         long expenseId = createEnergyExpense("E-ROLLBACK", "ELECTRIC", "2026-09-10T09:00:00");
+        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
         jdbcTemplate.execute("ALTER TABLE expense_attribution_history ALTER COLUMN reason VARCHAR(1)");
 
         mockMvc.perform(post("/api/v1/routes/1/void")
@@ -243,7 +269,123 @@ class EnergyAttributionTests {
                 .isEqualTo("IN_TRANSIT");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
                 .isEqualTo("ACTIVE");
+        assertVoidRolledBack(expenseId, version);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING_ATTRIBUTION", "REVERSED", "REVERSAL"})
+    void nonActiveEnergyExpenseIsNotChangedWhenRouteVoided(String expenseStatus) throws Exception {
+        long expenseId = createEnergyExpense("E-NON-ACTIVE", "ELECTRIC", "2026-09-10T09:00:00");
+        jdbcTemplate.update("UPDATE expense_entry SET status = ? WHERE id = ?", expenseStatus, expenseId);
+
+        voidRouteSuccessfully("{\"reason\":\"异常作废\"}");
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
+                .isEqualTo(expenseStatus);
+        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId))
+                .isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"UNPUBLISHED", "PUBLISHED", "COMPLETED", "CANCELLED", "VOIDED"})
+    void disallowedRouteVoidDoesNotChangeEnergyExpenses(String routeStatus) throws Exception {
+        long expenseId = createEnergyExpense("E-INVALID-ROUTE", "ELECTRIC", "2026-09-10T09:00:00");
+        jdbcTemplate.update("UPDATE route_task SET status = ? WHERE id = 1", routeStatus);
+
+        mockMvc.perform(post("/api/v1/routes/1/void")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"不允许作废\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ROUTE_002"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo(routeStatus);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("ACTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
+    }
+
+    @Test
+    void repeatedRouteVoidDoesNotDuplicateAttributionHistory() throws Exception {
+        long expenseId = createEnergyExpense("E-REPEAT", "GAS", "2026-09-10T09:00:00");
+        voidRouteSuccessfully("{\"reason\":\"首次作废\"}");
+
+        mockMvc.perform(post("/api/v1/routes/1/void")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"重复作废\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ROUTE_002"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("PENDING_ATTRIBUTION");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE operation_type = 'VOID'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM expense_attribution_history", String.class)).isEqualTo("首次作废");
+    }
+
+    @Test
+    void routeHistoryFailureLeavesEnergyExpensesUnchanged() throws Exception {
+        long expenseId = createEnergyExpense("E-ROUTE-FAILURE", "ELECTRIC", "2026-09-10T09:00:00");
+        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
+
+        mockMvc.perform(post("/api/v1/routes/1/void")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"" + "x".repeat(501) + "\"}"))
+                .andExpect(status().is5xxServerError());
+
+        assertVoidRolledBack(expenseId, version);
+    }
+
+    @Test
+    void outerTransactionFailureRollsBackSuccessfulRouteAndExpenseChanges() throws Exception {
+        long expenseId = createEnergyExpense("E-OUTER-ROLLBACK", "ELECTRIC", "2026-09-10T09:00:00");
+        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+            routeService.voidRoute(1, new RouteReasonRequest("外层回滚"), 1);
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
+                    .isEqualTo("PENDING_ATTRIBUTION");
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isEqualTo(1);
+            throw new IllegalStateException("fail after business effects");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("fail after business effects");
+
+        assertVoidRolledBack(expenseId, version);
+    }
+
+    @Test
+    void voidWithoutReasonPreservesDefaultExpenseHistoryReason() throws Exception {
+        createEnergyExpense("E-DEFAULT-REASON", "ELECTRIC", "2026-09-10T09:00:00");
+
+        voidRouteSuccessfully("{}");
+
+        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM expense_attribution_history", String.class))
+                .isEqualTo("线路作废，能源费用待确认归属");
+        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM route_status_history WHERE operation_type = 'VOID'", String.class))
+                .isNull();
+    }
+
+    private void voidRouteSuccessfully(String request) throws Exception {
+        mockMvc.perform(post("/api/v1/routes/1/void")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("VOIDED"));
+    }
+
+    private void assertVoidRolledBack(long expenseId, Integer version) {
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("IN_TRANSIT");
+        assertThat(jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class)).isEqualTo(version);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("ACTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
+    }
+
 
     private long createEnergyExpense(String no, String type, String startTime) throws Exception {
         mockMvc.perform(post("/api/v1/expenses")

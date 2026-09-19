@@ -1,16 +1,23 @@
 package com.dfwl.fleet.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dfwl.fleet.master.policy.VehicleAccessPolicy;
+import com.dfwl.fleet.route.policy.RouteAccessPolicy;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +45,12 @@ class DriverScopeApiTests {
 
     @Autowired
     private TokenAuthenticationService tokenAuthenticationService;
+
+    @Autowired
+    private RouteAccessPolicy routeAccess;
+
+    @Autowired
+    private VehicleAccessPolicy vehicleAccess;
 
     private String driverAToken;
     private String driverBToken;
@@ -239,5 +252,198 @@ class DriverScopeApiTests {
         }
         Long roleId = jdbcTemplate.queryForObject("SELECT role_id FROM sys_user WHERE id = 1", Long.class);
         assertThat(roleId).isEqualTo(1L);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "PUBLISHED,1,2,false,true", "PUBLISHED,2,1,false,true",
+            "COMPLETED,2,1,false,true", "COMPLETED,1,2,false,true",
+            "CANCELLED,1,2,false,true", "VOIDED,2,1,false,true",
+            "PUBLISHED,2,2,false,false", "COMPLETED,1,1,true,false"
+    })
+    void routeViewScopePreservesAssignedOrSnapshotWithoutStatusRestriction(
+            String routeStatus, long assigned, long departure, boolean deleted, boolean allowed) {
+        setRouteScope(routeStatus, assigned, departure, deleted);
+        assertRouteAccess(() -> routeAccess.ensureDriverCanViewRoute(driverA(), 1), allowed,
+                "route is outside current driver scope");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "PUBLISHED,1,2,false,true", "PUBLISHED,2,1,false,false",
+            "UNPUBLISHED,1,1,false,false", "IN_TRANSIT,1,1,false,false",
+            "COMPLETED,1,1,false,false", "PUBLISHED,1,1,true,false"
+    })
+    void departureScopeRequiresPublishedAndAssignedDriver(
+            String routeStatus, long assigned, long departure, boolean deleted, boolean allowed) {
+        setRouteScope(routeStatus, assigned, departure, deleted);
+        assertRouteAccess(() -> routeAccess.ensureDriverCanDepart(driverA(), 1), allowed,
+                "route is outside current driver departure scope");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "IN_TRANSIT,2,1,false,true", "IN_TRANSIT,1,2,false,false",
+            "PUBLISHED,1,1,false,false", "COMPLETED,1,1,false,false",
+            "IN_TRANSIT,1,1,true,false"
+    })
+    void unloadScopeRequiresInTransitAndSnapshotDriver(
+            String routeStatus, long assigned, long departure, boolean deleted, boolean allowed) {
+        setRouteScope(routeStatus, assigned, departure, deleted);
+        assertRouteAccess(() -> routeAccess.ensureDriverCanUnload(driverA(), 1), allowed,
+                "route is outside current driver unload scope");
+    }
+
+    @Test
+    void nonDriverAndNullPrincipalRetainScopeBypass() {
+        AuthenticatedUser finance = new AuthenticatedUser(1L, "finance", 1L, "FINANCE", "finance", Set.of());
+        for (AuthenticatedUser user : new AuthenticatedUser[] {finance, null}) {
+            routeAccess.ensureDriverCanViewRoute(user, 999);
+            routeAccess.ensureDriverCanDepart(user, 999);
+            routeAccess.ensureDriverCanUnload(user, 999);
+        }
+    }
+
+    @Test
+    void missingDriverIdentityStillFailsBeforeResourceCheck() {
+        jdbcTemplate.update("UPDATE driver SET status = 0 WHERE id = 1");
+        assertThatThrownBy(() -> routeAccess.ensureDriverCanDepart(driverA(), 999))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("driver binding required");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1,UNPUBLISHED", "2,COMPLETED", "999,PUBLISHED"})
+    void departAuthorizationPrecedesMissingRouteOrBusinessStateErrors(long routeId, String routeStatus) throws Exception {
+        jdbcTemplate.update("UPDATE route_task SET status = ? WHERE id = ?", routeStatus, routeId);
+        mockMvc.perform(post("/api/v1/routes/" + routeId + "/depart")
+                        .header("Authorization", "Bearer " + driverAToken)
+                        .header("X-Request-Id", "r4-depart"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_003"))
+                .andExpect(jsonPath("$.message").value("无权限"))
+                .andExpect(jsonPath("$.requestId").value("r4-depart"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history", Integer.class)).isZero();
+    }
+
+    @Test
+    void completedSnapshotRouteRemainsVisibleButDeletedRouteIsForbidden() throws Exception {
+        setRouteScope("COMPLETED", 2, 1, false);
+        mockMvc.perform(get("/api/v1/routes/1").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("COMPLETED"));
+        jdbcTemplate.update("UPDATE route_task SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1");
+        mockMvc.perform(get("/api/v1/routes/1").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"));
+    }
+
+    @Test
+    void publishedOwnerCanDepartThroughController() throws Exception {
+        jdbcTemplate.update("UPDATE route_task SET status = 'COMPLETED' WHERE id = 3");
+        mockMvc.perform(post("/api/v1/routes/1/depart").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("IN_TRANSIT"))
+                .andExpect(jsonPath("$.data.departureDriverId").value(1));
+    }
+
+    @Test
+    void unloadAuthorizationPrecedesWrongStateBusinessError() throws Exception {
+        setRouteScope("COMPLETED", 1, 1, false);
+        mockMvc.perform(post("/api/v1/routes/1/unload")
+                        .header("Authorization", "Bearer " + driverAToken)
+                        .header("X-Request-Id", "r4-unload")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"grossWeight\":30.000,\"tareWeight\":10.000}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_003"))
+                .andExpect(jsonPath("$.message").value("无权限"))
+                .andExpect(jsonPath("$.requestId").value("r4-unload"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_weight_version", Integer.class)).isZero();
+    }
+
+    private AuthenticatedUser driverA() {
+        return new AuthenticatedUser(101L, "13800000001", 2L, "DRIVER", "driver", Set.of());
+    }
+
+    private void setRouteScope(String routeStatus, long assigned, long departure, boolean deleted) {
+        jdbcTemplate.update("UPDATE route_task SET status = ?, assigned_driver_id = ?, departure_driver_id = ?, "
+                + "deleted_at = " + (deleted ? "CURRENT_TIMESTAMP" : "NULL") + " WHERE id = 1",
+                routeStatus, assigned, departure);
+    }
+
+    private void assertRouteAccess(Runnable action, boolean allowed, String message) {
+        if (allowed) {
+            assertThatCode(action::run).doesNotThrowAnyException();
+        } else {
+            assertThatThrownBy(action::run).isExactlyInstanceOf(AccessDeniedException.class).hasMessage(message);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "true,0,false,false,1,true", "false,0,false,false,1,false",
+            "false,1,false,false,1,true", "false,2,false,false,1,false",
+            "false,1,true,false,1,false", "true,1,true,false,1,true",
+            "true,0,false,true,1,false", "false,1,false,true,1,false",
+            "true,0,false,false,0,true", "false,1,false,false,0,true"
+    })
+    void vehicleListAndDetailPreserveCurrentOrHistoricalScope(boolean current, long snapshotDriver,
+            boolean deletedRoute, boolean deletedVehicle, int vehicleStatus, boolean allowed) throws Exception {
+        jdbcTemplate.update("DELETE FROM driver_vehicle_current WHERE driver_id = 1");
+        jdbcTemplate.update("UPDATE route_task SET departure_driver_id = NULL, departure_vehicle_id = NULL");
+        if (current) {
+            jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
+        }
+        jdbcTemplate.update("UPDATE route_task SET departure_driver_id = ?, departure_vehicle_id = 1, "
+                + "deleted_at = " + (deletedRoute ? "CURRENT_TIMESTAMP" : "NULL") + " WHERE id = 3", snapshotDriver);
+        jdbcTemplate.update("UPDATE vehicle SET status = ?, deleted_at = "
+                + (deletedVehicle ? "CURRENT_TIMESTAMP" : "NULL") + " WHERE id = 1", vehicleStatus);
+        assertRouteAccess(() -> vehicleAccess.ensureDriverCanViewVehicle(driverA(), 1), allowed,
+                "vehicle is outside current driver scope");
+        mockMvc.perform(get("/api/v1/vehicles").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(allowed ? 1 : 0))
+                .andExpect(jsonPath("$.data.records.length()").value(allowed ? 1 : 0));
+        var detail = mockMvc.perform(get("/api/v1/vehicles/1")
+                .header("Authorization", "Bearer " + driverAToken).header("X-Request-Id", "r4-vehicle"));
+        if (allowed) {
+            detail.andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(1));
+        } else {
+            detail.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"))
+                    .andExpect(jsonPath("$.message").value("无权限"))
+                    .andExpect(jsonPath("$.requestId").value("r4-vehicle"));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"IN_TRANSIT", "COMPLETED", "VOIDED", "CANCELLED"})
+    void historicalVehicleRemainsVisibleAfterBindingChangeWithoutRouteStatusFilter(String routeStatus) throws Exception {
+        jdbcTemplate.update("DELETE FROM driver_vehicle_current WHERE driver_id IN (1, 2)");
+        jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (1, 2, CURRENT_TIMESTAMP, 1), (2, 1, CURRENT_TIMESTAMP, 1)");
+        jdbcTemplate.update("UPDATE route_task SET status = ? WHERE id = 3", routeStatus);
+        mockMvc.perform(get("/api/v1/vehicles").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.records[?(@.id==1)]").exists())
+                .andExpect(jsonPath("$.data.records[?(@.id==2)]").exists());
+        for (long id : new long[] {1, 2}) {
+            mockMvc.perform(get("/api/v1/vehicles/" + id).header("Authorization", "Bearer " + driverAToken))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value((int) id));
+        }
+    }
+
+    @Test
+    void missingVehiclePreservesDriverForbiddenAndNonDriverNotFoundBoundary() throws Exception {
+        mockMvc.perform(get("/api/v1/vehicles/999").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"));
+        String token = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                1L, "finance", 1L, "FINANCE", "finance", Set.of("vehicle:view")));
+        mockMvc.perform(get("/api/v1/vehicles/999").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DATA_001"));
+    }
+
+    @Test
+    void vehiclePolicyRetainsIdentityFailureAndNonDriverBypass() {
+        vehicleAccess.ensureDriverCanViewVehicle(null, 999);
+        vehicleAccess.ensureDriverCanViewVehicle(new AuthenticatedUser(
+                1L, "finance", 1L, "FINANCE", "finance", Set.of()), 999);
+        jdbcTemplate.update("UPDATE driver SET status = 0 WHERE id = 1");
+        assertThatThrownBy(() -> vehicleAccess.ensureDriverCanViewVehicle(driverA(), 999))
+                .isExactlyInstanceOf(AccessDeniedException.class).hasMessage("driver binding required");
     }
 }

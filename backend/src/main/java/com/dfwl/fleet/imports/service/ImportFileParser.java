@@ -5,7 +5,7 @@ import com.dfwl.fleet.attachment.repository.FileAttachmentRepository;
 import com.dfwl.fleet.attachment.storage.StorageService;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.imports.api.ImportPreviewRequest;
+import com.dfwl.fleet.imports.dto.request.ImportPreviewRequest;
 import com.dfwl.fleet.imports.repository.ImportRepository;
 import com.dfwl.fleet.imports.repository.ImportRepository.FieldMappingRecord;
 import java.io.BufferedReader;

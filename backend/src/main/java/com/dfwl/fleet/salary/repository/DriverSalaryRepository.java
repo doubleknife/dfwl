@@ -1,8 +1,8 @@
 package com.dfwl.fleet.salary.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.salary.api.DriverSalaryHistoryResponse;
-import com.dfwl.fleet.salary.api.DriverSalaryResponse;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -53,6 +53,17 @@ public class DriverSalaryRepository {
                 rs.getString("source_type")), routeId).stream().findFirst();
     }
 
+    public Optional<ImportRouteSalarySnapshot> findImportRoute(long id) {
+        return jdbcTemplate.query("""
+                SELECT id, COALESCE(departure_driver_id, assigned_driver_id) AS driver_id, business_date
+                FROM route_task
+                WHERE id = ? AND deleted_at IS NULL
+                """, (rs, rowNum) -> new ImportRouteSalarySnapshot(
+                rs.getLong("id"),
+                readLong(rs, "driver_id"),
+                rs.getDate("business_date").toLocalDate()), id).stream().findFirst();
+    }
+
     public boolean salaryExistsForRoute(long routeId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM driver_salary_entry WHERE route_id = ?
@@ -98,14 +109,6 @@ public class DriverSalaryRepository {
                 WHERE id = ?
                 """, driverId, businessMonth, Date.valueOf(businessDate), amount, sourceType,
                 importTaskId, importRowId, operatorId, entryId);
-    }
-
-    public void updateRouteSalary(long routeId, BigDecimal amount, String sourceType, long operatorId) {
-        jdbcTemplate.update("""
-                UPDATE route_task
-                SET driver_salary = ?, salary_source = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND deleted_at IS NULL
-                """, amount, sourceType, operatorId, routeId);
     }
 
     public void insertHistory(Long entryId, long routeId, long driverId, BigDecimal beforeAmount, BigDecimal afterAmount,
@@ -213,6 +216,9 @@ public class DriverSalaryRepository {
     }
 
     public record RouteSalaryContext(long routeId, String routeNo, LocalDate businessDate, Long driverId, String driverName) {
+    }
+
+    public record ImportRouteSalarySnapshot(long routeId, Long driverId, LocalDate businessDate) {
     }
 
     public record SalaryEntry(long id, long routeId, long driverId, String businessMonth, LocalDate businessDate,

@@ -1,11 +1,11 @@
 package com.dfwl.fleet.tire.service;
 
-import com.dfwl.fleet.approval.api.ApprovalResponse;
-import com.dfwl.fleet.approval.repository.ApprovalRepository.SubmissionRecord;
-import com.dfwl.fleet.approval.service.ApprovalBusinessHandler;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessContext;
+import com.dfwl.fleet.approval.spi.ApprovalSubmissionContext;
+import com.dfwl.fleet.approval.spi.ApprovalBusinessHandler;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.tire.api.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
 import com.dfwl.fleet.tire.repository.TireRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,18 +24,18 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
     }
 
     @Override
-    public boolean supports(ApprovalResponse approval) {
+    public boolean supports(ApprovalBusinessContext approval) {
         return "TIRE_REQUEST".equals(approval.approvalType()) || "TIRE_REQUEST".equals(approval.businessType());
     }
 
     @Override
-    public void onCreated(ApprovalResponse approval, SubmissionRecord submission, long operatorId) {
+    public void onCreated(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
         long requestId = requestId(approval, submission);
-        repository.attachApproval(requestId, approval.id());
+        repository.attachApproval(requestId, approval.approvalInstanceId());
     }
 
     @Override
-    public void onApproved(ApprovalResponse approval, SubmissionRecord submission, long operatorId) {
+    public void onApproved(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
         long requestId = requestId(approval, submission);
         TireRequestResponse request = repository.findRequest(requestId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
@@ -53,13 +53,13 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
     }
 
     @Override
-    public void onReturnedToApplicant(ApprovalResponse approval, SubmissionRecord submission, long operatorId) {
+    public void onReturnedToApplicant(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
         long requestId = requestId(approval, submission);
         repository.releaseRequestTires(requestId);
         repository.updateRequestStatus(requestId, "RETURNED_TO_APPLICANT");
     }
 
-    private long requestId(ApprovalResponse approval, SubmissionRecord submission) {
+    private long requestId(ApprovalBusinessContext approval, ApprovalSubmissionContext submission) {
         if (approval.businessId() != null) {
             return approval.businessId();
         }
@@ -71,7 +71,7 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
         return value.asLong();
     }
 
-    private LocalDateTime installTime(SubmissionRecord submission) {
+    private LocalDateTime installTime(ApprovalSubmissionContext submission) {
         JsonNode snapshot = readSnapshot(submission);
         JsonNode value = snapshot.get("installTime");
         if (value == null || value.isNull() || value.asText().isBlank()) {
@@ -80,7 +80,7 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
         return LocalDateTime.parse(value.asText());
     }
 
-    private JsonNode readSnapshot(SubmissionRecord submission) {
+    private JsonNode readSnapshot(ApprovalSubmissionContext submission) {
         try {
             return objectMapper.readTree(submission.businessSnapshotJson());
         } catch (Exception ex) {

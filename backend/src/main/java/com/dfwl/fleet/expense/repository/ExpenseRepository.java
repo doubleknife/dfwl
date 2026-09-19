@@ -1,13 +1,14 @@
 package com.dfwl.fleet.expense.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.expense.api.ExpenseAttributionHistoryResponse;
-import com.dfwl.fleet.expense.api.ExpenseRequest;
-import com.dfwl.fleet.expense.api.ExpenseResponse;
-import com.dfwl.fleet.expense.api.ExpenseResponse.EnergyDetail;
+import com.dfwl.fleet.expense.dto.response.ExpenseAttributionHistoryResponse;
+import com.dfwl.fleet.expense.dto.request.ExpenseRequest;
+import com.dfwl.fleet.expense.dto.response.ExpenseResponse;
+import com.dfwl.fleet.expense.dto.response.ExpenseResponse.EnergyDetail;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +24,59 @@ public class ExpenseRepository {
 
     public ExpenseRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public long insertImportedExpense(ImportedExpense expense, long operatorId) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement("""
+                    INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
+                                               attribution_type, route_id, amount, source_type, status,
+                                               import_row_id, remark, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'IMPORT', 'ACTIVE', ?, ?, ?)
+                    """, new String[]{"id"});
+            ps.setString(1, expense.expenseNo());
+            ps.setString(2, expense.expenseType());
+            ps.setObject(3, expense.businessDate());
+            ps.setLong(4, expense.vehicleId());
+            ps.setObject(5, expense.driverId());
+            ps.setString(6, expense.attributionType());
+            ps.setObject(7, expense.routeId());
+            ps.setBigDecimal(8, expense.amount());
+            ps.setLong(9, expense.importRowId());
+            ps.setString(10, expense.remark());
+            ps.setLong(11, operatorId);
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
+    }
+
+    public void insertEnergyDetail(long expenseId, String energyType, Long stationId, String orderNo,
+                                   LocalDateTime startTime, BigDecimal quantity, Long routeId, String matchStatus) {
+        jdbcTemplate.update("""
+                INSERT INTO expense_energy_detail (expense_id, energy_type, station_id, order_no, start_time,
+                                                   quantity, auto_matched_route_id, match_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, expenseId, energyType, stationId, orderNo, Timestamp.valueOf(startTime), quantity, routeId, matchStatus);
+    }
+
+    public record ImportedExpense(
+            String expenseNo,
+            String expenseType,
+            LocalDate businessDate,
+            long vehicleId,
+            Long driverId,
+            String attributionType,
+            Long routeId,
+            BigDecimal amount,
+            long importRowId,
+            String remark
+    ) {
+    }
+
+    public boolean importVehicleExists(long id) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle WHERE id = ? AND status = 1 AND deleted_at IS NULL", Integer.class, id);
+        return count != null && count > 0;
     }
 
     public PageResponse<ExpenseResponse> list(int pageNo, int pageSize) {

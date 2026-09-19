@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +52,9 @@ class ApprovalApiTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM driver_vehicle_current");
+        jdbcTemplate.update("DELETE FROM driver");
+        jdbcTemplate.update("INSERT INTO driver (id, user_id, name, phone, driver_type, status) VALUES (1, 101, 'Driver', '13800000101', 'INTERNAL', 1)");
         jdbcTemplate.update("DELETE FROM approval_action");
         jdbcTemplate.update("DELETE FROM approval_task");
         jdbcTemplate.update("DELETE FROM approval_submission_version");
@@ -237,6 +242,76 @@ class ApprovalApiTests {
         return tokenAuthenticationService.issueToken(new AuthenticatedUser(
                 userId, "13" + userId, 1L, "approver", "审批人" + userId,
                 Set.of("approval:process", "approval:return")));
+    }
+
+
+    @ParameterizedTest
+    @CsvSource({
+            "DRIVER,INTERNAL,EXPENSE,GENERAL,true", "DRIVER,OUTSOURCED,EXPENSE,GENERAL,true",
+            "DRIVER,INTERNAL,GENERAL,expense,true", "DRIVER,OUTSOURCED,GENERAL,expense,true",
+            "DRIVER,INTERNAL,expense,EXPENSE,true", "DRIVER,OUTSOURCED,EXPENSE,EXPENSE,true",
+            "DRIVER,INTERNAL,GENERAL,GENERAL,false", "DRIVER,OUTSOURCED,GENERAL,GENERAL,true",
+            "DRIVER,EXTERNAL,GENERAL,GENERAL,true", "DRIVER,OUTSOURCE,GENERAL,GENERAL,true",
+            "DRIVER,外协,GENERAL,GENERAL,true", "FINANCE,OUTSOURCED,EXPENSE,EXPENSE,false"
+    })
+    void submissionEntryRulesAndErrorPriorityMatchForCreateAndResubmit(String role, String driverType,
+            String approvalType, String businessType, boolean denied) throws Exception {
+        String auth = entryToken(role, driverType);
+        String body = "{\"approvalType\":\"%s\",\"businessType\":\"%s\",\"businessId\":1,\"businessSnapshot\":{\"amount\":100}}".formatted(approvalType, businessType);
+        for (String url : new String[] {"/api/v1/approvals", "/api/v1/approvals/999/resubmit"}) {
+            var result = mockMvc.perform(post(url).header("Authorization", "Bearer " + auth)
+                    .header("X-Request-Id", "r43b-entry").contentType(MediaType.APPLICATION_JSON).content(body));
+            if (denied) {
+                result.andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"))
+                        .andExpect(jsonPath("$.message").value("无权限"))
+                        .andExpect(jsonPath("$.requestId").value("r43b-entry"));
+            } else if (url.endsWith("resubmit") || approvalType.equals("EXPENSE")) {
+                result.andExpect(status().isConflict());
+            } else {
+                result.andExpect(status().isOk());
+            }
+        }
+        if (denied) {
+            assertThat(count("SELECT COUNT(*) FROM approval_instance")).isZero();
+            assertThat(count("SELECT COUNT(*) FROM approval_action")).isZero();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"INTERNAL", "OUTSOURCED"})
+    void allDriversRemainDeniedAtProcessAndExistingFlowManagementGuards(String driverType) throws Exception {
+        String auth = entryToken("DRIVER", driverType);
+        for (String operation : new String[] {"approve", "return-applicant", "return-node"}) {
+            mockMvc.perform(post("/api/v1/approvals/999/" + operation)
+                            .header("Authorization", "Bearer " + auth).header("X-Request-Id", "r43b-process")
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"))
+                    .andExpect(jsonPath("$.message").value("无权限"))
+                    .andExpect(jsonPath("$.requestId").value("r43b-process"));
+        }
+        for (String path : new String[] {"/approval-flows", "/approval-flows/1", "/approval-flows/types/GENERAL/versions", "/approval-flows/types/GENERAL/active"}) {
+            mockMvc.perform(get("/api/v1" + path).header("Authorization", "Bearer " + auth))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"));
+        }
+        mockMvc.perform(put("/api/v1/approval-flows/1").header("Authorization", "Bearer " + auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"flowName\":\"unchanged\",\"nodes\":[{\"nodeOrder\":1,\"nodeName\":\"A\",\"approverUserId\":2}]}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("AUTH_003"));
+    }
+
+    @Test
+    void internalDriverCanCreateAndResubmitOwnGeneralApproval() throws Exception {
+        applicantToken = entryToken("DRIVER", "INTERNAL");
+        long id = createApproval(100);
+        returnApplicant(id, approverAToken).andExpect(status().isOk());
+        resubmit(id, 200).andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("PENDING"));
+        assertThat(count("SELECT COUNT(*) FROM approval_submission_version WHERE approval_instance_id = " + id)).isEqualTo(2);
+    }
+
+    private String entryToken(String role, String driverType) {
+        jdbcTemplate.update("UPDATE driver SET driver_type = ? WHERE id = 1", driverType);
+        return tokenAuthenticationService.issueToken(new AuthenticatedUser(101L, "13800000101", 2L, role, role,
+                Set.of("approval:create", "approval:process", "approval:return", "approval:flow:manage", "approval:history:view")));
     }
 
     private long createApproval(int amount) throws Exception {

@@ -448,7 +448,7 @@ paths:
     post:
       tags: [Imports]
       summary: 导入预览与预校验
-      description: 原始文件必须先通过附件中心上传为 IMPORT_FILE；后端根据 originalFileId 读取真实 xlsx/xls/csv 文件并解析为标准行数据，预览阶段保存 import_task/import_row 并做格式、引用和重复预校验。
+      description: 原始文件必须先通过附件中心上传为 IMPORT_FILE（ownerType=IMPORT、ownerId=0）；每个 originalFileId 只能绑定一个导入任务，重复或并发 preview 仅允许一次成功，其余返回 409/ATTACHMENT_004，提示“该上传文件已用于导入任务，请重新上传文件后创建新的导入任务”；重新上传相同内容可创建新任务，但业务数据重复仍按原有规则校验；后端根据 originalFileId 读取真实 xlsx/xls/csv 文件并解析为标准行数据，预览阶段保存 import_task/import_row 并做格式、引用和重复预校验。
       x-permission: import:preview
       requestBody:
         required: true
@@ -466,6 +466,7 @@ paths:
                   - type: object
                     properties:
                       data: {$ref: '#/components/schemas/ImportTask'}
+        '409': {$ref: '#/components/responses/BusinessConflict'}
   /imports/{id}/commit:
     post:
       tags: [Imports]
@@ -942,7 +943,7 @@ paths:
     post:
       tags: [Attachments]
       summary: 上传原始文件
-      description: 文件本体写入 StorageService，数据库仅保存元数据和 storageKey；后端按 purpose 校验既有业务权限，不注册 attachment:* 同义权限码。审批申请创建前上传图片时使用 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION；创建或重新提交审批成功后，后端原子绑定到对应 approval instance，并把附件 ID 固化进 submission snapshot。
+      description: 每次真实上传均创建新的附件 ID、唯一 storageKey 和上传时间，所有 purpose 均不按文件名、内容或 SHA-256 复用旧附件；originalFilename 保留客户端文件名，fileHash 仅记录 SHA-256 内容指纹。文件本体写入 StorageService，数据库仅保存元数据和 storageKey；后端按 purpose 校验既有业务权限，不注册 attachment:* 同义权限码。审批申请创建前上传图片时使用 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION；创建或重新提交审批成功后，后端原子绑定到对应 approval instance，并把附件 ID 固化进 submission snapshot。
       requestBody:
         required: true
         content:

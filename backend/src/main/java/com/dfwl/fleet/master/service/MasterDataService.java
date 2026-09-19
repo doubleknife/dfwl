@@ -3,17 +3,18 @@ package com.dfwl.fleet.master.service;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.master.api.BindingHistoryResponse;
-import com.dfwl.fleet.master.api.CustomerRequest;
-import com.dfwl.fleet.master.api.CustomerResponse;
-import com.dfwl.fleet.master.api.DriverRequest;
-import com.dfwl.fleet.master.api.DriverResponse;
-import com.dfwl.fleet.master.api.ProductRequest;
-import com.dfwl.fleet.master.api.ProductResponse;
-import com.dfwl.fleet.master.api.TrailerRequest;
-import com.dfwl.fleet.master.api.TrailerResponse;
-import com.dfwl.fleet.master.api.VehicleRequest;
-import com.dfwl.fleet.master.api.VehicleResponse;
+import com.dfwl.fleet.master.dto.response.BindingHistoryResponse;
+import com.dfwl.fleet.master.dto.request.CustomerRequest;
+import com.dfwl.fleet.master.dto.response.CustomerResponse;
+import com.dfwl.fleet.master.dto.request.DriverRequest;
+import com.dfwl.fleet.master.dto.response.DriverResponse;
+import com.dfwl.fleet.master.dto.request.ProductRequest;
+import com.dfwl.fleet.master.dto.response.ProductResponse;
+import com.dfwl.fleet.master.dto.request.TrailerRequest;
+import com.dfwl.fleet.master.dto.response.TrailerResponse;
+import com.dfwl.fleet.master.dto.request.VehicleRequest;
+import com.dfwl.fleet.master.dto.response.VehicleResponse;
+import com.dfwl.fleet.master.policy.VehicleAccessPolicy;
 import com.dfwl.fleet.master.repository.MasterDataRepository;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentDriverContext;
@@ -32,10 +33,12 @@ public class MasterDataService {
 
     private final MasterDataRepository repository;
     private final CurrentUserService currentUserService;
+    private final VehicleAccessPolicy vehicleAccessPolicy;
 
-    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService) {
+    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy) {
         this.repository = repository;
         this.currentUserService = currentUserService;
+        this.vehicleAccessPolicy = vehicleAccessPolicy;
     }
 
     public PageResponse<CustomerResponse> listCustomers(int pageNo, int pageSize) {
@@ -156,7 +159,7 @@ public class MasterDataService {
     }
 
     public VehicleResponse findVehicleForCurrentDriver(AuthenticatedUser user, long id) {
-        currentUserService.ensureDriverCanViewVehicle(user, id);
+        vehicleAccessPolicy.ensureDriverCanViewVehicle(user, id);
         return findVehicle(id);
     }
 

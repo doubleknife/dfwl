@@ -4,14 +4,14 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.attachment.service.AttachmentService;
-import com.dfwl.fleet.attachment.service.AttachmentService.FileDownload;
+import com.dfwl.fleet.attachment.domain.AttachmentFile;
 import com.dfwl.fleet.security.AuthenticatedUser;
-import com.dfwl.fleet.tire.api.OcrConfirmRequest;
-import com.dfwl.fleet.tire.api.OcrRecordResponse;
-import com.dfwl.fleet.tire.api.OcrTireNumberRequest;
-import com.dfwl.fleet.tire.api.TireRequestCreateRequest;
-import com.dfwl.fleet.tire.api.TireRequestResponse;
-import com.dfwl.fleet.tire.api.TireResponse;
+import com.dfwl.fleet.tire.dto.request.OcrConfirmRequest;
+import com.dfwl.fleet.tire.dto.response.OcrRecordResponse;
+import com.dfwl.fleet.tire.dto.request.OcrTireNumberRequest;
+import com.dfwl.fleet.tire.dto.request.TireRequestCreateRequest;
+import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireResponse;
 import com.dfwl.fleet.tire.ocr.OcrProperties;
 import com.dfwl.fleet.tire.ocr.OcrProvider;
 import com.dfwl.fleet.tire.ocr.OcrProviderException;
@@ -58,7 +58,7 @@ public class TireService {
 
     @Transactional
     public OcrRecordResponse recognize(OcrTireNumberRequest request, AuthenticatedUser user) {
-        FileDownload download = attachmentService.download(request.attachmentId(), user);
+        AttachmentFile download = attachmentService.download(request.attachmentId(), user);
         if (!"TIRE_OCR".equals(download.attachment().purpose())
                 || download.attachment().uploadedBy() != user.id()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);

@@ -1,9 +1,10 @@
 package com.dfwl.fleet.route.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.route.api.RouteRequest;
-import com.dfwl.fleet.route.api.RouteResponse;
-import com.dfwl.fleet.route.api.RouteWeightVersionResponse;
+import com.dfwl.fleet.route.domain.RouteStatus;
+import com.dfwl.fleet.route.dto.request.RouteRequest;
+import com.dfwl.fleet.route.dto.response.RouteResponse;
+import com.dfwl.fleet.route.dto.response.RouteWeightVersionResponse;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -26,6 +27,49 @@ public class RouteRepository {
 
     public RouteRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public boolean canDriverViewRoute(long routeId, long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM route_task
+                WHERE id = ? AND deleted_at IS NULL
+                  AND (
+                    assigned_driver_id = ?
+                    OR departure_driver_id = ?
+                  )
+                """, Integer.class, routeId, driverId, driverId);
+        return count != null && count > 0;
+    }
+
+    public boolean canDriverDepartRoute(long routeId, long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM route_task
+                WHERE id = ? AND deleted_at IS NULL
+                  AND status = ?
+                  AND assigned_driver_id = ?
+                """, Integer.class, routeId, RouteStatus.PUBLISHED.name(), driverId);
+        return count != null && count > 0;
+    }
+
+    public boolean canDriverUnloadRoute(long routeId, long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM route_task
+                WHERE id = ? AND deleted_at IS NULL
+                  AND status = ?
+                  AND departure_driver_id = ?
+                """, Integer.class, routeId, RouteStatus.IN_TRANSIT.name(), driverId);
+        return count != null && count > 0;
+    }
+
+    public void updateRouteSalary(long routeId, BigDecimal amount, String sourceType, long operatorId) {
+        jdbcTemplate.update("""
+                UPDATE route_task
+                SET driver_salary = ?, salary_source = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND deleted_at IS NULL
+                """, amount, sourceType, operatorId, routeId);
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize) {

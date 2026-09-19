@@ -1,11 +1,12 @@
 package com.dfwl.fleet.imports.service;
 
+import com.dfwl.fleet.attachment.service.AttachmentService;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.imports.api.ImportPreviewRequest;
-import com.dfwl.fleet.imports.api.ImportRowResponse;
-import com.dfwl.fleet.imports.api.ImportTaskResponse;
+import com.dfwl.fleet.imports.dto.request.ImportPreviewRequest;
+import com.dfwl.fleet.imports.dto.response.ImportRowResponse;
+import com.dfwl.fleet.imports.dto.response.ImportTaskResponse;
 import com.dfwl.fleet.imports.repository.ImportRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,13 +30,15 @@ public class ImportService {
     private final ObjectMapper objectMapper;
     private final ImportRowCommitService rowCommitService;
     private final ImportFileParser fileParser;
+    private final AttachmentService attachmentService;
 
     public ImportService(ImportRepository repository, ObjectMapper objectMapper, ImportRowCommitService rowCommitService,
-                         ImportFileParser fileParser) {
+                         ImportFileParser fileParser, AttachmentService attachmentService) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.rowCommitService = rowCommitService;
         this.fileParser = fileParser;
+        this.attachmentService = attachmentService;
     }
 
     @Transactional
@@ -78,7 +81,7 @@ public class ImportService {
                     businessType,
                     preparation.businessUniqueKey());
         }
-        repository.linkImportFile(request.originalFileId(), taskId);
+        attachmentService.bindImportFile(request.originalFileId(), taskId, operatorId);
         repository.updatePreviewCounts(taskId, successCount, failureCount);
         return repository.findTask(taskId, true).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }

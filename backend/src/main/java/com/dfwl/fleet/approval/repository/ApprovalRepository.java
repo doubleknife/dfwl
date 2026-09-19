@@ -1,13 +1,13 @@
 package com.dfwl.fleet.approval.repository;
 
-import com.dfwl.fleet.approval.api.ApprovalResponse;
-import com.dfwl.fleet.approval.api.ApprovalDetailResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowDetailResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowNodeResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowResponse;
-import com.dfwl.fleet.approval.api.ApprovalFlowUpdateRequest;
-import com.dfwl.fleet.approval.api.ApprovalListScope;
-import com.dfwl.fleet.attachment.api.AttachmentResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalDetailResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalFlowDetailResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalFlowNodeResponse;
+import com.dfwl.fleet.approval.dto.response.ApprovalFlowResponse;
+import com.dfwl.fleet.approval.dto.request.ApprovalFlowUpdateRequest;
+import com.dfwl.fleet.approval.dto.query.ApprovalListScope;
+import com.dfwl.fleet.attachment.dto.response.AttachmentResponse;
 import com.dfwl.fleet.common.api.PageResponse;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;

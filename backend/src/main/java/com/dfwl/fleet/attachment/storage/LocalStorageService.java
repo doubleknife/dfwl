@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.UUID;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -26,14 +28,12 @@ public class LocalStorageService implements StorageService {
     public StoredFile store(byte[] content, String originalFilename, String contentType) throws IOException {
         String hash = sha256(content);
         String extension = extensionOf(originalFilename);
-        String storageKey = "%s/%s/%s%s".formatted(hash.substring(0, 2), hash.substring(2, 4), hash, extension);
+        String uploadId = UUID.randomUUID().toString();
+        String storageKey = "%s/%s/%s%s".formatted(uploadId.substring(0, 2), uploadId.substring(2, 4), uploadId, extension);
         Path target = resolve(storageKey);
         Files.createDirectories(target.getParent());
-        boolean newlyCreated = !Files.exists(target);
-        if (newlyCreated) {
-            Files.write(target, content);
-        }
-        return new StoredFile(storageKey, content.length, hash, newlyCreated);
+        Files.write(target, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        return new StoredFile(storageKey, content.length, hash, true);
     }
 
     @Override

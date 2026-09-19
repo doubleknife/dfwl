@@ -1,9 +1,9 @@
 package com.dfwl.fleet.tire.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
-import com.dfwl.fleet.tire.api.OcrRecordResponse;
-import com.dfwl.fleet.tire.api.TireRequestResponse;
-import com.dfwl.fleet.tire.api.TireResponse;
+import com.dfwl.fleet.tire.dto.response.OcrRecordResponse;
+import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +26,62 @@ public class TireRepository {
     public TireRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+    }
+
+    public Optional<Long> findTireByNo(String tireNo) {
+        return jdbcTemplate.query("""
+                SELECT id FROM tire WHERE tire_no = ? AND deleted_at IS NULL
+                """, (rs, rowNum) -> rs.getLong("id"), tireNo).stream().findFirst();
+    }
+
+    public long insertImportedTire(ImportedTire tire) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement("""
+                    INSERT INTO tire (tire_no, barcode, arrival_time, description, status, data_source,
+                                      install_time, vehicle_id, driver_id)
+                    VALUES (?, ?, ?, ?, ?, 'IMPORT', ?, ?, ?)
+                    """, new String[]{"id"});
+            ps.setString(1, tire.tireNo());
+            ps.setString(2, tire.barcode());
+            ps.setTimestamp(3, tire.arrivalTime() == null ? null : Timestamp.valueOf(tire.arrivalTime()));
+            ps.setString(4, tire.description());
+            ps.setString(5, tire.status());
+            ps.setTimestamp(6, tire.installTime() == null ? null : Timestamp.valueOf(tire.installTime()));
+            ps.setObject(7, tire.vehicleId());
+            ps.setObject(8, tire.driverId());
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
+    }
+
+    public void insertImportedClaim(long tireId, long driverId, long vehicleId, LocalDateTime installTime) {
+        jdbcTemplate.update("""
+                INSERT INTO tire_claim (tire_id, driver_id, vehicle_id, install_time, source_type)
+                VALUES (?, ?, ?, ?, 'IMPORT')
+                """, tireId, driverId, vehicleId, Timestamp.valueOf(installTime));
+    }
+
+    public boolean importDriverExists(long id) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver WHERE id = ? AND status = 1 AND deleted_at IS NULL", Integer.class, id);
+        return count != null && count > 0;
+    }
+
+    public boolean importVehicleExists(long id) {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle WHERE id = ? AND status = 1 AND deleted_at IS NULL", Integer.class, id);
+        return count != null && count > 0;
+    }
+
+    public record ImportedTire(
+            String tireNo,
+            String barcode,
+            LocalDateTime arrivalTime,
+            String description,
+            String status,
+            LocalDateTime installTime,
+            Long vehicleId,
+            Long driverId
+    ) {
     }
 
     public PageResponse<TireResponse> list(int pageNo, int pageSize) {

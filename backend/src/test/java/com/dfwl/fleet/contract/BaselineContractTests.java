@@ -2,10 +2,10 @@ package com.dfwl.fleet.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.dfwl.fleet.common.domain.ApprovalFlowStatus;
-import com.dfwl.fleet.common.domain.ExpenseStatus;
-import com.dfwl.fleet.common.domain.ExpenseType;
-import com.dfwl.fleet.common.domain.RouteStatus;
+import com.dfwl.fleet.approval.domain.ApprovalFlowStatus;
+import com.dfwl.fleet.expense.domain.ExpenseStatus;
+import com.dfwl.fleet.expense.domain.ExpenseType;
+import com.dfwl.fleet.route.domain.RouteStatus;
 import com.dfwl.fleet.security.PermissionCode;
 import java.io.IOException;
 import java.nio.file.Files;
