@@ -21,3 +21,4 @@ media/
 apps/var/
 .git/
 
+.idea/
