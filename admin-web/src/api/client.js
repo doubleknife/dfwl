@@ -1,7 +1,7 @@
 import { authStore, clearSession } from '../stores/auth.js';
 import { unwrapApiPayload } from './response.js';
 
-export const API_BASE = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '';
 
 export class ApiError extends Error {
   constructor(message, code, status) {
