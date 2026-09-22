@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
-@Disabled("Manual MySQL dialect smoke test. Set TEST_MYSQL_JDBC_URL/USER/PASSWORD and run explicitly.")
+@EnabledIfEnvironmentVariable(named = "TEST_MYSQL_JDBC_URL", matches = ".+")
 class ReportMySqlIntegrationTest {
 
     @Test

@@ -29,13 +29,13 @@ public class SettlementRepository {
 
     public List<Map<String, Object>> versions(String yearMonth) {
         return jdbcTemplate.queryForList("""
-                SELECT v.id, m.year_month AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
+                SELECT v.id, m.`year_month` AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
                        v.route_expense AS routeExpense, v.daily_expense AS dailyExpense,
                        v.driver_salary AS driverSalary, v.total_profit AS totalProfit,
                        v.generated_by AS generatedBy, v.generated_at AS generatedAt
                 FROM settlement_version v
                 JOIN settlement_month m ON m.id = v.settlement_month_id
-                WHERE m.year_month = ?
+                WHERE m.`year_month` = ?
                 ORDER BY v.version_no DESC
                 """, yearMonth);
     }
@@ -47,7 +47,7 @@ public class SettlementRepository {
 
     public Map<String, Object> version(long versionId) {
         return jdbcTemplate.queryForMap("""
-                SELECT v.id, m.year_month AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
+                SELECT v.id, m.`year_month` AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
                        v.route_expense AS routeExpense, v.daily_expense AS dailyExpense,
                        v.driver_salary AS driverSalary, v.total_profit AS totalProfit,
                        v.generated_by AS generatedBy, v.generated_at AS generatedAt
@@ -97,14 +97,14 @@ public class SettlementRepository {
     private long ensureMonth(String yearMonth) {
         try {
             jdbcTemplate.update("""
-                    INSERT INTO settlement_month (year_month, latest_version_no)
+                    INSERT INTO settlement_month (`year_month`, latest_version_no)
                     SELECT ?, 0
-                    WHERE NOT EXISTS (SELECT 1 FROM settlement_month WHERE year_month = ?)
+                    WHERE NOT EXISTS (SELECT 1 FROM settlement_month WHERE `year_month` = ?)
                     """, yearMonth, yearMonth);
         } catch (DataIntegrityViolationException ignored) {
             // Another transaction created the same month concurrently; read it below.
         }
-        Long id = jdbcTemplate.queryForObject("SELECT id FROM settlement_month WHERE year_month = ?", Long.class, yearMonth);
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM settlement_month WHERE `year_month` = ?", Long.class, yearMonth);
         return id == null ? 0 : id;
     }
 

@@ -604,10 +604,10 @@ CREATE TABLE import_row (
 
 CREATE TABLE settlement_month (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-  year_month CHAR(7) NOT NULL,
+  `year_month` CHAR(7) NOT NULL,
   latest_version_no INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  UNIQUE KEY uk_settlement_month (year_month)
+  UNIQUE KEY uk_settlement_month (`year_month`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE settlement_version (
@@ -730,6 +730,9 @@ VALUES
   ('import:commit', '导入提交', 'API'),
   ('import:history', '导入历史', 'API'),
   ('import:failure:export', '失败明细导出', 'API'),
+  ('salary:view', '工资查看', 'API'),
+  ('salary:manage', '工资管理', 'API'),
+  ('salary:mine', '本人薪资查看', 'API'),
   ('report:dashboard', '经营看板', 'API'),
   ('report:profit', '利润报表', 'API'),
   ('report:vehicle', '车辆支出报表', 'API'),
@@ -743,3 +746,16 @@ VALUES
   ('role:manage', '角色管理', 'API'),
   ('permission:manage', '权限管理', 'API'),
   ('audit:view', '审计查看', 'API');
+
+INSERT IGNORE INTO sys_role_permission (role_id, permission_id)
+SELECT r.id, p.id
+FROM sys_role r
+CROSS JOIN sys_permission p
+WHERE r.role_code = 'ADMIN';
+
+-- 默认管理员账号：13900000001。初始密码见部署说明，首次登录后请立即修改密码。
+-- password_hash 由项目当前 BCryptPasswordEncoder 生成，数据库不保存明文密码。
+INSERT IGNORE INTO sys_user (phone, password_hash, role_id, status)
+SELECT '13900000001', '$2a$10$f1bYNYeJ1dGlLjWNF0MWRuVxizwhkJCootIqF736TFBvuJzcywZ6q', r.id, 1
+FROM sys_role r
+WHERE r.role_code = 'ADMIN';

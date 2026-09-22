@@ -599,10 +599,10 @@ CREATE TABLE import_row (
 
 CREATE TABLE settlement_month (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-  year_month CHAR(7) NOT NULL,
+  `year_month` CHAR(7) NOT NULL,
   latest_version_no INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  UNIQUE KEY uk_settlement_month (year_month)
+  UNIQUE KEY uk_settlement_month (`year_month`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE settlement_version (

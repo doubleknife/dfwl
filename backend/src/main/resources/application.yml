@@ -7,7 +7,7 @@ spring:
     password: fleet_ops
     driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:
-    enabled: false
+    enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
   jackson:
@@ -37,4 +37,4 @@ fleet:
     tencent:
       secret-id: ""
       secret-key: ""
-      region: ""
+      region: ap-guangzhou
