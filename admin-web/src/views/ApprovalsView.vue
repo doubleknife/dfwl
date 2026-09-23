@@ -2,12 +2,15 @@
 import { onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/DataTable.vue';
 import PanelSection from '../components/PanelSection.vue';
+import ApprovalCreateForm from '../components/ApprovalCreateForm.vue';
 import { approvalApi } from '../api/modules.js';
 import { confirmAndRun, useRequest } from '../composables/useRequest.js';
+import { can } from '../stores/auth.js';
 
 const { error, run } = useRequest();
 const approvals = ref([]);
 const detail = ref(null);
+const creating = ref(false);
 const actionForm = reactive({ instanceId: '', comment: '', targetNodeOrder: '' });
 
 async function load() {
@@ -49,13 +52,19 @@ async function returnNode() {
   }));
 }
 
-onMounted(load);
+onMounted(() => { if (can('approval:history:view')) load(); });
 </script>
 
 <template>
   <div class="view-stack">
     <p v-if="error" class="error">{{ error }}</p>
-    <PanelSection title="审批列表">
+    <PanelSection title="审批中心">
+      <button v-if="can('approval:create')" type="button" class="primary" @click="creating = !creating">{{ creating ? '收起发起表单' : '发起审批' }}</button>
+    </PanelSection>
+    <PanelSection v-if="creating && can('approval:create')" title="发起审批">
+      <ApprovalCreateForm @cancel="creating = false" @submitted="can('approval:history:view') && load()" />
+    </PanelSection>
+    <PanelSection v-if="can('approval:history:view')" title="审批列表">
       <DataTable :columns="[
         { key: 'id', label: '实例' }, { key: 'approvalType', label: '类型' }, { key: 'status', label: '状态' },
         { key: 'applicantUserId', label: '发起人' }, { key: 'currentNodeName', label: '当前节点' }, { key: 'actions', label: '操作' }
@@ -63,7 +72,7 @@ onMounted(load);
         <template #actions="{ row }"><button @click="show(row)">详情</button></template>
       </DataTable>
     </PanelSection>
-    <PanelSection title="审批处理与时间线">
+    <PanelSection v-if="can('approval:history:view')" title="审批处理与时间线">
       <form class="inline-form">
         <input v-model="actionForm.instanceId" aria-label="审批实例 ID" />
         <input v-model="actionForm.comment" aria-label="备注" />

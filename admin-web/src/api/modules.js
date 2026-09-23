@@ -9,8 +9,8 @@ export const dashboardApi = {
 };
 
 export const masterApi = {
-  drivers: () => apiClient.get('/drivers?pageNo=1&pageSize=100'),
-  vehicles: () => apiClient.get('/vehicles?pageNo=1&pageSize=100'),
+  drivers: (pageNo = 1) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=100`),
+  vehicles: (pageNo = 1) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=100`),
   trailers: () => apiClient.get('/trailers?pageNo=1&pageSize=100'),
   customers: () => apiClient.get('/customers?pageNo=1&pageSize=100'),
   products: () => apiClient.get('/products?pageNo=1&pageSize=100'),
@@ -31,7 +31,7 @@ export const masterApi = {
 };
 
 export const routeApi = {
-  list: () => apiClient.get('/routes?pageNo=1&pageSize=100'),
+  list: (pageNo = 1) => apiClient.get(`/routes?pageNo=${pageNo}&pageSize=100`),
   detail: (id) => apiClient.get(`/routes/${id}`),
   create: (body) => apiClient.post('/routes', body),
   update: (id, body) => apiClient.put(`/routes/${id}`, body),
@@ -72,6 +72,7 @@ export const approvalApi = {
 };
 
 export const approvalTemplateApi = {
+  available: () => apiClient.get('/approval-templates/available'),
   list: () => apiClient.get('/approval-templates'),
   detail: (templateId) => apiClient.get(`/approval-templates/${templateId}`),
   versions: (templateId) => apiClient.get(`/approval-templates/${templateId}/versions`),
@@ -81,6 +82,10 @@ export const approvalTemplateApi = {
   maintenance: (flowId) => apiClient.post(`/approval-flows/${flowId}/maintenance`, {}),
   createNextVersion: (flowId, body) => apiClient.put(`/approval-flows/${flowId}`, body),
   publish: (flowId) => apiClient.post(`/approval-flows/${flowId}/publish`, {})
+};
+
+export const attachmentApi = {
+  upload: (formData) => apiClient.upload('/attachments', formData)
 };
 
 export const tireApi = {

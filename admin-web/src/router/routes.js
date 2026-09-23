@@ -19,7 +19,7 @@ export const routes = [
   { key: 'routes', label: '线路管理', permission: 'route:list', component: RoutesView },
   { key: 'imports', label: '导入中心', permission: 'import:history', component: ImportCenterView },
   { key: 'expenses', label: '费用管理', permission: 'expense:list', component: ExpensesView },
-  { key: 'approvals', label: '审批中心', permission: 'approval:history:view', component: ApprovalsView },
+  { key: 'approvals', label: '审批中心', permission: ['approval:history:view', 'approval:create'], component: ApprovalsView },
   { key: 'approvalFlows', label: '审批模板', permission: 'approval:flow:manage', component: ApprovalFlowsView },
   { key: 'tires', label: '轮胎管理', permission: ['tire:list', 'tire:request'], component: TiresView },
   { key: 'salaries', label: '工资管理', permission: ['salary:view', 'salary:manage'], component: SalariesView },

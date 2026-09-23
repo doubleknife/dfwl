@@ -271,3 +271,4 @@ for (const [name, run] of tests) {
 }
 
 console.log(`${tests.length} tests passed`);
+await import('./approvalApplicationTests.mjs');
