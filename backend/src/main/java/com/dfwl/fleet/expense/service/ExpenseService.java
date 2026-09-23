@@ -78,6 +78,11 @@ public class ExpenseService {
         if (ExpenseStatus.REVERSED.name().equals(current.status()) || ExpenseStatus.REVERSAL.name().equals(current.status())) {
             throw new BusinessException(ErrorCode.EXPENSE_002);
         }
+        if ("APPROVAL".equals(current.sourceType())
+                && !(ExpenseStatus.PENDING_ATTRIBUTION.name().equals(current.status())
+                && isEnergy(current.expenseType()))) {
+            throw new BusinessException(ErrorCode.EXPENSE_004);
+        }
         validateAttribution(request.attributionType(), request.routeId(), false);
         repository.updateAttribution(id, request.attributionType(), request.routeId(), operatorId);
         repository.insertAttributionHistory(

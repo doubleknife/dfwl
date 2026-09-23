@@ -10,12 +10,18 @@ import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.expense.dto.request.ExpenseRequest;
 import com.dfwl.fleet.expense.repository.ExpenseRepository;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -39,31 +45,70 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
 
     @Override
     public void onApproved(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
-        if (repository.findByApprovalInstanceId(approval.approvalInstanceId()).isPresent()) {
-            return;
-        }
         JsonNode snapshot = readSnapshot(submission);
-        ExpenseRequest request = buildRequest(approval.approvalInstanceId(), snapshot);
-        validate(request);
-        Long routeId = request.routeId();
-        long expenseId = repository.create(nextExpenseNo(), request, ExpenseStatus.ACTIVE.name(), routeId, operatorId);
-        insertDetail(expenseId, request, snapshot);
+        JsonNode items = snapshot.path("items");
+        boolean legacy = !items.isArray();
+        if (legacy) {
+            // Historical submissions predate the unified item snapshot.
+            items = objectMapper.createArrayNode().add(snapshot);
+        }
+        if (items.isEmpty()) throw new BusinessException(ErrorCode.SYS_002);
+        Map<String, ExpenseRepository.ApprovalExpenseRow> existing = new HashMap<>();
+        for (var row : repository.approvalItems(approval.approvalInstanceId())) {
+            if (row.itemNo() == null || existing.put(row.itemNo(), row) != null) {
+                throw new BusinessException(ErrorCode.SYS_003.name(), "审批费用明细归属不完整");
+            }
+        }
+        HashSet<String> expected = new HashSet<>();
+        for (JsonNode item : items) {
+            String itemNo = legacy ? "1" : text(item, "itemNo", true);
+            if (!expected.add(itemNo)) throw new BusinessException(ErrorCode.SYS_002);
+            ExpenseRequest request = buildRequest(approval.approvalInstanceId(), snapshot, item);
+            validate(request);
+            var row = existing.get(itemNo);
+            if (row != null) {
+                ensureSame(row, request, item);
+                continue;
+            }
+            long expenseId = repository.create(nextExpenseNo(), request, ExpenseStatus.ACTIVE.name(),
+                    request.routeId(), operatorId, itemNo);
+            insertDetail(expenseId, request, item);
+        }
+        if (!expected.containsAll(existing.keySet())) {
+            throw new BusinessException(ErrorCode.SYS_003.name(), "审批费用明细与提交快照不一致");
+        }
     }
 
-    private ExpenseRequest buildRequest(long approvalInstanceId, JsonNode snapshot) {
+    private void ensureSame(ExpenseRepository.ApprovalExpenseRow row, ExpenseRequest request, JsonNode item) {
+        if (row.deleted() || !row.expenseType().equals(request.expenseType())
+                || !row.businessDate().equals(request.businessDate())
+                || row.vehicleId() != request.vehicleId()
+                || !Objects.equals(row.driverId(), request.driverId())
+                || !row.attributionType().equals(request.attributionType())
+                || !Objects.equals(row.routeId(), request.routeId())
+                || row.amount().compareTo(request.amount()) != 0
+                || row.energyDetail() != (request.energyDetail() != null)
+                || row.penaltyDetail() != item.hasNonNull("penaltyDetail")
+                || row.repairDetail() != item.hasNonNull("repairDetail")
+                || row.tollDetail() != item.hasNonNull("tollDetail")) {
+            throw new BusinessException(ErrorCode.SYS_003.name(), "审批费用明细与提交快照不一致: itemNo=" + row.itemNo());
+        }
+    }
+
+    private ExpenseRequest buildRequest(long approvalInstanceId, JsonNode snapshot, JsonNode item) {
         return new ExpenseRequest(
                 text(snapshot, "expenseType", true).toUpperCase(Locale.ROOT),
-                LocalDate.parse(text(snapshot, "businessDate", true)),
-                longValue(snapshot, "vehicleId", true),
-                longValue(snapshot, "driverId", false),
+                LocalDate.parse(text(item, "businessDate", true)),
+                longValue(item, "vehicleId", true),
+                longValue(item, "driverId", false),
                 text(snapshot, "attributionType", true).toUpperCase(Locale.ROOT),
                 longValue(snapshot, "routeId", false),
-                decimal(snapshot, "amount", true),
+                decimal(item, "amount", true),
                 "APPROVAL",
                 approvalInstanceId,
                 null,
-                text(snapshot, "remark", false),
-                energyDetail(snapshot));
+                text(item, "remark", false),
+                energyDetail(item));
     }
 
     private ExpenseRequest.EnergyDetailRequest energyDetail(JsonNode snapshot) {
@@ -86,6 +131,9 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
             throw new BusinessException(ErrorCode.SYS_002);
         }
         if (!repository.vehicleExists(request.vehicleId())) {
+            throw new BusinessException(ErrorCode.DATA_001);
+        }
+        if (request.driverId() != null && !repository.driverExists(request.driverId())) {
             throw new BusinessException(ErrorCode.DATA_001);
         }
         if ("ROUTE".equals(request.attributionType())) {
@@ -132,7 +180,9 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
 
     private JsonNode readSnapshot(ApprovalSubmissionContext submission) {
         try {
-            return objectMapper.readTree(submission.businessSnapshotJson());
+            return objectMapper.readerFor(JsonNode.class)
+                    .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                    .readValue(submission.businessSnapshotJson());
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.SYS_003);
         }

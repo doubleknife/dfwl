@@ -203,6 +203,29 @@ public class ApprovalRepository {
         return keyHolder.getKey().longValue();
     }
 
+    public void linkSubmissionEvidence(long submissionVersionId, List<Long> attachmentIds) {
+        if (attachmentIds == null || attachmentIds.isEmpty()) return;
+        for (Long attachmentId : new java.util.LinkedHashSet<>(attachmentIds)) {
+            jdbcTemplate.update("""
+                    INSERT INTO approval_submission_attachment (submission_version_id, attachment_id)
+                    VALUES (?, ?)
+                    """, submissionVersionId, attachmentId);
+        }
+    }
+
+    public boolean canViewInstance(long instanceId, long userId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM approval_instance i
+                WHERE i.id = ? AND (i.applicant_user_id = ? OR EXISTS (
+                    SELECT 1 FROM approval_task t WHERE t.approval_instance_id = i.id AND t.approver_user_id = ?
+                ) OR EXISTS (
+                    SELECT 1 FROM approval_action a JOIN approval_task t ON t.id = a.task_id
+                    WHERE t.approval_instance_id = i.id AND a.operator_id = ?
+                ))
+                """, Integer.class, instanceId, userId, userId, userId);
+        return count != null && count > 0;
+    }
+
     public void createTask(long instanceId, long submissionVersionId, FlowNodeRecord node) {
         jdbcTemplate.update("""
                 INSERT INTO approval_task (approval_instance_id, submission_version_id, node_id, node_order, approver_user_id)
@@ -459,15 +482,18 @@ public class ApprovalRepository {
                 rs.getString("business_snapshot_json"),
                 rs.getLong("submitted_by"),
                 rs.getTimestamp("submitted_at").toLocalDateTime()), instanceId);
+        Map<Long, List<AttachmentResponse>> submissionAttachments = attachmentsBySubmission(instanceId);
         Map<Long, AttachmentResponse> approvalAttachments = attachmentsForApprovalInstance(instanceId);
         List<ApprovalDetailResponse.SubmissionVersion> submissions = rawSubmissions.stream()
                 .map(submission -> new ApprovalDetailResponse.SubmissionVersion(
                         submission.id(), submission.versionNo(), submission.businessSnapshotJson(),
                         submission.submittedBy(), submission.submittedAt(),
-                        attachmentIdsFromSnapshot(submission.businessSnapshotJson()).stream()
-                                .map(approvalAttachments::get)
-                                .filter(java.util.Objects::nonNull)
-                                .toList()))
+                        submissionAttachments.containsKey(submission.id())
+                                ? submissionAttachments.get(submission.id())
+                                : attachmentIdsFromSnapshot(submission.businessSnapshotJson()).stream()
+                                    .map(approvalAttachments::get)
+                                    .filter(java.util.Objects::nonNull)
+                                    .toList()))
                 .toList();
         Map<Long, MutableTaskHistory> tasks = new LinkedHashMap<>();
         jdbcTemplate.query("""
@@ -562,6 +588,29 @@ public class ApprovalRepository {
                     rs.getLong("uploaded_by"),
                     rs.getTimestamp("uploaded_at") == null ? null : rs.getTimestamp("uploaded_at").toLocalDateTime()));
         }, args.toArray());
+        return result;
+    }
+
+    private Map<Long, List<AttachmentResponse>> attachmentsBySubmission(long approvalInstanceId) {
+        Map<Long, List<AttachmentResponse>> result = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT e.submission_version_id, f.id, f.owner_type, f.owner_id, f.purpose,
+                       f.storage_key, f.original_filename, f.content_type, f.file_size,
+                       f.file_hash, f.uploaded_by, f.uploaded_at
+                FROM approval_submission_attachment e
+                JOIN approval_submission_version s ON s.id = e.submission_version_id
+                JOIN file_attachment f ON f.id = e.attachment_id
+                WHERE s.approval_instance_id = ?
+                ORDER BY e.submission_version_id, f.id
+                """, rs -> {
+            long versionId = rs.getLong("submission_version_id");
+            result.computeIfAbsent(versionId, ignored -> new ArrayList<>()).add(new AttachmentResponse(
+                    rs.getLong("id"), rs.getString("owner_type"), rs.getLong("owner_id"),
+                    rs.getString("purpose"), rs.getString("original_filename"),
+                    rs.getString("content_type"), rs.getLong("file_size"), rs.getString("file_hash"),
+                    rs.getString("storage_key"), rs.getLong("uploaded_by"),
+                    rs.getTimestamp("uploaded_at") == null ? null : rs.getTimestamp("uploaded_at").toLocalDateTime()));
+        }, approvalInstanceId);
         return result;
     }
 

@@ -14,6 +14,7 @@ import com.dfwl.fleet.approval.spi.ApprovalBusinessContext;
 import com.dfwl.fleet.approval.spi.ApprovalBusinessHandler;
 import com.dfwl.fleet.approval.spi.ApprovalCreationCommand;
 import com.dfwl.fleet.approval.spi.ApprovalSubmissionContext;
+import com.dfwl.fleet.approval.spi.ApprovalResubmissionContext;
 import com.dfwl.fleet.attachment.service.AttachmentService;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowNodeRecord;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowRecord;
@@ -97,26 +98,28 @@ public class ApprovalService {
     public ApprovalResponse create(ApprovalCreateRequest request, AuthenticatedUser user) {
         ApprovalInitiationService.Selected selected = initiationService.forCreate(request, user);
         return createSelected(selected.flow(), selected.businessType(), selected.businessId(),
-                selected.snapshot(), request.attachmentIds(), user.id());
+                selected.snapshot(), request.attachmentIds(), List.of(), user.id());
     }
 
     @Transactional
     public ApprovalResponse createBusinessApproval(ApprovalCreationCommand request, long operatorId) {
         FlowRecord flow = initiationService.forTire(request);
         return createSelected(flow, request.businessType(), request.businessId(), request.businessSnapshot(),
-                request.attachmentIds(), operatorId);
+                List.of(), request.attachmentIds(), operatorId);
     }
 
     private ApprovalResponse createSelected(FlowRecord flow, String businessType, Long businessId,
                                             Map<String, Object> businessSnapshot, List<Long> attachmentIds,
-                                            long operatorId) {
+                                            List<Long> referencedEvidenceIds, long operatorId) {
         attachmentService.requireTemporaryApprovalAttachments(operatorId, attachmentIds);
+        attachmentService.requireTireOcrEvidence(operatorId, referencedEvidenceIds);
         FlowNodeRecord firstNode = repository.firstNode(flow.id())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         long instanceId = repository.createInstance(nextApprovalNo(), flow, businessType, businessId, operatorId);
         Map<String, Object> snapshot = snapshotWithAttachments(businessSnapshot, attachmentIds);
         long submissionId = repository.createSubmission(instanceId, 1, toJson(snapshot), operatorId);
         attachmentService.bindApprovalApplicationAttachments(operatorId, attachmentIds, instanceId, submissionId);
+        repository.linkSubmissionEvidence(submissionId, evidenceIds(attachmentIds, referencedEvidenceIds));
         repository.createTask(instanceId, submissionId, firstNode);
         ApprovalResponse approval = find(instanceId);
         ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
@@ -203,17 +206,30 @@ public class ApprovalService {
         }
         ApprovalInitiationService.Selected selected = initiationService.forResubmit(approval, request, user);
         long operatorId = user.id();
+        ApprovalBusinessContext context = toBusinessContext(approval);
+        ApprovalResubmissionContext prepared = new ApprovalResubmissionContext(selected.snapshot(), List.of());
+        for (ApprovalBusinessHandler handler : businessHandlers) {
+            if (handler.supports(context)) {
+                prepared = handler.prepareResubmission(context, prepared.businessSnapshot(), operatorId);
+            }
+        }
+        if ("TIRE_REQUEST".equals(approval.businessType())) {
+            initiationService.validateResubmissionEvidence(approval.flowId(),
+                    evidenceIds(request.attachmentIds(), prepared.referencedEvidenceIds()));
+        }
         attachmentService.requireTemporaryApprovalAttachments(operatorId, request.attachmentIds());
+        attachmentService.requireTireOcrEvidence(operatorId, prepared.referencedEvidenceIds());
         FlowNodeRecord firstNode = repository.firstNode(approval.flowId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         repository.invalidatePendingTasks(id);
-        Map<String, Object> snapshot = snapshotWithAttachments(selected.snapshot(), request.attachmentIds());
+        Map<String, Object> snapshot = snapshotWithAttachments(prepared.businessSnapshot(), request.attachmentIds());
         long submissionId = repository.createSubmission(id, repository.nextSubmissionVersion(id), toJson(snapshot), operatorId);
         attachmentService.bindApprovalApplicationAttachments(operatorId, request.attachmentIds(), id, submissionId);
+        repository.linkSubmissionEvidence(submissionId,
+                evidenceIds(request.attachmentIds(), prepared.referencedEvidenceIds()));
         repository.moveToNode(id, firstNode.nodeOrder());
         repository.createTask(id, submissionId, firstNode);
         ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
-        ApprovalBusinessContext context = toBusinessContext(approval);
         businessHandlers.stream()
                 .filter(handler -> handler.supports(context))
                 .forEach(handler -> handler.onResubmitted(context, submission, operatorId));
@@ -278,9 +294,13 @@ public class ApprovalService {
         return repository.find(id).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }
 
-    public ApprovalDetailResponse detail(long id) {
+    public ApprovalDetailResponse detail(long id, AuthenticatedUser user) {
         ApprovalDetailResponse detail = repository.detail(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
+        if (!user.permissions().contains("approval:history:view")
+                && !repository.canViewInstance(id, user.id())) {
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
         FlowRecord flow = repository.findFlow(detail.approval().flowId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         return new ApprovalDetailResponse(detail.approval(), detail.submissions(), detail.tasks(),
@@ -346,6 +366,13 @@ public class ApprovalService {
             snapshot.put("attachmentIds", List.copyOf(attachmentIds));
         }
         return snapshot;
+    }
+
+    private List<Long> evidenceIds(List<Long> applicationIds, List<Long> referencedIds) {
+        Set<Long> ids = new java.util.LinkedHashSet<>();
+        if (applicationIds != null) ids.addAll(applicationIds);
+        if (referencedIds != null) ids.addAll(referencedIds);
+        return List.copyOf(ids);
     }
 
     private List<Long> actionAttachmentIds(ApprovalActionRequest request) {

@@ -64,6 +64,7 @@ public class TireService {
 
     @Transactional
     public OcrRecordResponse recognize(OcrTireNumberRequest request, AuthenticatedUser user) {
+        attachmentService.requireTireOcrEvidence(user.id(), List.of(request.attachmentId()));
         AttachmentFile download = attachmentService.download(request.attachmentId(), user);
         if (!"TIRE_OCR".equals(download.attachment().purpose())
                 || download.attachment().uploadedBy() != user.id()) {
@@ -126,6 +127,11 @@ public class TireService {
             throw new BusinessException(ErrorCode.DATA_001);
         }
         request.items().forEach(this::validateRequestItem);
+        List<Long> ocrAttachmentIds = request.items().stream()
+                .filter(item -> item.ocrRecordId() != null)
+                .map(item -> findOcr(item.ocrRecordId()).attachmentId())
+                .distinct().toList();
+        attachmentService.requireTireOcrEvidence(operatorId, ocrAttachmentIds);
         long requestId = repository.createRequest(request.driverId(), request.vehicleId());
         request.items().forEach(item -> {
             if (!repository.reserveTire(item.tireId())) {
@@ -148,7 +154,7 @@ public class TireService {
             return snapshotItem;
         }).toList());
         approvalService.createBusinessApproval(new ApprovalCreationCommand(
-                "TIRE_REQUEST", "TIRE_REQUEST", requestId, snapshot, List.of()), operatorId);
+                "TIRE_REQUEST", "TIRE_REQUEST", requestId, snapshot, ocrAttachmentIds), operatorId);
         return findRequest(requestId);
     }
 

@@ -259,6 +259,7 @@ CREATE TABLE expense_entry (
   source_type VARCHAR(16) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
   approval_instance_id BIGINT NULL,
+  approval_item_no VARCHAR(64) NULL,
   import_row_id BIGINT NULL,
   reversal_of_id BIGINT NULL,
   remark VARCHAR(1000) NULL,
@@ -267,7 +268,8 @@ CREATE TABLE expense_entry (
   updated_by BIGINT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
-  UNIQUE (expense_no)
+  UNIQUE (expense_no),
+  UNIQUE (approval_instance_id, approval_item_no)
 );
 
 CREATE TABLE expense_penalty_detail (
@@ -511,6 +513,14 @@ CREATE TABLE file_attachment (
   file_hash VARCHAR(128) NULL,
   uploaded_by BIGINT NOT NULL,
   uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE approval_submission_attachment (
+  submission_version_id BIGINT NOT NULL,
+  attachment_id BIGINT NOT NULL,
+  PRIMARY KEY (submission_version_id, attachment_id),
+  FOREIGN KEY (submission_version_id) REFERENCES approval_submission_version (id) ON DELETE CASCADE,
+  FOREIGN KEY (attachment_id) REFERENCES file_attachment (id)
 );
 
 CREATE TABLE ocr_record (

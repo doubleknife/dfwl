@@ -235,6 +235,11 @@ class P17BMiniProgramContractTests {
         assertThat(firstSnapshot).doesNotContain(String.valueOf(secondAttachment));
         assertThat(secondSnapshot).contains("\"attachmentIds\":[" + secondAttachment + "]");
         assertThat(secondSnapshot).doesNotContain(String.valueOf(firstAttachment));
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT e.attachment_id FROM approval_submission_attachment e
+                JOIN approval_submission_version s ON s.id = e.submission_version_id
+                WHERE s.approval_instance_id = ? ORDER BY s.version_no
+                """, Long.class, approvalId)).containsExactly(firstAttachment, secondAttachment);
 
         mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
                         .header("Authorization", "Bearer " + applicantToken))
@@ -259,6 +264,9 @@ class P17BMiniProgramContractTests {
                 .isEqualTo("APPROVAL_ACTION");
         assertThat(jdbcTemplate.queryForObject("SELECT owner_id FROM file_attachment WHERE id = ?", Long.class, actionAttachment))
                 .isEqualTo(actionId);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM approval_submission_attachment WHERE attachment_id = ?", Integer.class, actionAttachment))
+                .isZero();
         mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
                         .header("Authorization", "Bearer " + approverToken))
                 .andExpect(status().isOk())
@@ -288,7 +296,8 @@ class P17BMiniProgramContractTests {
     @Test
     void returnNodeBindsActionImage() throws Exception {
         jdbcTemplate.update("INSERT INTO approval_flow_node (id, flow_id, node_order, node_name, approver_user_id) VALUES (11, 1, 2, '复审', 2)");
-        long approvalId = createApprovalWithAttachments(applicantToken, uploadTemporaryApprovalAttachment(applicantToken, 1));
+        long submissionAttachment = uploadTemporaryApprovalAttachment(applicantToken, 1);
+        long approvalId = createApprovalWithAttachments(applicantToken, submissionAttachment);
         mockMvc.perform(post("/api/v1/approvals/%d/approve".formatted(approvalId))
                         .header("Authorization", "Bearer " + approverToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -305,8 +314,15 @@ class P17BMiniProgramContractTests {
         mockMvc.perform(get("/api/v1/approvals/%d".formatted(approvalId))
                         .header("Authorization", "Bearer " + approverToken))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submissions.length()").value(1))
+                .andExpect(jsonPath("$.data.submissions[0].attachments[0].id").value(submissionAttachment))
                 .andExpect(jsonPath("$.data.tasks[1].actions[0].actionType").value("RETURN_NODE"))
                 .andExpect(jsonPath("$.data.tasks[1].actions[0].attachments[0].id").value(actionAttachment));
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM approval_submission_attachment e
+                JOIN approval_submission_version s ON s.id = e.submission_version_id
+                WHERE s.approval_instance_id = ?
+                """, Integer.class, approvalId)).isEqualTo(1);
     }
 
     @Test

@@ -93,7 +93,7 @@ class ApprovalBusinessEffectTests {
         jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (2, 1, '库管', 2)");
 
         applicantToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "1380", 1L, "admin", "管理员", Set.of(
-                "approval:create", "approval:return", "tire:request", "expense:edit", "expense:delete", "expense:reversal", "expense:approval:view")));
+                "approval:create", "approval:return", "tire:request", "expense:edit", "expense:delete", "expense:reversal", "expense:approval:view", "expense:attribution:edit")));
         approverToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(2L, "1381", 1L, "finance", "财务", Set.of(
                 "approval:process", "approval:return")));
     }
@@ -171,6 +171,13 @@ class ApprovalBusinessEffectTests {
                 .andExpect(jsonPath("$.code").value("EXPENSE_004"));
 
         mockMvc.perform(delete("/api/v1/expenses/%d".formatted(expenseId)).header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXPENSE_004"));
+
+        mockMvc.perform(put("/api/v1/expenses/%d/attribution".formatted(expenseId))
+                        .header("Authorization", "Bearer " + applicantToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"attributionType\":\"ROUTE\",\"routeId\":1,\"reason\":\"attempted direct edit\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXPENSE_004"));
 

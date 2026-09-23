@@ -237,11 +237,118 @@ class TireApiTests {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_version", Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT business_snapshot_json FROM approval_submission_version", String.class))
                 .contains("\"ocrRecordId\":" + ocrId, "\"ocrAttachmentId\":" + attachmentId);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_attachment WHERE attachment_id = ?", Integer.class, attachmentId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT owner_type FROM file_attachment WHERE id = ?", String.class, attachmentId))
+                .isEqualTo("TIRE_OCR");
+        assertThat(jdbcTemplate.queryForObject("SELECT purpose FROM file_attachment WHERE id = ?", String.class, attachmentId))
+                .isEqualTo("TIRE_OCR");
+        long approvalId = jdbcTemplate.queryForObject("SELECT approval_instance_id FROM tire_request WHERE id = ?", Long.class, requestId);
+        mockMvc.perform(get("/api/v1/approvals/{id}", approvalId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submissions[0].attachments[0].id").value(attachmentId));
 
         mockMvc.perform(get("/api/v1/tire-requests/" + requestId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].confirmedTireNo").value("H621769799"));
+    }
+
+    @Test
+    void tireEvidenceIsVersionedAndOnlyApprovalActorsCanReadOriginalImage() throws Exception {
+        long imageId = uploadTireOcrImage(token, new byte[]{4, 5, 6});
+        long ocrId = readId(recognize(imageId, token).andExpect(status().isOk()).andReturn());
+        confirm(ocrId, "H621769799").andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/tire-requests").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"driverId":1,"vehicleId":1,
+                                 "items":[{"tireId":1,"confirmedTireNo":"H621769799","ocrRecordId":%d}]}
+                                """.formatted(ocrId)))
+                .andExpect(status().isOk());
+        long requestId = jdbcTemplate.queryForObject("SELECT id FROM tire_request", Long.class);
+        long approvalId = jdbcTemplate.queryForObject("SELECT approval_instance_id FROM tire_request WHERE id = ?", Long.class, requestId);
+        String approver = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                2L, "1390", 2L, "APPROVER", "审批人", Set.of("approval:process", "approval:return")));
+        String stranger = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                3L, "1391", 3L, "DRIVER", "无关人", Set.of("approval:create", "tire:request")));
+        mockMvc.perform(get("/api/v1/approvals/{id}", approvalId).header("Authorization", "Bearer " + approver))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.submissions[0].attachments[0].id").value(imageId));
+        mockMvc.perform(get("/api/v1/attachments/{id}", imageId).header("Authorization", "Bearer " + approver))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/approvals/{id}", approvalId).header("Authorization", "Bearer " + stranger))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/attachments/{id}", imageId).header("Authorization", "Bearer " + stranger))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/v1/approvals/{id}/return-applicant", approvalId)
+                        .header("Authorization", "Bearer " + approver).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/approvals/{id}/resubmit", approvalId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approvalType\":\"TIRE_REQUEST\",\"businessType\":\"TIRE_REQUEST\",\"businessId\":%d,\"businessSnapshot\":{\"requestId\":%d,\"vehicleId\":999}}".formatted(requestId, requestId)))
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_version WHERE approval_instance_id = ?", Integer.class, approvalId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_attachment", Integer.class))
+                .isEqualTo(1);
+        mockMvc.perform(post("/api/v1/approvals/{id}/resubmit", approvalId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approvalType\":\"TIRE_REQUEST\",\"businessType\":\"TIRE_REQUEST\",\"businessId\":%d,\"businessSnapshot\":{\"requestId\":%d}}".formatted(requestId, requestId)))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT e.attachment_id FROM approval_submission_attachment e
+                JOIN approval_submission_version s ON s.id = e.submission_version_id
+                WHERE s.approval_instance_id = ? ORDER BY s.version_no
+                """, Long.class, approvalId)).containsExactly(imageId, imageId);
+        mockMvc.perform(get("/api/v1/approvals/{id}", approvalId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.submissions[0].attachments[0].id").value(imageId))
+                .andExpect(jsonPath("$.data.submissions[1].attachments[0].id").value(imageId))
+                .andExpect(jsonPath("$.data.submissions[1].businessSnapshotJson").value(org.hamcrest.Matchers.containsString("ocrAttachmentId")));
+        mockMvc.perform(post("/api/v1/approvals/{id}/approve", approvalId)
+                        .header("Authorization", "Bearer " + approver).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_claim WHERE request_id = ?", Integer.class, requestId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire WHERE id = 1", String.class)).isEqualTo("CLAIMED");
+    }
+
+    @Test
+    void anotherUsersConfirmedOcrRecordCannotBecomeMySubmissionEvidence() throws Exception {
+        long otherImage = uploadTireOcrImage(otherToken, new byte[]{7});
+        long otherOcr = readId(recognize(otherImage, otherToken).andExpect(status().isOk()).andReturn());
+        mockMvc.perform(post("/api/v1/ocr/{id}/confirm", otherOcr)
+                        .header("Authorization", "Bearer " + otherToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmedText\":\"H621769799\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/tire-requests").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"driverId":1,"vehicleId":1,
+                                 "items":[{"tireId":1,"confirmedTireNo":"H621769799","ocrRecordId":%d}]}
+                                """.formatted(otherOcr)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ATTACHMENT_004"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_request", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_instance", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_attachment", Integer.class)).isZero();
+    }
+
+    @Test
+    void approvalCreationFailureRollsBackTireReservationAndEvidence() throws Exception {
+        long imageId = uploadTireOcrImage(token, new byte[]{8});
+        long ocrId = readId(recognize(imageId, token).andExpect(status().isOk()).andReturn());
+        confirm(ocrId, "H621769799").andExpect(status().isOk());
+        jdbcTemplate.update("DELETE FROM approval_flow_node WHERE flow_id = 1");
+
+        mockMvc.perform(post("/api/v1/tire-requests").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"driverId":1,"vehicleId":1,
+                                 "items":[{"tireId":1,"confirmedTireNo":"H621769799","ocrRecordId":%d}]}
+                                """.formatted(ocrId)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("APPROVAL_001"));
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire WHERE id = 1", String.class)).isEqualTo("IN_STOCK");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_request", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_instance", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_attachment", Integer.class)).isZero();
     }
 
     @Test

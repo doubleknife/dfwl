@@ -15,6 +15,11 @@ import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import java.util.LinkedHashMap;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -70,13 +75,14 @@ public class ApprovalInitiationService {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
         if ("TIRE".equals(template.category())) {
+            requireSnapshot(request);
             access.ensureCanSubmit(user, approval.approvalType(), approval.businessType());
-            validateEvidence(flow.id(), request.attachmentIds());
             return new Selected(flow, approval.businessType(), approval.businessId(), request.businessSnapshot());
         }
         VersionSettings settings = settings(flow.id());
         if ("NEEDS_REVIEW".equals(settings.configurationStatus())
                 && template.templateCode().equals(approval.approvalType())) {
+            requireSnapshot(request);
             access.ensureCanSubmit(user, approval.approvalType(), approval.businessType());
             validateEvidence(flow.id(), request.attachmentIds());
             return new Selected(flow, approval.businessType(), approval.businessId(), request.businessSnapshot());
@@ -96,6 +102,10 @@ public class ApprovalInitiationService {
         FlowRecord flow = active(template.id());
         validateEvidence(flow.id(), command.attachmentIds());
         return flow;
+    }
+
+    public void validateResubmissionEvidence(long flowId, List<Long> attachmentIds) {
+        validateEvidence(flowId, attachmentIds);
     }
 
     private Selected legacy(ApprovalCreateRequest request, AuthenticatedUser user) {
@@ -120,6 +130,7 @@ public class ApprovalInitiationService {
         if (!"NEEDS_REVIEW".equals(settings.configurationStatus())) {
             throw new BusinessException(ErrorCode.APPROVAL_001);
         }
+        requireSnapshot(request);
         if (request.businessType() == null || request.businessType().isBlank()) {
             throw new BusinessException(ErrorCode.SYS_002);
         }
@@ -144,7 +155,9 @@ public class ApprovalInitiationService {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
         validateEvidence(flow.id(), request.attachmentIds());
-        Map<String, Object> snapshot = new LinkedHashMap<>(request.businessSnapshot());
+        if (!"EXPENSE".equals(template.category())) requireSnapshot(request);
+        Map<String, Object> snapshot = new LinkedHashMap<>(
+                request.businessSnapshot() == null ? Map.of() : request.businessSnapshot());
         if ("EXPENSE".equals(template.category())) {
             ExpenseSettings config = templates.expenseConfig(flow.id())
                     .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
@@ -152,7 +165,6 @@ public class ApprovalInitiationService {
             if (suppliedType != null && !suppliedType.equals(config.expenseType())) {
                 throw new BusinessException(ErrorCode.APPROVAL_002);
             }
-            snapshot.put("expenseType", config.expenseType());
             String attribution = request.attributionType() == null
                     ? string(snapshot.get("attributionType")) : request.attributionType();
             if (request.attributionType() != null && snapshot.get("attributionType") != null
@@ -168,12 +180,15 @@ public class ApprovalInitiationService {
                     || "DAILY".equals(attribution) && config.allowDaily())) {
                 throw new BusinessException(ErrorCode.EXPENSE_003);
             }
-            expenses.ensureCanSubmit(user, number(snapshot.get("vehicleId")), number(snapshot.get("driverId")),
-                    attribution, routeId);
+            List<Map<String, Object>> items = expenseItems(request, snapshot, config.expenseType(),
+                    user, attribution, routeId);
+            snapshot.clear();
+            snapshot.put("templateId", template.id());
+            snapshot.put("expenseType", config.expenseType());
             snapshot.put("attributionType", attribution);
-            if (routeId == null) snapshot.remove("routeId");
-            else snapshot.put("routeId", routeId);
-        } else if (request.attributionType() != null || request.routeId() != null) {
+            if (routeId != null) snapshot.put("routeId", routeId);
+            snapshot.put("items", items);
+        } else if (request.attributionType() != null || request.routeId() != null || request.items() != null) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
         return new Selected(flow, template.approvalType(), request.businessId(), snapshot);
@@ -183,6 +198,10 @@ public class ApprovalInitiationService {
         if (user == null || user.permissions() == null || !user.permissions().contains("approval:create")) {
             throw new AccessDeniedException("approval:create required");
         }
+    }
+
+    private void requireSnapshot(ApprovalCreateRequest request) {
+        if (request.businessSnapshot() == null) throw new BusinessException(ErrorCode.SYS_002);
     }
 
     private TemplateRecord requireTemplate(long id) {
@@ -212,6 +231,86 @@ public class ApprovalInitiationService {
 
     private String string(Object value) {
         return value == null ? null : value.toString();
+    }
+
+    private List<Map<String, Object>> expenseItems(ApprovalCreateRequest request,
+                                                    Map<String, Object> original, String expenseType,
+                                                    AuthenticatedUser user, String attribution, Long routeId) {
+        boolean legacyFields = List.of("itemNo", "vehicleId", "driverId", "amount", "businessDate",
+                "remark", "energyDetail", "penaltyDetail", "repairDetail", "tollDetail")
+                .stream().anyMatch(original::containsKey);
+        if (request.items() != null && (legacyFields || original.containsKey("items")
+                || original.containsKey("expenseType"))) {
+            throw new BusinessException(ErrorCode.SYS_002.name(), "items 与旧单条字段不能同时提交");
+        }
+        if (request.items() == null && original.containsKey("items")) {
+            throw new BusinessException(ErrorCode.SYS_002.name(), "费用明细应通过 items 提交");
+        }
+        List<Map<String, Object>> supplied;
+        if (request.items() != null) {
+            supplied = request.items();
+        } else {
+            Map<String, Object> single = new LinkedHashMap<>();
+            single.put("itemNo", "1");
+            for (String key : List.of("vehicleId", "driverId", "amount", "businessDate", "remark",
+                    "energyDetail", "penaltyDetail", "repairDetail", "tollDetail")) {
+                if (original.containsKey(key)) single.put(key, original.get(key));
+            }
+            supplied = List.of(single);
+        }
+        if (supplied.isEmpty()) {
+            throw new BusinessException(ErrorCode.SYS_002.name(), "items 不能为空");
+        }
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        HashSet<String> seen = new HashSet<>();
+        for (Map<String, Object> raw : supplied) {
+            String itemNo = raw == null ? null : string(raw.get("itemNo"));
+            if (itemNo == null || !itemNo.matches("[A-Za-z0-9_-]{1,64}")) {
+                throw new BusinessException(ErrorCode.SYS_002.name(), "itemNo 不合法: " + itemNo);
+            }
+            if (!seen.add(itemNo)) {
+                throw new BusinessException(ErrorCode.SYS_002.name(), "itemNo=" + itemNo + " 重复");
+            }
+            try {
+                if (raw.keySet().stream().anyMatch(key -> !List.of("itemNo", "vehicleId", "driverId",
+                        "amount", "businessDate", "remark", "energyDetail", "penaltyDetail",
+                        "repairDetail", "tollDetail").contains(key))) {
+                    throw new BusinessException(ErrorCode.SYS_002);
+                }
+                if (raw.get("remark") != null && raw.get("remark").toString().length() > 1000) {
+                    throw new BusinessException(ErrorCode.SYS_002);
+                }
+                Long vehicleId = number(raw.get("vehicleId"));
+                Long driverId = number(raw.get("driverId"));
+                if (vehicleId == null || vehicleId <= 0 || driverId != null && driverId <= 0) {
+                    throw new BusinessException(ErrorCode.SYS_002);
+                }
+                BigDecimal amount = new BigDecimal(Objects.toString(raw.get("amount"), ""));
+                if (amount.signum() <= 0 || amount.scale() > 2 || amount.precision() > 18) {
+                    throw new BusinessException(ErrorCode.SYS_002);
+                }
+                LocalDate businessDate = LocalDate.parse(Objects.toString(raw.get("businessDate"), ""));
+                expenses.ensureCanSubmit(user, vehicleId, driverId, attribution, routeId);
+                expenses.ensureValidDetails(expenseType, raw);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("itemNo", itemNo);
+                item.put("vehicleId", vehicleId);
+                if (driverId != null) item.put("driverId", driverId);
+                item.put("amount", amount);
+                item.put("businessDate", businessDate.toString());
+                for (String key : List.of("remark", "energyDetail", "penaltyDetail", "repairDetail", "tollDetail")) {
+                    if (raw.get(key) != null) item.put(key, raw.get(key));
+                }
+                normalized.add(item);
+            } catch (BusinessException ex) {
+                throw new BusinessException(ex.code(), "itemNo=" + itemNo + ": " + ex.getMessage());
+            } catch (AccessDeniedException ex) {
+                throw new AccessDeniedException("itemNo=" + itemNo + ": " + ex.getMessage());
+            } catch (NumberFormatException | DateTimeParseException ex) {
+                throw new BusinessException(ErrorCode.SYS_002.name(), "itemNo=" + itemNo + ": 字段格式不合法");
+            }
+        }
+        return normalized;
     }
 
     private Long number(Object value) {

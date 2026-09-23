@@ -1326,22 +1326,41 @@ components:
       enum: [TODO, DONE, MINE, ALL]
     ApprovalCreateRequest:
       type: object
-      required: [businessSnapshot]
       properties:
         templateId: {type: [integer, 'null'], format: int64, description: 通用新申请选择稳定模板身份；TIRE 专用入口不传。}
         approvalType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
         businessType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
         businessId: {type: [integer, 'null'], format: int64}
-        attributionType: {type: [string, 'null'], enum: [ROUTE, DAILY, null], description: EXPENSE 归属；若快照中也提供，必须一致。}
-        routeId: {type: [integer, 'null'], format: int64, description: ROUTE 归属时必填；DAILY 必须为空。}
+        attributionType: {type: [string, 'null'], enum: [ROUTE, DAILY, null], description: EXPENSE 整个申请共享的归属；ROUTE 必须指定 routeId，DAILY 不得指定。}
+        routeId: {type: [integer, 'null'], format: int64, description: EXPENSE 申请级线路 ID；ROUTE 必填，DAILY 必须为空。}
+        items:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ApprovalExpenseItemRequest'}
+          description: EXPENSE 统一明细；费用类型由所选模板版本确定。单条也使用一项。旧单条字段仅可单独放在 businessSnapshot，由服务端转为一项；不得与 items 同时提交。本地 Excel 解析结果只能转为此 JSON，不上传 Excel 文件。
         businessSnapshot:
           type: object
           additionalProperties: true
-          description: 发起或重提时的申请快照；EXPENSE 现阶段仍为单条费用，费用类型以所选模板配置为准。服务端只把经过校验的顶层 attachmentIds 固化到快照。
+          description: 其他审批必传的申请快照；EXPENSE 新请求可省略，服务端从模板、归属和 items 构造正式快照。旧单条费用请求仅在未传 items 时兼容。服务端只把经过校验的顶层 attachmentIds 固化到快照。
         attachmentIds:
           type: array
           items: {type: integer, format: int64}
           description: 已通过 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION 预上传的附件 ID。
+    ApprovalExpenseItemRequest:
+      type: object
+      required: [itemNo, vehicleId, amount, businessDate]
+      properties:
+        itemNo: {type: string, pattern: '^[A-Za-z0-9_-]{1,64}$', description: 同一审批内唯一且重提时稳定的明细序号。}
+        vehicleId: {type: integer, format: int64}
+        driverId: {type: [integer, 'null'], format: int64}
+        amount: {type: number, multipleOf: 0.01, exclusiveMinimum: 0}
+        businessDate: {type: string, format: date}
+        remark: {type: [string, 'null']}
+        energyDetail: {type: [object, 'null'], description: ELECTRIC/GAS/TEMP_ELECTRIC 必填；沿用现有 energyType、stationId、orderNo、startTime、quantity 字段。}
+        penaltyDetail: {type: [object, 'null'], description: 可选的现有罚款分类明细字段。}
+        repairDetail: {type: [object, 'null'], description: 可选的现有维修分类明细字段。}
+        tollDetail: {type: [object, 'null'], description: 可选的现有过路费分类明细字段。}
+      description: 不接受 expenseType、attributionType、routeId 或 Excel 文件/来源字段；这些由模板与申请级契约确定。
     ApprovalActionRequest:
       type: object
       properties:
@@ -1530,7 +1549,7 @@ components:
               submittedAt: {type: string, format: date-time}
               attachments:
                 type: array
-                description: 当前 submission version 的申请人原始单据附件。
+                description: 当前 Submission Version 的正式证据引用；可包含原 TIRE_OCR 图片，不复制文件或改变其 owner/purpose。不同版本分别返回各自证据，审批动作图片仅在 tasks.actions.attachments 中返回。
                 items: {$ref: '#/components/schemas/Attachment'}
         tasks:
           type: array

@@ -134,6 +134,19 @@ public class AttachmentService {
         requireTemporaryApprovalAttachments(userId, attachmentIds, "APPROVAL_ACTION");
     }
 
+    @Transactional(readOnly = true)
+    public void requireTireOcrEvidence(long userId, List<Long> attachmentIds) {
+        if (attachmentIds == null || attachmentIds.isEmpty()) return;
+        List<FileAttachment> attachments = repository.findByIds(attachmentIds);
+        if (attachments.size() != Set.copyOf(attachmentIds).size() || attachments.stream().anyMatch(attachment ->
+                !"TIRE_OCR".equals(attachment.purpose())
+                        || !"TIRE_OCR".equals(attachment.ownerType())
+                        || attachment.uploadedBy() != userId
+                        || !repository.ownerExists(attachment.ownerType(), attachment.ownerId()))) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
+        }
+    }
+
     private void requireTemporaryApprovalAttachments(long userId, List<Long> attachmentIds, String purpose) {
         List<FileAttachment> attachments = repository.findByIds(attachmentIds);
         if (attachments.size() != Set.copyOf(attachmentIds).size()) {
@@ -235,19 +248,38 @@ public class AttachmentService {
         try {
             requireRead(attachment, user);
             return true;
-        } catch (BusinessException ex) {
+        } catch (BusinessException | AccessDeniedException ex) {
             return false;
         }
     }
 
     private void requireRead(FileAttachment attachment, AuthenticatedUser user) {
         AttachmentPurpose purpose = normalizePurpose(attachment.purpose());
+        boolean history = has(user, "approval:history:view");
+        if (purpose == AttachmentPurpose.TIRE_OCR) {
+            if ((attachment.uploadedBy() == user.id() && has(user, "tire:request"))
+                    || repository.canViewSubmissionEvidence(attachment.id(), user.id(), history)) return;
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
+        if (purpose == AttachmentPurpose.APPROVAL_APPLICATION) {
+            if ("APPROVAL_UPLOAD".equals(attachment.ownerType())
+                    && attachment.uploadedBy() == user.id() && has(user, "approval:create")) return;
+            if (Set.of("APPROVAL", "APPROVAL_APPLICATION").contains(attachment.ownerType())
+                    && repository.canViewApprovalInstance(attachment.ownerId(), user.id(), history)) return;
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
+        if (purpose == AttachmentPurpose.APPROVAL_ACTION) {
+            if ("APPROVAL_UPLOAD".equals(attachment.ownerType())
+                    && attachment.uploadedBy() == user.id()
+                    && hasAny(user, "approval:process", "approval:return")) return;
+            if ("APPROVAL_ACTION".equals(attachment.ownerType())
+                    && repository.canViewApprovalAction(attachment.ownerId(), user.id(), history)) return;
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
         boolean allowed = switch (purpose) {
-            case TIRE_OCR -> hasAny(user, "tire:request", "tire:approval:view");
             case WEIGHT_ADJUST -> hasAny(user, "route:list", "route:weight:adjust");
-            case APPROVAL_APPLICATION -> hasAny(user, "approval:history:view", "approval:create", "approval:process", "approval:return");
-            case APPROVAL_ACTION -> hasAny(user, "approval:history:view", "approval:process", "approval:return");
             case IMPORT_FILE -> has(user, "import:history");
+            default -> false;
         };
         if (!allowed) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());

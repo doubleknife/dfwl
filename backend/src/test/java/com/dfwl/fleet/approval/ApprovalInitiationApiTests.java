@@ -42,6 +42,8 @@ class ApprovalInitiationApiTests {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private TokenAuthenticationService tokens;
     @Autowired private ApprovalService approvals;
+    @Autowired private com.dfwl.fleet.expense.service.ExpenseApprovalBusinessHandler expenseHandler;
+    @Autowired private com.dfwl.fleet.report.service.ReportService reports;
 
     private String finance;
     private String driver;
@@ -119,6 +121,187 @@ class ApprovalInitiationApiTests {
         create(finance, """
                 {"approvalType":"EXPENSE","businessType":"EXPENSE","businessSnapshot":{}}
                 """).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("APPROVAL_001"));
+    }
+
+    @Test
+    void routeItemsCreateThreeAtomicExpensesAndRetryDoesNotDuplicate() throws Exception {
+        template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 2);
+        create(finance, routeItems()).andExpect(status().isOk());
+        long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
+        String snapshot = jdbc.queryForObject("SELECT business_snapshot_json FROM approval_submission_version WHERE approval_instance_id = ?", String.class, id);
+        assertThat(snapshot).contains("\"templateId\":10", "\"itemNo\":\"A\"", "\"itemNo\":\"C\"")
+                .doesNotContain("excel", "fileName", "sourceRow");
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ?", Integer.class, id)).isEqualTo(3);
+        assertThat(jdbc.queryForList("SELECT approval_item_no FROM expense_entry WHERE approval_instance_id = ? ORDER BY approval_item_no", String.class, id))
+                .containsExactly("A", "B", "C");
+        assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM expense_entry WHERE approval_instance_id = ?", java.math.BigDecimal.class, id))
+                .isEqualByComparingTo("60.00");
+        var routeProfit = reports.profit().stream()
+                .filter(row -> ((Number) row.get("routeId")).longValue() == 41L)
+                .findFirst().orElseThrow();
+        assertThat((java.math.BigDecimal) routeProfit.get("routeExpense")).isEqualByComparingTo("60.00");
+        expenseHandler.onApproved(new com.dfwl.fleet.approval.spi.ApprovalBusinessContext(id, "EXPENSE", "EXPENSE", null),
+                new com.dfwl.fleet.approval.spi.ApprovalSubmissionContext(snapshot), 202);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ?", Integer.class, id)).isEqualTo(3);
+        jdbc.update("DELETE FROM expense_entry WHERE approval_instance_id = ? AND approval_item_no = 'C'", id);
+        expenseHandler.onApproved(new com.dfwl.fleet.approval.spi.ApprovalBusinessContext(id, "EXPENSE", "EXPENSE", null),
+                new com.dfwl.fleet.approval.spi.ApprovalSubmissionContext(snapshot), 202);
+        assertThat(jdbc.queryForList("SELECT approval_item_no FROM expense_entry WHERE approval_instance_id = ? ORDER BY approval_item_no", String.class, id))
+                .containsExactly("A", "B", "C");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, attribution_type,
+                                           route_id, amount, source_type, approval_instance_id, approval_item_no, created_by)
+                VALUES ('DUP-APPROVAL-ITEM', 'WATER', DATE '2026-09-10', 31, 'ROUTE', 41, 1, 'APPROVAL', ?, 'A', 202)
+                """, id)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        long firstExpenseId = jdbc.queryForObject("SELECT id FROM expense_entry WHERE approval_instance_id = ? AND approval_item_no = 'A'", Long.class, id);
+        mvc.perform(post("/api/v1/expenses/{id}/reversal", firstExpenseId)
+                .header("Authorization", bearer(token(205, 2, "FINANCE", Set.of("expense:reversal"))))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"first item correction\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("REVERSAL"));
+        assertThat(jdbc.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, firstExpenseId))
+                .isEqualTo("REVERSED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ? AND status = 'ACTIVE'", Integer.class, id))
+                .isEqualTo(2);
+        var correctedProfit = reports.profit().stream()
+                .filter(row -> ((Number) row.get("routeId")).longValue() == 41L)
+                .findFirst().orElseThrow();
+        assertThat((java.math.BigDecimal) correctedProfit.get("routeExpense")).isEqualByComparingTo("50.00");
+    }
+
+    @Test
+    void numericJsonAmountKeepsExactCentsThroughSnapshotAndPosting() throws Exception {
+        template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 2);
+        create(finance, """
+                {"templateId":10,"attributionType":"DAILY","items":[
+                  {"itemNo":"EXACT","vehicleId":31,"amount":1234567890123456.78,"businessDate":"2026-09-10"}]}
+                """).andExpect(status().isOk());
+        long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
+        String snapshot = jdbc.queryForObject("SELECT business_snapshot_json FROM approval_submission_version WHERE approval_instance_id = ?", String.class, id);
+        assertThat(snapshot).contains("1234567890123456.78");
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT amount FROM expense_entry WHERE approval_instance_id = ?", java.math.BigDecimal.class, id))
+                .isEqualByComparingTo("1234567890123456.78");
+    }
+
+    @Test
+    void invalidItemsAndMixedLegacyFieldsAreRejectedBeforeApprovalCreation() throws Exception {
+        template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 2);
+        create(finance, routeItems().replace("\"itemNo\":\"B\"", "\"itemNo\":\"A\""))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("itemNo=A")));
+        create(finance, routeItems().replace("\"vehicleId\":31", "\"vehicleId\":999"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("itemNo=A")));
+        create(finance, routeItems().replace("\"itemNo\":\"B\"", "\"itemNo\":\"B\",\"expenseType\":\"TOLL\""))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("itemNo=B")));
+        create(finance, routeItems().replace("\"businessSnapshot\":{}", "\"businessSnapshot\":{\"amount\":1}"))
+                .andExpect(status().isConflict());
+        create(finance, "{\"templateId\":10,\"attributionType\":\"ROUTE\",\"routeId\":41,\"businessSnapshot\":{},\"items\":[]}")
+                .andExpect(status().isConflict());
+        assertThat(count("approval_instance")).isZero();
+    }
+
+    @Test
+    void driverScopeIsCheckedForEveryExpenseItem() throws Exception {
+        template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 1);
+        create(driver, routeItems().replace("\"itemNo\":\"B\",\"vehicleId\":31",
+                "\"itemNo\":\"B\",\"vehicleId\":32"))
+                .andExpect(status().isForbidden());
+        assertThat(count("approval_instance")).isZero();
+    }
+
+    @Test
+    void currentResubmissionItemsOnlyPostAndSecondItemFailureRollsBackFirst() throws Exception {
+        template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 2);
+        create(finance, routeItems()).andExpect(status().isOk());
+        long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
+        mvc.perform(post("/api/v1/approvals/{id}/return-applicant", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        String revised = """
+                {"templateId":10,"attributionType":"ROUTE","routeId":41,"businessSnapshot":{},
+                 "items":[{"itemNo":"A","vehicleId":31,"amount":10.00,"businessDate":"2026-09-10"},
+                          {"itemNo":"B","vehicleId":32,"amount":25.00,"businessDate":"2026-09-10"}]}
+                """;
+        mvc.perform(post("/api/v1/approvals/{id}/resubmit", id)
+                .header("Authorization", bearer(finance)).contentType(MediaType.APPLICATION_JSON).content(revised))
+                .andExpect(status().isOk());
+        var snapshots = jdbc.queryForList("SELECT business_snapshot_json FROM approval_submission_version WHERE approval_instance_id = ? ORDER BY version_no", String.class, id);
+        assertThat(snapshots).hasSize(2);
+        assertThat(snapshots.get(0)).contains("\"itemNo\":\"C\"");
+        jdbc.update("UPDATE vehicle SET deleted_at = CURRENT_TIMESTAMP WHERE id = 32");
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ?", Integer.class, id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_instance WHERE id = ?", String.class, id)).isEqualTo("PENDING");
+        jdbc.update("UPDATE vehicle SET deleted_at = NULL WHERE id = 32");
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForList("SELECT approval_item_no FROM expense_entry WHERE approval_instance_id = ? ORDER BY approval_item_no", String.class, id))
+                .containsExactly("A", "B");
+        assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM expense_entry WHERE approval_instance_id = ?", java.math.BigDecimal.class, id))
+                .isEqualByComparingTo("35.00");
+    }
+
+    @Test
+    void dailyEnergyItemsRequireAndPersistEachClassificationDetail() throws Exception {
+        template(10, 100, "EXPENSE_ELECTRIC", "EXPENSE", "ELECTRIC", "OPTIONAL", "ACTIVE", "READY", 2);
+        String body = """
+                {"templateId":10,"attributionType":"DAILY","businessSnapshot":{},
+                 "items":[{"itemNo":"E1","vehicleId":31,"amount":12.00,"businessDate":"2026-09-10",
+                           "energyDetail":{"energyType":"ELECTRIC","orderNo":"EN-1","startTime":"2026-09-10T10:00:00","quantity":1.000}},
+                          {"itemNo":"E2","vehicleId":32,"amount":14.00,"businessDate":"2026-09-10",
+                           "energyDetail":{"energyType":"ELECTRIC","orderNo":"EN-2","startTime":"2026-09-10T11:00:00","quantity":2.000}}]}
+                """;
+        create(finance, body).andExpect(status().isOk());
+        long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ? AND route_id IS NULL AND attribution_type = 'DAILY'", Integer.class, id))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_energy_detail d JOIN expense_entry e ON e.id = d.expense_id WHERE e.approval_instance_id = ?", Integer.class, id))
+                .isEqualTo(2);
+        assertThat((java.math.BigDecimal) reports.dashboard().get("dailyExpense")).isEqualByComparingTo("26.00");
+        create(finance, body.replace("\"energyDetail\":{\"energyType\":\"ELECTRIC\",\"orderNo\":\"EN-2\",\"startTime\":\"2026-09-10T11:00:00\",\"quantity\":2.000}", "\"remark\":\"missing detail\""))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("itemNo=E2")));
+    }
+
+    @Test
+    void categoryDetailFailureRollsBackAllRowsAndApprovalAction() throws Exception {
+        template(10, 100, "EXPENSE_ELECTRIC", "EXPENSE", "ELECTRIC", "OPTIONAL", "ACTIVE", "READY", 2);
+        String body = """
+                {"templateId":10,"attributionType":"DAILY","businessSnapshot":{},
+                 "items":[{"itemNo":"E1","vehicleId":31,"amount":12.00,"businessDate":"2026-09-10",
+                           "energyDetail":{"energyType":"ELECTRIC","orderNo":"EN-1","startTime":"2026-09-10T10:00:00","quantity":1.000}},
+                          {"itemNo":"E2","vehicleId":32,"amount":14.00,"businessDate":"2026-09-10",
+                           "energyDetail":{"energyType":"ELECTRIC","orderNo":"EN-2","startTime":"2026-09-10T11:00:00","quantity":2.000}}]}
+                """;
+        create(finance, body).andExpect(status().isOk());
+        long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
+        String snapshot = jdbc.queryForObject("SELECT business_snapshot_json FROM approval_submission_version WHERE approval_instance_id = ?", String.class, id);
+        jdbc.update("UPDATE approval_submission_version SET business_snapshot_json = ? WHERE approval_instance_id = ?",
+                snapshot.replace("EN-2", "X".repeat(129)), id);
+        mvc.perform(post("/api/v1/approvals/{id}/approve", id)
+                .header("Authorization", bearer(approver)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is5xxServerError());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE approval_instance_id = ?", Integer.class, id)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM approval_action WHERE action_type = 'APPROVE'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_instance WHERE id = ?", String.class, id)).isEqualTo("PENDING");
+    }
+
+    private String routeItems() {
+        return """
+                {"templateId":10,"attributionType":"ROUTE","routeId":41,"businessSnapshot":{},
+                 "items":[{"itemNo":"A","vehicleId":31,"amount":10.00,"businessDate":"2026-09-10"},
+                          {"itemNo":"B","vehicleId":31,"amount":20.00,"businessDate":"2026-09-10"},
+                          {"itemNo":"C","vehicleId":31,"amount":30.00,"businessDate":"2026-09-10"}]}
+                """;
     }
 
     @Test

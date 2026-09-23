@@ -56,7 +56,7 @@ public class ApprovalController {
     public ApiResponse<ApprovalDetailResponse> detail(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
-        return ApiResponse.success(approvalService.detail(id), RequestIdHolder.get());
+        return ApiResponse.success(approvalService.detail(id, user), RequestIdHolder.get());
     }
 
     @GetMapping("/approval-flows")

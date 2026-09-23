@@ -295,6 +295,7 @@ CREATE TABLE expense_entry (
   source_type VARCHAR(16) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
   approval_instance_id BIGINT UNSIGNED NULL,
+  approval_item_no VARCHAR(64) NULL,
   import_row_id BIGINT UNSIGNED NULL,
   reversal_of_id BIGINT UNSIGNED NULL,
   remark VARCHAR(1000) NULL,
@@ -308,6 +309,7 @@ CREATE TABLE expense_entry (
   KEY idx_expense_route_type (route_id, expense_type, status),
   KEY idx_expense_date_attr (business_date, attribution_type, status),
   KEY idx_expense_approval (approval_instance_id),
+  UNIQUE KEY uk_expense_approval_item (approval_instance_id, approval_item_no),
   CONSTRAINT chk_expense_attr CHECK (
     (status = 'PENDING_ATTRIBUTION')
     OR (attribution_type = 'ROUTE' AND route_id IS NOT NULL)
@@ -517,6 +519,17 @@ CREATE TABLE file_attachment (
   uploaded_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY idx_file_owner (owner_type, owner_id, purpose),
   KEY idx_file_hash (file_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE approval_submission_attachment (
+  submission_version_id BIGINT UNSIGNED NOT NULL,
+  attachment_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (submission_version_id, attachment_id),
+  KEY idx_approval_submission_attachment_file (attachment_id),
+  CONSTRAINT fk_submission_evidence_version FOREIGN KEY (submission_version_id)
+    REFERENCES approval_submission_version (id),
+  CONSTRAINT fk_submission_evidence_file FOREIGN KEY (attachment_id)
+    REFERENCES file_attachment (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE ocr_record (

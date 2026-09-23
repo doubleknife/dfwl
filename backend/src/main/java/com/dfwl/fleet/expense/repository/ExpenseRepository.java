@@ -103,26 +103,44 @@ public class ExpenseRepository {
                 """, this::mapExpense, id).stream().findFirst();
     }
 
-    public Optional<ExpenseResponse> findByApprovalInstanceId(long approvalInstanceId) {
+    public List<ApprovalExpenseRow> approvalItems(long approvalInstanceId) {
         return jdbcTemplate.query("""
-                SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
+                SELECT e.id, e.approval_item_no, e.deleted_at, e.expense_type, e.business_date, e.vehicle_id,
+                       e.driver_id, e.attribution_type, e.route_id, e.amount,
+                       (SELECT COUNT(*) FROM expense_energy_detail d WHERE d.expense_id = e.id) AS energy_count,
+                       (SELECT COUNT(*) FROM expense_penalty_detail d WHERE d.expense_id = e.id) AS penalty_count,
+                       (SELECT COUNT(*) FROM expense_repair_detail d WHERE d.expense_id = e.id) AS repair_count,
+                       (SELECT COUNT(*) FROM expense_toll_detail d WHERE d.expense_id = e.id) AS toll_count
                 FROM expense_entry e
-                LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
-                WHERE e.approval_instance_id = ? AND e.deleted_at IS NULL
+                WHERE e.approval_instance_id = ? AND e.source_type = 'APPROVAL'
                 ORDER BY e.id
-                LIMIT 1
-                """, this::mapExpense, approvalInstanceId).stream().findFirst();
+                """, (rs, rowNum) -> new ApprovalExpenseRow(
+                rs.getLong("id"), rs.getString("approval_item_no"), rs.getTimestamp("deleted_at") != null,
+                rs.getString("expense_type"),
+                rs.getDate("business_date").toLocalDate(), rs.getLong("vehicle_id"),
+                readLong(rs, "driver_id"), rs.getString("attribution_type"), readLong(rs, "route_id"),
+                rs.getBigDecimal("amount"), rs.getInt("energy_count") > 0, rs.getInt("penalty_count") > 0,
+                rs.getInt("repair_count") > 0, rs.getInt("toll_count") > 0), approvalInstanceId);
     }
 
+    public record ApprovalExpenseRow(long id, String itemNo, boolean deleted, String expenseType, LocalDate businessDate,
+                                     long vehicleId, Long driverId, String attributionType, Long routeId,
+                                     BigDecimal amount, boolean energyDetail, boolean penaltyDetail,
+                                     boolean repairDetail, boolean tollDetail) {}
+
     public long create(String expenseNo, ExpenseRequest request, String status, Long routeId, long operatorId) {
+        return create(expenseNo, request, status, routeId, operatorId, null);
+    }
+
+    public long create(String expenseNo, ExpenseRequest request, String status, Long routeId,
+                       long operatorId, String approvalItemNo) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
                                                attribution_type, route_id, amount, source_type, status,
-                                               approval_instance_id, import_row_id, remark, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                               approval_instance_id, approval_item_no, import_row_id, remark, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, expenseNo);
             ps.setString(2, request.expenseType());
@@ -135,9 +153,10 @@ public class ExpenseRepository {
             ps.setString(9, request.sourceType());
             ps.setString(10, status);
             ps.setObject(11, request.approvalInstanceId());
-            ps.setObject(12, request.importRowId());
-            ps.setString(13, request.remark());
-            ps.setLong(14, operatorId);
+            ps.setString(12, approvalItemNo);
+            ps.setObject(13, request.importRowId());
+            ps.setString(14, request.remark());
+            ps.setLong(15, operatorId);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -348,6 +367,13 @@ public class ExpenseRepository {
 
     public boolean vehicleExists(long vehicleId) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle WHERE id = ? AND deleted_at IS NULL", Integer.class, vehicleId);
+        return count != null && count > 0;
+    }
+
+    public boolean driverExists(long driverId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM driver WHERE id = ? AND status = 1 AND deleted_at IS NULL",
+                Integer.class, driverId);
         return count != null && count > 0;
     }
 
