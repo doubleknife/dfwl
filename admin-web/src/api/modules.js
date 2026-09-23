@@ -68,19 +68,19 @@ export const approvalApi = {
   approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
   returnApplicant: (id, body) => apiClient.post(`/approvals/${id}/return-applicant`, body),
   returnNode: (id, body) => apiClient.post(`/approvals/${id}/return-node`, body),
-  resubmit: (id, body) => apiClient.post(`/approvals/${id}/resubmit`, body),
-  flowList: (params = {}) => {
-    const query = new URLSearchParams({ pageNo: '1', pageSize: '100' });
-    if (params.approvalType) query.set('approvalType', params.approvalType);
-    if (params.status) query.set('status', params.status);
-    return apiClient.get(`/approval-flows?${query}`);
-  },
-  flowDetail: (id) => apiClient.get(`/approval-flows/${id}`),
-  flowVersions: (approvalType) => apiClient.get(`/approval-flows/types/${approvalType}/versions`),
-  activeFlow: (approvalType) => apiClient.get(`/approval-flows/types/${approvalType}/active`),
-  maintenance: (id) => apiClient.post(`/approval-flows/${id}/maintenance`, {}),
-  updateFlow: (id, body) => apiClient.put(`/approval-flows/${id}`, body),
-  publishFlow: (id) => apiClient.post(`/approval-flows/${id}/publish`, {})
+  resubmit: (id, body) => apiClient.post(`/approvals/${id}/resubmit`, body)
+};
+
+export const approvalTemplateApi = {
+  list: () => apiClient.get('/approval-templates'),
+  detail: (templateId) => apiClient.get(`/approval-templates/${templateId}`),
+  versions: (templateId) => apiClient.get(`/approval-templates/${templateId}/versions`),
+  active: (templateId) => apiClient.get(`/approval-templates/${templateId}/active`),
+  version: (templateId, flowId) => apiClient.get(`/approval-templates/${templateId}/versions/${flowId}`),
+  create: (body) => apiClient.post('/approval-templates', body),
+  maintenance: (flowId) => apiClient.post(`/approval-flows/${flowId}/maintenance`, {}),
+  createNextVersion: (flowId, body) => apiClient.put(`/approval-flows/${flowId}`, body),
+  publish: (flowId) => apiClient.post(`/approval-flows/${flowId}/publish`, {})
 };
 
 export const tireApi = {

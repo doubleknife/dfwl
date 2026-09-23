@@ -4,11 +4,12 @@ import { unwrapApiPayload } from './response.js';
 export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '';
 
 export class ApiError extends Error {
-  constructor(message, code, status) {
+  constructor(message, code, status, requestId) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
+    this.requestId = requestId;
   }
 }
 
@@ -31,7 +32,8 @@ async function parseResponse(response) {
   const payload = await response.json();
   if (!response.ok || payload.code !== '0') {
     if (response.status === 401) clearSession();
-    throw new ApiError(payload.message || '请求失败', payload.code || `HTTP_${response.status}`, response.status);
+    throw new ApiError(payload.message || '请求失败', payload.code || `HTTP_${response.status}`,
+      response.status, payload.requestId);
   }
   return unwrapApiPayload(payload);
 }

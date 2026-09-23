@@ -340,9 +340,109 @@ h2 {
   color: #b42318;
 }
 
+.template-notice {
+  padding: 10px 14px;
+  border: 1px solid #b9d9d0;
+  border-radius: 6px;
+  background: #edf8f4;
+  color: #126053;
+}
+
+.template-summary,
+.template-actions,
+.template-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.template-summary span {
+  overflow-wrap: anywhere;
+}
+
+.template-toolbar select {
+  width: auto;
+  min-width: 150px;
+}
+
+.template-toolbar button {
+  white-space: nowrap;
+}
+
+.template-form {
+  display: grid;
+  gap: 16px;
+}
+
+.template-fieldset {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d9e1e8;
+  border-radius: 6px;
+}
+
+.template-fieldset legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.template-fields,
+.template-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 10px 0;
+}
+
+.template-fields label,
+.template-node label {
+  display: grid;
+  gap: 6px;
+}
+
+.template-check {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 14px 0 0;
+}
+
+.template-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.template-node {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid #edf1f5;
+  border-radius: 6px;
+}
+
+.template-node > strong {
+  grid-column: 1 / -1;
+}
+
+.template-confirm {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid #e8c77e;
+  border-radius: 6px;
+  background: #fff8e9;
+}
+
 @media (max-width: 920px) {
   .app-shell,
-  .two-column {
+  .two-column,
+  .template-fields,
+  .template-config-grid,
+  .template-node {
     grid-template-columns: 1fr;
   }
 

@@ -22,4 +22,5 @@ apps/var/
 .git/
 
 .idea/
+admin-web/src/generated/
 mini-program/project.private.config.json
