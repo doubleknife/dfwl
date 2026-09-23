@@ -17,17 +17,25 @@ globalThis.localStorage = {
 };
 globalThis.fetch = async (url, options = {}) => {
   requests.push({ url: String(url), options });
+  const data = String(url).endsWith('/auth/login')
+    ? {
+        tokenType: 'Bearer',
+        accessToken: 'real-access-token',
+        user: { id: 1, role: { code: 'ADMIN' }, permissions: ['user:manage'] }
+      }
+    : { ok: true, records: [] };
   return {
     ok: true,
     status: 200,
     headers: { get: () => 'application/json' },
     async json() {
-      return { code: '0', message: 'OK', data: { ok: true, records: [] } };
+      return { code: '0', message: 'OK', data };
     }
   };
 };
 
 const { masterApi, approvalApi, systemApi, tireApi } = await import('../src/api/modules.js');
+const { authStore, clearSession } = await import('../src/stores/auth.js');
 
 const tests = [
   ['permission helpers allow matching single permission', () => {
@@ -47,6 +55,22 @@ const tests = [
       assert.equal(error.code, 'AUTH_003');
       return true;
     });
+  }],
+  ['login stores accessToken and sends it as Bearer until logout', async () => {
+    clearSession();
+    requests.length = 0;
+    await authStore.login({ phone: '13900000001', password: 'secret' });
+    assert.equal(authStore.token, 'real-access-token');
+    assert.equal(localStorage.getItem('admin.token'), 'real-access-token');
+    assert.equal(JSON.parse(localStorage.getItem('admin.user')).role.code, 'ADMIN');
+
+    await masterApi.customers();
+    assert.equal(requests[1].options.headers.Authorization, 'Bearer real-access-token');
+
+    clearSession();
+    assert.equal(authStore.token, '');
+    assert.equal(localStorage.getItem('admin.token'), null);
+    assert.equal(localStorage.getItem('admin.user'), null);
   }],
   ['master API covers customer and product endpoints', async () => {
     requests.length = 0;

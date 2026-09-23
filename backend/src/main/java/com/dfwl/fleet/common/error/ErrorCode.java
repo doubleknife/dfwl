@@ -22,6 +22,7 @@ public enum ErrorCode {
     APPROVAL_001("审批流程不可用"),
     APPROVAL_002("审批状态不允许当前操作"),
     APPROVAL_003("当前审批人不匹配"),
+    APPROVAL_004("审批依据不能为空"),
     EXPENSE_001("费用不存在"),
     EXPENSE_002("费用状态不允许当前操作"),
     EXPENSE_003("费用归属不合法"),

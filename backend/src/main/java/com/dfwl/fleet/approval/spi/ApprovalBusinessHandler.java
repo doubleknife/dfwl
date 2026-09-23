@@ -12,4 +12,7 @@ public interface ApprovalBusinessHandler {
 
     default void onReturnedToApplicant(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
     }
+
+    default void onResubmitted(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
+    }
 }

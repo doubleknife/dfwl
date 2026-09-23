@@ -22,3 +22,4 @@ apps/var/
 .git/
 
 .idea/
+mini-program/project.private.config.json

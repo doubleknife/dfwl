@@ -8,7 +8,10 @@ import java.util.List;
 
 public record ApprovalFlowUpdateRequest(
         @NotBlank String flowName,
-        @NotEmpty List<@Valid Node> nodes
+        @NotEmpty List<@Valid Node> nodes,
+        String evidenceRequirement,
+        List<Long> initiatorRoleIds,
+        @Valid ApprovalExpenseConfigRequest expenseConfig
 ) {
     public record Node(
             @NotNull Integer nodeOrder,

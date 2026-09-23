@@ -1,5 +1,7 @@
 package com.dfwl.fleet.tire.service;
 
+import com.dfwl.fleet.approval.service.ApprovalService;
+import com.dfwl.fleet.approval.spi.ApprovalCreationCommand;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
@@ -21,7 +23,9 @@ import com.dfwl.fleet.tire.repository.TireRepository;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.util.StreamUtils;
 import org.springframework.stereotype.Service;
@@ -34,14 +38,16 @@ public class TireService {
     private static final Set<String> OCR_IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif");
 
     private final TireRepository repository;
+    private final ApprovalService approvalService;
     private final AttachmentService attachmentService;
     private final OcrProvider ocrProvider;
     private final TireNumberCandidateExtractor candidateExtractor;
     private final OcrProperties ocrProperties;
 
-    public TireService(TireRepository repository, AttachmentService attachmentService, OcrProvider ocrProvider,
+    public TireService(TireRepository repository, ApprovalService approvalService, AttachmentService attachmentService, OcrProvider ocrProvider,
                        TireNumberCandidateExtractor candidateExtractor, OcrProperties ocrProperties) {
         this.repository = repository;
+        this.approvalService = approvalService;
         this.attachmentService = attachmentService;
         this.ocrProvider = ocrProvider;
         this.candidateExtractor = candidateExtractor;
@@ -115,7 +121,7 @@ public class TireService {
     }
 
     @Transactional
-    public TireRequestResponse createRequest(TireRequestCreateRequest request) {
+    public TireRequestResponse createRequest(TireRequestCreateRequest request, long operatorId) {
         if (!repository.driverExists(request.driverId()) || !repository.vehicleExists(request.vehicleId())) {
             throw new BusinessException(ErrorCode.DATA_001);
         }
@@ -127,6 +133,22 @@ public class TireService {
             }
             repository.createRequestItem(requestId, item.tireId(), item.confirmedTireNo(), item.ocrRecordId());
         });
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("requestId", requestId);
+        snapshot.put("driverId", request.driverId());
+        snapshot.put("vehicleId", request.vehicleId());
+        snapshot.put("items", request.items().stream().map(item -> {
+            Map<String, Object> snapshotItem = new LinkedHashMap<>();
+            snapshotItem.put("tireId", item.tireId());
+            snapshotItem.put("confirmedTireNo", item.confirmedTireNo());
+            if (item.ocrRecordId() != null) {
+                snapshotItem.put("ocrRecordId", item.ocrRecordId());
+                snapshotItem.put("ocrAttachmentId", findOcr(item.ocrRecordId()).attachmentId());
+            }
+            return snapshotItem;
+        }).toList());
+        approvalService.createBusinessApproval(new ApprovalCreationCommand(
+                "TIRE_REQUEST", "TIRE_REQUEST", requestId, snapshot, List.of()), operatorId);
         return findRequest(requestId);
     }
 

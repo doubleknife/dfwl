@@ -31,7 +31,9 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
     @Override
     public void onCreated(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
         long requestId = requestId(approval, submission);
-        repository.attachApproval(requestId, approval.approvalInstanceId());
+        if (!repository.attachApproval(requestId, approval.approvalInstanceId())) {
+            throw new BusinessException(ErrorCode.APPROVAL_002);
+        }
     }
 
     @Override
@@ -57,6 +59,22 @@ public class TireApprovalBusinessHandler implements ApprovalBusinessHandler {
         long requestId = requestId(approval, submission);
         repository.releaseRequestTires(requestId);
         repository.updateRequestStatus(requestId, "RETURNED_TO_APPLICANT");
+    }
+
+    @Override
+    public void onResubmitted(ApprovalBusinessContext approval, ApprovalSubmissionContext submission, long operatorId) {
+        long requestId = requestId(approval, submission);
+        TireRequestResponse request = repository.findRequest(requestId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
+        if (!"RETURNED_TO_APPLICANT".equals(request.status())) {
+            throw new BusinessException(ErrorCode.APPROVAL_002);
+        }
+        for (TireRequestResponse.Item item : request.items()) {
+            if (!repository.reserveTire(item.tireId())) {
+                throw new BusinessException(ErrorCode.TIRE_001);
+            }
+        }
+        repository.updateRequestStatus(requestId, "PENDING");
     }
 
     private long requestId(ApprovalBusinessContext approval, ApprovalSubmissionContext submission) {

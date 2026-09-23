@@ -60,8 +60,12 @@ class ApprovalApiTests {
         jdbcTemplate.update("DELETE FROM approval_submission_version");
         jdbcTemplate.update("DELETE FROM approval_instance");
         jdbcTemplate.update("DELETE FROM approval_flow_node");
+        jdbcTemplate.update("DELETE FROM approval_flow_initiator_role");
+        jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
         jdbcTemplate.update("DELETE FROM approval_flow");
-        jdbcTemplate.update("INSERT INTO approval_flow (id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 'GENERAL', '通用审批', 1, 'ACTIVE', 1)");
+        jdbcTemplate.update("DELETE FROM approval_template");
+        jdbcTemplate.update("INSERT INTO approval_template (id, template_code, category, approval_type, created_by) VALUES (1, 'GENERAL', 'OTHER', 'GENERAL', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 1, 'GENERAL', '通用审批', 1, 'ACTIVE', 1)");
         jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 1, 'A', 2)");
         jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 2, 'B', 3)");
         jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 3, 'C', 4)");

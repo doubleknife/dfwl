@@ -9,8 +9,10 @@ import com.dfwl.fleet.approval.dto.request.ApprovalFlowUpdateRequest;
 import com.dfwl.fleet.approval.dto.query.ApprovalListScope;
 import com.dfwl.fleet.approval.dto.response.ApprovalResponse;
 import com.dfwl.fleet.approval.repository.ApprovalRepository;
+import com.dfwl.fleet.approval.repository.ApprovalTemplateRepository;
 import com.dfwl.fleet.approval.spi.ApprovalBusinessContext;
 import com.dfwl.fleet.approval.spi.ApprovalBusinessHandler;
+import com.dfwl.fleet.approval.spi.ApprovalCreationCommand;
 import com.dfwl.fleet.approval.spi.ApprovalSubmissionContext;
 import com.dfwl.fleet.attachment.service.AttachmentService;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowNodeRecord;
@@ -42,13 +44,21 @@ public class ApprovalService {
     private static final DateTimeFormatter APPROVAL_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private final ApprovalRepository repository;
+    private final ApprovalTemplateRepository templateRepository;
+    private final ApprovalTemplateService templateService;
+    private final ApprovalInitiationService initiationService;
     private final AttachmentService attachmentService;
     private final ObjectMapper objectMapper;
     private final List<ApprovalBusinessHandler> businessHandlers;
 
-    public ApprovalService(ApprovalRepository repository, AttachmentService attachmentService, ObjectMapper objectMapper,
-                           List<ApprovalBusinessHandler> businessHandlers) {
+    public ApprovalService(ApprovalRepository repository, ApprovalTemplateRepository templateRepository,
+                           ApprovalTemplateService templateService, ApprovalInitiationService initiationService,
+                           AttachmentService attachmentService,
+                           ObjectMapper objectMapper, List<ApprovalBusinessHandler> businessHandlers) {
         this.repository = repository;
+        this.templateRepository = templateRepository;
+        this.templateService = templateService;
+        this.initiationService = initiationService;
         this.attachmentService = attachmentService;
         this.objectMapper = objectMapper;
         this.businessHandlers = businessHandlers;
@@ -84,16 +94,29 @@ public class ApprovalService {
     }
 
     @Transactional
-    public ApprovalResponse create(ApprovalCreateRequest request, long operatorId) {
-        attachmentService.requireTemporaryApprovalAttachments(operatorId, request.attachmentIds());
-        FlowRecord flow = repository.activeFlow(request.approvalType())
-                .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
+    public ApprovalResponse create(ApprovalCreateRequest request, AuthenticatedUser user) {
+        ApprovalInitiationService.Selected selected = initiationService.forCreate(request, user);
+        return createSelected(selected.flow(), selected.businessType(), selected.businessId(),
+                selected.snapshot(), request.attachmentIds(), user.id());
+    }
+
+    @Transactional
+    public ApprovalResponse createBusinessApproval(ApprovalCreationCommand request, long operatorId) {
+        FlowRecord flow = initiationService.forTire(request);
+        return createSelected(flow, request.businessType(), request.businessId(), request.businessSnapshot(),
+                request.attachmentIds(), operatorId);
+    }
+
+    private ApprovalResponse createSelected(FlowRecord flow, String businessType, Long businessId,
+                                            Map<String, Object> businessSnapshot, List<Long> attachmentIds,
+                                            long operatorId) {
+        attachmentService.requireTemporaryApprovalAttachments(operatorId, attachmentIds);
         FlowNodeRecord firstNode = repository.firstNode(flow.id())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
-        long instanceId = repository.createInstance(nextApprovalNo(), flow, request.businessType(), request.businessId(), operatorId);
-        Map<String, Object> snapshot = snapshotWithAttachments(request.businessSnapshot(), request.attachmentIds());
+        long instanceId = repository.createInstance(nextApprovalNo(), flow, businessType, businessId, operatorId);
+        Map<String, Object> snapshot = snapshotWithAttachments(businessSnapshot, attachmentIds);
         long submissionId = repository.createSubmission(instanceId, 1, toJson(snapshot), operatorId);
-        attachmentService.bindApprovalApplicationAttachments(operatorId, request.attachmentIds(), instanceId, submissionId);
+        attachmentService.bindApprovalApplicationAttachments(operatorId, attachmentIds, instanceId, submissionId);
         repository.createTask(instanceId, submissionId, firstNode);
         ApprovalResponse approval = find(instanceId);
         ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
@@ -172,26 +195,36 @@ public class ApprovalService {
     }
 
     @Transactional
-    public ApprovalResponse resubmit(long id, ApprovalCreateRequest request, long operatorId) {
+    public ApprovalResponse resubmit(long id, ApprovalCreateRequest request, AuthenticatedUser user) {
+        repository.lockInstance(id);
         ApprovalResponse approval = find(id);
         if (!"RETURNED_TO_APPLICANT".equals(approval.status())) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
+        ApprovalInitiationService.Selected selected = initiationService.forResubmit(approval, request, user);
+        long operatorId = user.id();
         attachmentService.requireTemporaryApprovalAttachments(operatorId, request.attachmentIds());
         FlowNodeRecord firstNode = repository.firstNode(approval.flowId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         repository.invalidatePendingTasks(id);
-        Map<String, Object> snapshot = snapshotWithAttachments(request.businessSnapshot(), request.attachmentIds());
+        Map<String, Object> snapshot = snapshotWithAttachments(selected.snapshot(), request.attachmentIds());
         long submissionId = repository.createSubmission(id, repository.nextSubmissionVersion(id), toJson(snapshot), operatorId);
         attachmentService.bindApprovalApplicationAttachments(operatorId, request.attachmentIds(), id, submissionId);
         repository.moveToNode(id, firstNode.nodeOrder());
         repository.createTask(id, submissionId, firstNode);
+        ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
+        ApprovalBusinessContext context = toBusinessContext(approval);
+        businessHandlers.stream()
+                .filter(handler -> handler.supports(context))
+                .forEach(handler -> handler.onResubmitted(context, submission, operatorId));
         return find(id);
     }
 
     @Transactional
     public void maintenance(long flowId) {
         FlowRecord flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
+        templateRepository.lock(flow.templateId());
+        flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         if (!"ACTIVE".equals(flow.status())) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
@@ -201,27 +234,40 @@ public class ApprovalService {
     @Transactional
     public ApprovalFlowResponse updateFlow(long flowId, ApprovalFlowUpdateRequest request, long operatorId) {
         FlowRecord flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
+        templateRepository.lock(flow.templateId());
+        flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         if (!"MAINTENANCE".equals(flow.status())) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
-        if (repository.hasOpenInstancesForApprovalType(flow.approvalType())) {
+        if (!repository.latestFlow(flow.templateId(), flowId)) {
+            throw new BusinessException(ErrorCode.APPROVAL_002);
+        }
+        if (repository.hasPendingInstancesForTemplate(flow.templateId())) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
         validateNodes(request.nodes());
-        long newFlowId = repository.createFlowVersion(flow.approvalType(), request.flowName(), repository.nextFlowVersion(flow.approvalType()), operatorId);
+        long newFlowId = repository.createFlowVersion(flow.templateId(), flow.approvalType(), request.flowName(),
+                repository.nextFlowVersion(flow.templateId()),
+                templateService.evidenceForNewVersion(flowId, request.evidenceRequirement()), "NEEDS_REVIEW", operatorId);
         request.nodes().stream()
                 .sorted(Comparator.comparing(ApprovalFlowUpdateRequest.Node::nodeOrder))
                 .forEach(node -> repository.createFlowNode(newFlowId, node));
+        templateService.copyOrReplaceVersionSettings(flowId, newFlowId, flow.templateId(), request);
         return repository.flowResponse(newFlowId).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }
 
     @Transactional
     public ApprovalFlowResponse publishFlow(long flowId) {
+        FlowRecord flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
+        templateRepository.lock(flow.templateId());
+        flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         if (!repository.flowHasNodes(flowId)) {
             throw new BusinessException(ErrorCode.APPROVAL_001);
         }
-        FlowRecord flow = repository.findFlow(flowId).orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         if (!"DRAFT".equals(flow.status()) && !"MAINTENANCE".equals(flow.status())) {
+            throw new BusinessException(ErrorCode.APPROVAL_002);
+        }
+        if (templateRepository.activeFlowId(flow.templateId()).isPresent()) {
             throw new BusinessException(ErrorCode.APPROVAL_002);
         }
         repository.updateFlowStatus(flowId, "ACTIVE");
@@ -233,7 +279,12 @@ public class ApprovalService {
     }
 
     public ApprovalDetailResponse detail(long id) {
-        return repository.detail(id).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
+        ApprovalDetailResponse detail = repository.detail(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
+        FlowRecord flow = repository.findFlow(detail.approval().flowId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
+        return new ApprovalDetailResponse(detail.approval(), detail.submissions(), detail.tasks(),
+                flow.templateId(), templateService.version(flow.templateId(), flow.id()));
     }
 
     private ApprovalResponse requirePending(long id) {
@@ -289,6 +340,8 @@ public class ApprovalService {
 
     private Map<String, Object> snapshotWithAttachments(Map<String, Object> businessSnapshot, List<Long> attachmentIds) {
         Map<String, Object> snapshot = new LinkedHashMap<>(businessSnapshot);
+        // Only the validated top-level IDs may become formal submission evidence.
+        snapshot.remove("attachmentIds");
         if (attachmentIds != null && !attachmentIds.isEmpty()) {
             snapshot.put("attachmentIds", List.copyOf(attachmentIds));
         }

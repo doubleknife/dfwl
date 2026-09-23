@@ -649,7 +649,8 @@ paths:
                       data: {$ref: '#/components/schemas/ApprovalPage'}
     post:
       tags: [Approvals]
-      summary: 发起审批
+      summary: 按 templateId 发起 EXPENSE/OTHER 审批
+      description: 通用发起必须明确选择模板；旧请求仅在原审批类型只有一个 ACTIVE 历史模板时兼容，多个模板不猜选。TIRE 仅从换胎专用入口发起。创建前校验当前角色、申请依据、费用归属与司机资源范围；Excel 仅是浏览器本地录入工具，不上传文件。
       x-permission: approval:create
       requestBody:
         required: true
@@ -714,7 +715,7 @@ paths:
   /approvals/{id}/resubmit:
     post:
       tags: [Approvals]
-      summary: 修改后重新提交并生成新版本
+      summary: 原申请人按实例锁定的历史 Flow Version 修改后重提
       x-permission: approval:create
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody:
@@ -723,6 +724,115 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ApprovalCreateRequest'}
       responses: {'200': {description: OK}}
+  /approval-templates/available:
+    get:
+      tags: [Approvals]
+      summary: 查询当前用户可从通用入口发起的 ACTIVE 模板
+      description: 仅返回角色允许、配置 READY 的 EXPENSE/OTHER；外协司机不返回可发起模板。TIRE 使用换胎专用入口。
+      x-permission: approval:create
+      responses:
+        '200':
+          description: 当前可发起模板
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalAvailableTemplate'}}}}
+  /approval-templates:
+    get:
+      tags: [Approvals]
+      summary: 列出稳定审批模板及各自当前 ACTIVE 版本
+      x-permission: approval:flow:manage
+      responses:
+        '200':
+          description: 模板列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalTemplate'}}}}
+    post:
+      tags: [Approvals]
+      summary: 创建模板及 DRAFT V1；TIRE 仅允许代码 TIRE_REQUEST 且仍走专用申请流程
+      x-permission: approval:flow:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApprovalTemplateCreateRequest'}
+      responses:
+        '200':
+          description: 返回 DRAFT Flow V1 完整配置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
+  /approval-templates/{templateId}:
+    get:
+      tags: [Approvals]
+      summary: 查询稳定模板身份
+      x-permission: approval:flow:manage
+      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses:
+        '200':
+          description: 模板身份
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalTemplate'}}}
+  /approval-templates/{templateId}/versions:
+    get:
+      tags: [Approvals]
+      summary: 按模板查看版本列表（每个模板独立从 V1 编号）
+      x-permission: approval:flow:manage
+      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses:
+        '200':
+          description: 版本列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalFlow'}}}}
+  /approval-templates/{templateId}/active:
+    get:
+      tags: [Approvals]
+      summary: 查看模板当前 ACTIVE Flow Version 及完整配置
+      x-permission: approval:flow:manage
+      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses:
+        '200':
+          description: 当前 ACTIVE 版本的完整配置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
+  /approval-templates/{templateId}/versions/{flowId}:
+    get:
+      tags: [Approvals]
+      summary: 查看指定历史版本的节点、发起角色、依据及费用配置
+      x-permission: approval:flow:manage
+      parameters:
+        - {name: templateId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: flowId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 指定历史版本的完整配置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
   /approval-flows:
     get:
       tags: [Approvals]
@@ -735,7 +845,7 @@ paths:
   /approval-flows/types/{approvalType}/versions:
     get:
       tags: [Approvals]
-      summary: 查看某审批类型所有流程版本
+      summary: 兼容旧客户端，查看某审批类型所有流程版本；新管理端应按 templateId 查询
       x-permission: approval:flow:manage
       parameters:
         - {name: approvalType, in: path, required: true, schema: {type: string}}
@@ -743,7 +853,7 @@ paths:
   /approval-flows/types/{approvalType}/active:
     get:
       tags: [Approvals]
-      summary: 查看某审批类型当前 ACTIVE 版本及节点
+      summary: 兼容旧客户端，按审批类型查看最高版本 ACTIVE；新管理端应按 templateId 查询
       x-permission: approval:flow:manage
       parameters:
         - {name: approvalType, in: path, required: true, schema: {type: string}}
@@ -764,7 +874,7 @@ paths:
       responses: {'200': {description: OK}}
     put:
       tags: [Approvals]
-      summary: 无在途审批后修改流程版本
+      summary: 无在途审批后创建新 Flow Version；可覆盖或继承角色和版本配置，旧请求继续兼容
       x-permission: approval:flow:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody:
@@ -776,7 +886,7 @@ paths:
   /approval-flows/{id}/publish:
     post:
       tags: [Approvals]
-      summary: 发布流程版本
+      summary: 发布 Flow Version；同模板并发最多一个 ACTIVE
       x-permission: approval:flow:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
@@ -1216,15 +1326,18 @@ components:
       enum: [TODO, DONE, MINE, ALL]
     ApprovalCreateRequest:
       type: object
-      required: [approvalType, businessType, businessId, businessSnapshot]
+      required: [businessSnapshot]
       properties:
-        approvalType: {type: string}
-        businessType: {type: string}
-        businessId: {type: integer, format: int64}
+        templateId: {type: [integer, 'null'], format: int64, description: 通用新申请选择稳定模板身份；TIRE 专用入口不传。}
+        approvalType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
+        businessType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
+        businessId: {type: [integer, 'null'], format: int64}
+        attributionType: {type: [string, 'null'], enum: [ROUTE, DAILY, null], description: EXPENSE 归属；若快照中也提供，必须一致。}
+        routeId: {type: [integer, 'null'], format: int64, description: ROUTE 归属时必填；DAILY 必须为空。}
         businessSnapshot:
           type: object
           additionalProperties: true
-          description: 发起或重提时的申请快照；后端会把本次附件 ID 固化到 attachmentIds。
+          description: 发起或重提时的申请快照；EXPENSE 现阶段仍为单条费用，费用类型以所选模板配置为准。服务端只把经过校验的顶层 attachmentIds 固化到快照。
         attachmentIds:
           type: array
           items: {type: integer, format: int64}
@@ -1264,6 +1377,11 @@ components:
       required: [flowName, nodes]
       properties:
         flowName: {type: string}
+        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
+        initiatorRoleIds:
+          type: array
+          items: {type: integer, format: int64}
+        expenseConfig: {$ref: '#/components/schemas/ApprovalExpenseConfigRequest'}
         nodes:
           type: array
           minItems: 1
@@ -1276,6 +1394,90 @@ components:
               positionId: {type: [integer, 'null'], format: int64}
               approverUserId: {type: integer, format: int64}
               allowReturn: {type: boolean, default: true}
+    ApprovalTemplateCategory:
+      type: string
+      enum: [TIRE, EXPENSE, OTHER]
+    ApprovalEvidenceRequirement:
+      type: string
+      enum: [NONE, OPTIONAL, REQUIRED]
+    ApprovalExpenseConfigRequest:
+      type: object
+      required: [expenseType, inputModes, attributionTypes]
+      properties:
+        expenseType:
+          $ref: '#/components/schemas/ExpenseType'
+        inputModes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, enum: [SINGLE, EXCEL]}
+        attributionTypes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, enum: [ROUTE, DAILY]}
+    ApprovalTemplateCreateRequest:
+      type: object
+      required: [templateCode, category, flowName, evidenceRequirement, initiatorRoleIds, nodes]
+      properties:
+        templateCode: {type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$'}
+        category: {$ref: '#/components/schemas/ApprovalTemplateCategory'}
+        flowName: {type: string}
+        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
+        initiatorRoleIds:
+          type: array
+          description: EXPENSE/OTHER 必须至少一个有效角色；TIRE 可为空，发起资格仍由换胎专用 Policy 控制。
+          uniqueItems: true
+          items: {type: integer, format: int64}
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [nodeOrder, nodeName, approverUserId]
+            properties:
+              nodeOrder: {type: integer, minimum: 1}
+              nodeName: {type: string}
+              positionId: {type: [integer, 'null'], format: int64}
+              approverUserId: {type: integer, format: int64}
+              allowReturn: {type: boolean, default: true}
+        expenseConfig:
+          description: 仅 EXPENSE 必填，TIRE/OTHER 禁止提供。
+          $ref: '#/components/schemas/ApprovalExpenseConfigRequest'
+    ApprovalTemplate:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        templateCode: {type: string}
+        category: {$ref: '#/components/schemas/ApprovalTemplateCategory'}
+        approvalType: {type: string}
+        activeFlowId: {type: [integer, 'null'], format: int64}
+    ApprovalAvailableTemplate:
+      type: object
+      properties:
+        templateId: {type: integer, format: int64}
+        templateCode: {type: string}
+        category: {type: string, enum: [EXPENSE, OTHER]}
+        flowId: {type: integer, format: int64}
+        versionNo: {type: integer}
+        flowName: {type: string}
+        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
+        expenseType: {type: [string, 'null'], description: EXPENSE 时对应现有 ExpenseType。}
+        allowedInputModes: {type: array, items: {type: string, enum: [SINGLE, EXCEL]}}
+        allowedAttributionTypes: {type: array, items: {type: string, enum: [ROUTE, DAILY]}}
+    ApprovalFlowConfiguration:
+      type: object
+      properties:
+        flow: {$ref: '#/components/schemas/ApprovalFlow'}
+        nodes:
+          type: array
+          items: {$ref: '#/components/schemas/ApprovalFlowNode'}
+        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
+        configurationStatus: {type: string, enum: [READY, NEEDS_REVIEW]}
+        initiatorRoleIds:
+          type: array
+          items: {type: integer, format: int64}
+        expenseConfig: {$ref: '#/components/schemas/ApprovalExpenseConfigRequest'}
     ApprovalFlow:
       type: object
       properties:
@@ -1304,6 +1506,8 @@ components:
     ApprovalDetail:
       type: object
       properties:
+        templateId: {type: integer, format: int64, description: 实例创建时的稳定模板。}
+        flowConfiguration: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}
         approval:
           type: object
           properties:

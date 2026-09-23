@@ -22,6 +22,12 @@ public class ApprovalAccessPolicy {
         }
     }
 
+    public void ensureCanSubmitTemplate(AuthenticatedUser user) {
+        if (currentUserService.isDriverUser(user) && currentUserService.requireDriver(user).outsourced()) {
+            throw new AccessDeniedException("outsourced driver is not allowed");
+        }
+    }
+
     public void ensureCanProcess(AuthenticatedUser user) {
         currentUserService.denyAllDrivers(user);
     }

@@ -47,7 +47,10 @@ class SystemManagementContractTests {
     void setUp() {
         jdbcTemplate.update("DELETE FROM audit_log");
         jdbcTemplate.update("DELETE FROM approval_flow_node");
+        jdbcTemplate.update("DELETE FROM approval_flow_initiator_role");
+        jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
         jdbcTemplate.update("DELETE FROM approval_flow");
+        jdbcTemplate.update("DELETE FROM approval_template");
         jdbcTemplate.update("DELETE FROM sys_role_permission");
         jdbcTemplate.update("DELETE FROM sys_permission");
         jdbcTemplate.update("DELETE FROM sys_user");
@@ -149,10 +152,15 @@ class SystemManagementContractTests {
     void approvalFlowListVersionsActiveAndDetailAreQueryable() throws Exception {
         String token = token("approval:flow:manage");
         jdbcTemplate.update("""
-                INSERT INTO approval_flow (id, approval_type, flow_name, version_no, status, created_by)
-                VALUES (10, 'EXPENSE', '费用审批V1', 1, 'DRAFT', 1),
-                       (11, 'EXPENSE', '费用审批V2', 2, 'ACTIVE', 1),
-                       (12, 'TIRE', '轮胎审批V1', 1, 'MAINTENANCE', 1)
+                INSERT INTO approval_template (id, template_code, category, approval_type, created_by)
+                VALUES (10, 'EXPENSE', 'EXPENSE', 'EXPENSE', 1),
+                       (12, 'TIRE', 'TIRE', 'TIRE', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by)
+                VALUES (10, 10, 'EXPENSE', '费用审批V1', 1, 'DRAFT', 1),
+                       (11, 10, 'EXPENSE', '费用审批V2', 2, 'ACTIVE', 1),
+                       (12, 12, 'TIRE', '轮胎审批V1', 1, 'MAINTENANCE', 1)
                 """);
         jdbcTemplate.update("""
                 INSERT INTO approval_flow_node (id, flow_id, node_order, node_name, position_id, approver_user_id, allow_return)

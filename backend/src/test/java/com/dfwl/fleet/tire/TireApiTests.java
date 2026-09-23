@@ -77,6 +77,15 @@ class TireApiTests {
         jdbcTemplate.update("DELETE FROM tire_claim");
         jdbcTemplate.update("DELETE FROM tire_request_item");
         jdbcTemplate.update("DELETE FROM tire_request");
+        jdbcTemplate.update("DELETE FROM approval_action");
+        jdbcTemplate.update("DELETE FROM approval_task");
+        jdbcTemplate.update("DELETE FROM approval_submission_version");
+        jdbcTemplate.update("DELETE FROM approval_instance");
+        jdbcTemplate.update("DELETE FROM approval_flow_node");
+        jdbcTemplate.update("DELETE FROM approval_flow_initiator_role");
+        jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
+        jdbcTemplate.update("DELETE FROM approval_flow");
+        jdbcTemplate.update("DELETE FROM approval_template");
         jdbcTemplate.update("DELETE FROM ocr_record");
         jdbcTemplate.update("DELETE FROM file_attachment");
         jdbcTemplate.update("DELETE FROM tire");
@@ -102,6 +111,9 @@ class TireApiTests {
                 INSERT INTO tire (id, tire_no, barcode, status, data_source)
                 VALUES (2, 'ABC123456', 'BC002', 'IN_STOCK', 'MANUAL')
                 """);
+        jdbcTemplate.update("INSERT INTO approval_template (id, template_code, category, approval_type, created_by) VALUES (1, 'TIRE_REQUEST', 'TIRE', 'TIRE_REQUEST', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 1, 'TIRE_REQUEST', '换胎审批', 1, 'ACTIVE', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 1, '库管', 2)");
         token = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "1380", 1L, "admin", "管理员", Set.of(
                 "tire:list", "tire:request", "tire:approval:view", "approval:create")));
         otherToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(2L, "1390", 1L, "driver-b", "其他司机", Set.of(
@@ -206,7 +218,8 @@ class TireApiTests {
 
     @Test
     void confirmedOcrCanContinueExistingTireApprovalFlow() throws Exception {
-        long ocrId = readId(recognize(uploadTireOcrImage(token, new byte[]{1}), token).andReturn());
+        long attachmentId = uploadTireOcrImage(token, new byte[]{1});
+        long ocrId = readId(recognize(attachmentId, token).andReturn());
         confirm(ocrId, "H621769799").andExpect(status().isOk());
 
         long requestId = readId(mockMvc.perform(post("/api/v1/tire-requests")
@@ -218,7 +231,12 @@ class TireApiTests {
                                 """.formatted(ocrId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.approvalInstanceId").isNumber())
                 .andExpect(jsonPath("$.data.items[0].ocrRecordId").value(ocrId)).andReturn());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_instance WHERE business_id = ?", Integer.class, requestId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_submission_version", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT business_snapshot_json FROM approval_submission_version", String.class))
+                .contains("\"ocrRecordId\":" + ocrId, "\"ocrAttachmentId\":" + attachmentId);
 
         mockMvc.perform(get("/api/v1/tire-requests/" + requestId)
                         .header("Authorization", "Bearer " + token))

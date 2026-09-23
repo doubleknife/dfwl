@@ -12,6 +12,7 @@ import com.dfwl.fleet.master.service.MasterDataService;
 import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
 import com.dfwl.fleet.route.dto.request.UnloadRequest;
 import com.dfwl.fleet.route.service.RouteService;
+import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.settlement.service.SettlementService;
 import com.dfwl.fleet.tire.dto.request.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.service.TireService;
@@ -60,7 +61,8 @@ class CriticalConcurrencyTests {
                 "import_row", "import_task", "expense_reversal_link", "expense_attribution_history", "expense_energy_detail",
                 "expense_penalty_detail", "expense_repair_detail", "expense_toll_detail", "expense_entry",
                 "tire_claim", "tire_request_item", "tire_request", "approval_action", "approval_task",
-                "approval_submission_version", "approval_instance", "approval_flow_node", "approval_flow",
+                "approval_submission_version", "approval_instance", "approval_flow_node",
+                "approval_flow_initiator_role", "approval_flow_expense_config", "approval_flow", "approval_template",
                 "route_weight_version", "route_status_history", "route_task", "file_attachment",
                 "driver_vehicle_history", "driver_vehicle_current", "vehicle_trailer_history",
                 "vehicle_trailer_current", "tire", "trailer", "vehicle", "driver", "customer", "product")) {
@@ -82,8 +84,11 @@ class CriticalConcurrencyTests {
         jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
         jdbcTemplate.update("INSERT INTO driver_vehicle_history (driver_id, vehicle_id, bind_time, bind_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
         jdbcTemplate.update("INSERT INTO tire (id, tire_no, barcode, status, data_source) VALUES (1, 'TIRE-001', 'BC001', 'IN_STOCK', 'MANUAL')");
-        jdbcTemplate.update("INSERT INTO approval_flow (id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 'GENERAL', '通用审批', 1, 'ACTIVE', 1)");
+        jdbcTemplate.update("INSERT INTO approval_template (id, template_code, category, approval_type, created_by) VALUES (1, 'GENERAL', 'OTHER', 'GENERAL', 1), (2, 'TIRE_REQUEST', 'TIRE', 'TIRE_REQUEST', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 1, 'GENERAL', '通用审批', 1, 'ACTIVE', 1)");
         jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 1, '审批人', 2)");
+        jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (2, 2, 'TIRE_REQUEST', '换胎审批', 1, 'ACTIVE', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (2, 1, '库管', 2)");
     }
 
     @Test
@@ -137,7 +142,8 @@ class CriticalConcurrencyTests {
 
     @Test
     void concurrentApprovalSameTaskOnlyOneTakesEffect() throws Exception {
-        long approvalId = approvalService.create(new ApprovalCreateRequest("GENERAL", "GENERAL", null, Map.of("x", 1), null), 1).id();
+        long approvalId = approvalService.create(new ApprovalCreateRequest("GENERAL", "GENERAL", null, Map.of("x", 1), null),
+                new AuthenticatedUser(1L, "1380", 1L, "ADMIN", "管理员", java.util.Set.of("approval:create"))).id();
 
         Results results = runConcurrently(2, () -> approvalService.approve(approvalId, new ApprovalActionRequest("ok", null), 2));
 
@@ -163,7 +169,7 @@ class CriticalConcurrencyTests {
     @Test
     void concurrentReserveSameTireOnlyOneSucceeds() throws Exception {
         Results results = runConcurrently(2, () -> tireService.createRequest(new TireRequestCreateRequest(
-                1L, 1L, List.of(new TireRequestCreateRequest.Item(1L, "TIRE-001", null)))));
+                1L, 1L, List.of(new TireRequestCreateRequest.Item(1L, "TIRE-001", null))), 1));
 
         assertThat(results.success()).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire WHERE id = 1", String.class)).isEqualTo("APPROVAL_RESERVED");

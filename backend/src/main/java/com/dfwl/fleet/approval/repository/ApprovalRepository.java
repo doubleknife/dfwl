@@ -33,14 +33,16 @@ public class ApprovalRepository {
 
     public Optional<FlowRecord> activeFlow(String approvalType) {
         return jdbcTemplate.query("""
-                SELECT * FROM approval_flow
-                WHERE approval_type = ? AND status = 'ACTIVE'
-                ORDER BY version_no DESC LIMIT 1
+                SELECT f.* FROM approval_flow f
+                JOIN approval_template t ON t.id = f.template_id
+                WHERE t.template_code = ? AND f.approval_type = ? AND f.status = 'ACTIVE'
+                ORDER BY f.version_no DESC LIMIT 1
                 """, (rs, rowNum) -> new FlowRecord(
                 rs.getLong("id"),
+                rs.getLong("template_id"),
                 rs.getString("approval_type"),
                 rs.getInt("version_no"),
-                rs.getString("status")), approvalType).stream().findFirst();
+                rs.getString("status")), approvalType, approvalType).stream().findFirst();
     }
 
     public Optional<FlowRecord> findFlow(long flowId) {
@@ -48,6 +50,7 @@ public class ApprovalRepository {
                 SELECT * FROM approval_flow WHERE id = ?
                 """, (rs, rowNum) -> new FlowRecord(
                 rs.getLong("id"),
+                rs.getLong("template_id"),
                 rs.getString("approval_type"),
                 rs.getInt("version_no"),
                 rs.getString("status")), flowId).stream().findFirst();
@@ -207,17 +210,22 @@ public class ApprovalRepository {
                 """, instanceId, submissionVersionId, node.id(), node.nodeOrder(), node.approverUserId());
     }
 
-    public long createFlowVersion(String approvalType, String flowName, int versionNo, long operatorId) {
+    public long createFlowVersion(long templateId, String approvalType, String flowName, int versionNo,
+                                  String evidenceRequirement, String configurationStatus, long operatorId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO approval_flow (approval_type, flow_name, version_no, status, created_by)
-                    VALUES (?, ?, ?, 'DRAFT', ?)
+                    INSERT INTO approval_flow (template_id, approval_type, flow_name, version_no, status,
+                                               evidence_requirement, configuration_status, created_by)
+                    VALUES (?, ?, ?, ?, 'DRAFT', ?, ?, ?)
                     """, new String[]{"id"});
-            ps.setString(1, approvalType);
-            ps.setString(2, flowName);
-            ps.setInt(3, versionNo);
-            ps.setLong(4, operatorId);
+            ps.setLong(1, templateId);
+            ps.setString(2, approvalType);
+            ps.setString(3, flowName);
+            ps.setInt(4, versionNo);
+            ps.setString(5, evidenceRequirement);
+            ps.setString(6, configurationStatus);
+            ps.setLong(7, operatorId);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -233,6 +241,13 @@ public class ApprovalRepository {
 
     public Optional<ApprovalResponse> find(long id) {
         return jdbcTemplate.query("SELECT * FROM approval_instance WHERE id = ?", this::mapApproval, id).stream().findFirst();
+    }
+
+    public void lockInstance(long id) {
+        if (jdbcTemplate.query("SELECT id FROM approval_instance WHERE id = ? FOR UPDATE",
+                (rs, rowNum) -> rs.getLong(1), id).isEmpty()) {
+            throw new com.dfwl.fleet.common.error.BusinessException(com.dfwl.fleet.common.error.ErrorCode.DATA_001);
+        }
     }
 
     public Optional<SubmissionRecord> findSubmission(long id) {
@@ -401,18 +416,26 @@ public class ApprovalRepository {
         return count != null && count > 0;
     }
 
-    public boolean hasOpenInstancesForApprovalType(String approvalType) {
+    public boolean hasPendingInstancesForTemplate(long templateId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM approval_instance
-                WHERE approval_type = ? AND status IN ('PENDING', 'RETURNED_TO_APPLICANT')
-                """, Integer.class, approvalType);
+                FROM approval_instance i
+                JOIN approval_flow f ON f.id = i.flow_id
+                WHERE f.template_id = ? AND i.status = 'PENDING'
+                """, Integer.class, templateId);
         return count != null && count > 0;
     }
 
-    public int nextFlowVersion(String approvalType) {
-        Integer max = jdbcTemplate.queryForObject("SELECT MAX(version_no) FROM approval_flow WHERE approval_type = ?", Integer.class, approvalType);
+    public int nextFlowVersion(long templateId) {
+        Integer max = jdbcTemplate.queryForObject("SELECT MAX(version_no) FROM approval_flow WHERE template_id = ?", Integer.class, templateId);
         return max == null ? 1 : max + 1;
+    }
+
+    public boolean latestFlow(long templateId, long flowId) {
+        Long latest = jdbcTemplate.queryForObject("""
+                SELECT id FROM approval_flow WHERE template_id = ? ORDER BY version_no DESC LIMIT 1
+                """, Long.class, templateId);
+        return latest != null && latest == flowId;
     }
 
     public void updateFlowStatus(long flowId, String status) {
@@ -629,7 +652,7 @@ public class ApprovalRepository {
         return rs.wasNull() ? null : value;
     }
 
-    public record FlowRecord(long id, String approvalType, int versionNo, String status) {
+    public record FlowRecord(long id, long templateId, String approvalType, int versionNo, String status) {
     }
 
     public record FlowNodeRecord(long id, long flowId, int nodeOrder, long approverUserId, boolean allowReturn) {

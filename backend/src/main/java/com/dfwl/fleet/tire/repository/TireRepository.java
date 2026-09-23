@@ -206,8 +206,11 @@ public class TireRepository {
         jdbcTemplate.update("UPDATE tire_request SET status = ? WHERE id = ?", status, requestId);
     }
 
-    public void attachApproval(long requestId, long approvalInstanceId) {
-        jdbcTemplate.update("UPDATE tire_request SET approval_instance_id = ? WHERE id = ?", approvalInstanceId, requestId);
+    public boolean attachApproval(long requestId, long approvalInstanceId) {
+        return jdbcTemplate.update("""
+                UPDATE tire_request SET approval_instance_id = ?
+                WHERE id = ? AND approval_instance_id IS NULL AND status = 'PENDING'
+                """, approvalInstanceId, requestId) == 1;
     }
 
     public Optional<TireRequestResponse> findRequest(long id) {

@@ -103,8 +103,10 @@ public class ApprovalController {
     public ApiResponse<ApprovalResponse> create(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ApprovalCreateRequest request) {
-        approvalAccessPolicy.ensureCanSubmit(user, request.approvalType(), request.businessType());
-        return ApiResponse.success(approvalService.create(request, user.id()), RequestIdHolder.get());
+        if (request.templateId() == null) {
+            approvalAccessPolicy.ensureCanSubmit(user, request.approvalType(), request.businessType());
+        }
+        return ApiResponse.success(approvalService.create(request, user), RequestIdHolder.get());
     }
 
     @PostMapping("/approvals/{id}/approve")
@@ -143,8 +145,10 @@ public class ApprovalController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
             @Valid @RequestBody ApprovalCreateRequest request) {
-        approvalAccessPolicy.ensureCanSubmit(user, request.approvalType(), request.businessType());
-        return ApiResponse.success(approvalService.resubmit(id, request, user.id()), RequestIdHolder.get());
+        if (request.templateId() == null) {
+            approvalAccessPolicy.ensureCanSubmit(user, request.approvalType(), request.businessType());
+        }
+        return ApiResponse.success(approvalService.resubmit(id, request, user), RequestIdHolder.get());
     }
 
     @PostMapping("/approval-flows/{id}/maintenance")

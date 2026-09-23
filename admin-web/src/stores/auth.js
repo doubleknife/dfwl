@@ -24,9 +24,9 @@ export function canAny(codeOrCodes) {
 }
 
 export function setSession(data) {
-  authStore.token = data.token;
+  authStore.token = data.accessToken;
   authStore.user = data.user;
-  localStorage.setItem('admin.token', data.token);
+  localStorage.setItem('admin.token', data.accessToken);
   localStorage.setItem('admin.user', JSON.stringify(data.user));
 }
 

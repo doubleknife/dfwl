@@ -388,17 +388,35 @@ CREATE TABLE approval_position (
   UNIQUE KEY uk_position_code (position_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE approval_template (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  template_code VARCHAR(64) NOT NULL,
+  category VARCHAR(16) NOT NULL,
+  approval_type VARCHAR(32) NOT NULL,
+  created_by BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_approval_template_code (template_code),
+  CONSTRAINT chk_approval_template_category CHECK (category IN ('TIRE', 'EXPENSE', 'OTHER'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE approval_flow (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  template_id BIGINT UNSIGNED NOT NULL,
   approval_type VARCHAR(32) NOT NULL,
   flow_name VARCHAR(128) NOT NULL,
   version_no INT UNSIGNED NOT NULL,
   status VARCHAR(32) NOT NULL,
+  evidence_requirement VARCHAR(16) NOT NULL DEFAULT 'OPTIONAL',
+  configuration_status VARCHAR(16) NOT NULL DEFAULT 'NEEDS_REVIEW',
   created_by BIGINT UNSIGNED NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   published_at DATETIME(3) NULL,
-  UNIQUE KEY uk_flow_type_version (approval_type, version_no),
-  KEY idx_flow_type_status (approval_type, status)
+  active_template_id BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN status = 'ACTIVE' THEN template_id ELSE NULL END) STORED,
+  UNIQUE KEY uk_flow_template_version (template_id, version_no),
+  UNIQUE KEY uk_flow_one_active_template (active_template_id),
+  KEY idx_flow_type_status (approval_type, status),
+  KEY idx_flow_template_status (template_id, status),
+  CONSTRAINT fk_flow_template FOREIGN KEY (template_id) REFERENCES approval_template (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE approval_flow_node (
@@ -410,6 +428,26 @@ CREATE TABLE approval_flow_node (
   approver_user_id BIGINT UNSIGNED NOT NULL,
   allow_return TINYINT UNSIGNED NOT NULL DEFAULT 1,
   UNIQUE KEY uk_flow_node_order (flow_id, node_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE approval_flow_initiator_role (
+  flow_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (flow_id, role_id),
+  CONSTRAINT fk_flow_initiator_flow FOREIGN KEY (flow_id) REFERENCES approval_flow (id),
+  CONSTRAINT fk_flow_initiator_role FOREIGN KEY (role_id) REFERENCES sys_role (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE approval_flow_expense_config (
+  flow_id BIGINT UNSIGNED PRIMARY KEY,
+  expense_type VARCHAR(32) NOT NULL,
+  allow_single TINYINT UNSIGNED NOT NULL,
+  allow_excel TINYINT UNSIGNED NOT NULL,
+  allow_route TINYINT UNSIGNED NOT NULL,
+  allow_daily TINYINT UNSIGNED NOT NULL,
+  CONSTRAINT fk_flow_expense_config FOREIGN KEY (flow_id) REFERENCES approval_flow (id),
+  CONSTRAINT chk_expense_input_mode CHECK (allow_single = 1 OR allow_excel = 1),
+  CONSTRAINT chk_expense_attribution CHECK (allow_route = 1 OR allow_daily = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE approval_instance (

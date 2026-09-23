@@ -392,16 +392,32 @@ CREATE TABLE approval_position (
   UNIQUE (position_code)
 );
 
+CREATE TABLE approval_template (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  template_code VARCHAR(64) NOT NULL,
+  category VARCHAR(16) NOT NULL,
+  approval_type VARCHAR(32) NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (template_code)
+);
+
 CREATE TABLE approval_flow (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  template_id BIGINT NOT NULL,
   approval_type VARCHAR(32) NOT NULL,
   flow_name VARCHAR(128) NOT NULL,
   version_no INT NOT NULL,
   status VARCHAR(32) NOT NULL,
+  evidence_requirement VARCHAR(16) NOT NULL DEFAULT 'OPTIONAL',
+  configuration_status VARCHAR(16) NOT NULL DEFAULT 'NEEDS_REVIEW',
   created_by BIGINT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   published_at TIMESTAMP NULL,
-  UNIQUE (approval_type, version_no)
+  active_template_id BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'ACTIVE' THEN template_id ELSE NULL END),
+  UNIQUE (template_id, version_no),
+  UNIQUE (active_template_id),
+  FOREIGN KEY (template_id) REFERENCES approval_template (id)
 );
 
 CREATE TABLE approval_flow_node (
@@ -413,6 +429,26 @@ CREATE TABLE approval_flow_node (
   approver_user_id BIGINT NOT NULL,
   allow_return TINYINT NOT NULL DEFAULT 1,
   UNIQUE (flow_id, node_order)
+);
+
+CREATE TABLE approval_flow_initiator_role (
+  flow_id BIGINT NOT NULL,
+  role_id BIGINT NOT NULL,
+  PRIMARY KEY (flow_id, role_id),
+  FOREIGN KEY (flow_id) REFERENCES approval_flow (id),
+  FOREIGN KEY (role_id) REFERENCES sys_role (id)
+);
+
+CREATE TABLE approval_flow_expense_config (
+  flow_id BIGINT PRIMARY KEY,
+  expense_type VARCHAR(32) NOT NULL,
+  allow_single TINYINT NOT NULL,
+  allow_excel TINYINT NOT NULL,
+  allow_route TINYINT NOT NULL,
+  allow_daily TINYINT NOT NULL,
+  FOREIGN KEY (flow_id) REFERENCES approval_flow (id),
+  CHECK (allow_single = 1 OR allow_excel = 1),
+  CHECK (allow_route = 1 OR allow_daily = 1)
 );
 
 CREATE TABLE approval_instance (

@@ -62,6 +62,15 @@ class DriverScopeApiTests {
         jdbcTemplate.update("DELETE FROM tire_claim");
         jdbcTemplate.update("DELETE FROM tire_request_item");
         jdbcTemplate.update("DELETE FROM tire_request");
+        jdbcTemplate.update("DELETE FROM approval_action");
+        jdbcTemplate.update("DELETE FROM approval_task");
+        jdbcTemplate.update("DELETE FROM approval_submission_version");
+        jdbcTemplate.update("DELETE FROM approval_instance");
+        jdbcTemplate.update("DELETE FROM approval_flow_node");
+        jdbcTemplate.update("DELETE FROM approval_flow_initiator_role");
+        jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
+        jdbcTemplate.update("DELETE FROM approval_flow");
+        jdbcTemplate.update("DELETE FROM approval_template");
         jdbcTemplate.update("DELETE FROM tire");
         jdbcTemplate.update("DELETE FROM expense_entry");
         jdbcTemplate.update("DELETE FROM route_weight_version");
@@ -103,6 +112,9 @@ class DriverScopeApiTests {
                        (3, 'R3', 'r3', '2026-09-11', 1, 1, 'RETURN', 'C', 'A', 7.0000, 1, 'IN_TRANSIT', 1, 1, CURRENT_TIMESTAMP, 1)
                 """);
         jdbcTemplate.update("INSERT INTO tire (id, tire_no, barcode, status, data_source) VALUES (1, 'TIRE-001', 'B001', 'IN_STOCK', 'MANUAL')");
+        jdbcTemplate.update("INSERT INTO approval_template (id, template_code, category, approval_type, created_by) VALUES (1, 'TIRE_REQUEST', 'TIRE', 'TIRE_REQUEST', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 1, 'TIRE_REQUEST', '换胎审批', 1, 'ACTIVE', 1)");
+        jdbcTemplate.update("INSERT INTO approval_flow_node (flow_id, node_order, node_name, approver_user_id) VALUES (1, 1, '库管', 1)");
         jdbcTemplate.update("INSERT INTO expense_entry (id, expense_no, expense_type, business_date, vehicle_id, attribution_type, amount, source_type, status, created_by) VALUES (1, 'E1', 'REPAIR', '2026-09-10', 1, 'DAILY', 10.00, 'MANUAL', 'ACTIVE', 1)");
         jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (1, 'finance', 'x', 1, 1)");
 

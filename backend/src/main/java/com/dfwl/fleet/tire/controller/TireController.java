@@ -50,7 +50,7 @@ public class TireController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody TireRequestCreateRequest request) {
         tireAccessPolicy.ensureDriverCanUseTireRequest(user, request.driverId(), request.vehicleId());
-        return ApiResponse.success(tireService.createRequest(request), RequestIdHolder.get());
+        return ApiResponse.success(tireService.createRequest(request, user.id()), RequestIdHolder.get());
     }
 
     @GetMapping("/tire-requests/{id}")

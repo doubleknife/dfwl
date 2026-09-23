@@ -7,8 +7,14 @@ import java.util.List;
 public record ApprovalDetailResponse(
         ApprovalResponse approval,
         List<SubmissionVersion> submissions,
-        List<TaskHistory> tasks
+        List<TaskHistory> tasks,
+        Long templateId,
+        ApprovalFlowConfigResponse flowConfiguration
 ) {
+    public ApprovalDetailResponse(ApprovalResponse approval, List<SubmissionVersion> submissions,
+                                  List<TaskHistory> tasks) {
+        this(approval, submissions, tasks, null, null);
+    }
     public record SubmissionVersion(
             Long id,
             Integer versionNo,
