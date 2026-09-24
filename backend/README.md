@@ -25,5 +25,14 @@ Database settings are environment-driven:
 - `FLEET_DB_PASSWORD`
 - `FLEET_FLYWAY_ENABLED`
 
+The tracked `application*.yml` files are packaged into the JAR and contain no
+local credentials. For local development, use a private external configuration
+file outside `src/main/resources` (for example, ignored
+`.runtime/application-local.yml`) and pass it with
+`--spring.config.additional-location=file:./.runtime/application-local.yml`.
+Production uses `SPRING_PROFILES_ACTIVE=prod`, `FLEET_STORAGE_ROOT`, and the
+server-side OCR environment variables. See
+`../docs/11-R8-1-部署配置与敏感信息.md`.
+
 Flyway migrations live in `src/main/resources/db/migration`.
 

@@ -1,0 +1,5 @@
+fleet:
+  storage:
+    local-root: ${FLEET_STORAGE_ROOT}
+  ocr:
+    provider: ${FLEET_OCR_PROVIDER:TENCENT}

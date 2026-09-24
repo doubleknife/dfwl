@@ -1,6 +1,6 @@
 # 腾讯云 OCR 部署配置补充说明
 
-系统默认禁用真实 OCR。启用腾讯云 OCR 时，仅通过部署环境或 IDEA Run Configuration 注入以下配置：
+系统默认禁用真实 OCR。启用腾讯云 OCR 时，仅通过部署环境、IDEA Run Configuration 或不参与 Maven resources 打包的私有外部配置注入以下配置：
 
 ```text
 FLEET_OCR_PROVIDER=TENCENT
@@ -10,6 +10,8 @@ FLEET_OCR_TENCENT_REGION=ap-guangzhou
 ```
 
 这些名称来自 `OcrProperties` 的 `fleet.ocr` 配置绑定。真实凭据不得写入 `application.yml`、Java、测试源码、文档或 Git。
+
+`prod` profile 默认选择腾讯云 OCR；缺少 SecretId/SecretKey 时服务在启动阶段明确失败，不会等待到第一次识别请求。`FLEET_OCR_TENCENT_REGION` 默认 `ap-guangzhou`。完整部署变量与外部文件用法参见 `11-R8-1-部署配置与敏感信息.md`。
 
 真实 Provider 集成测试还需要：
 

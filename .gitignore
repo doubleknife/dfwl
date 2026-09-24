@@ -22,5 +22,6 @@ apps/var/
 .git/
 
 .idea/
+deploy/env/*.env
 admin-web/src/generated/
 mini-program/project.private.config.json

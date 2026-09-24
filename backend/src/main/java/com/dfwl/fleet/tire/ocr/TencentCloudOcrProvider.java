@@ -21,6 +21,10 @@ public class TencentCloudOcrProvider implements OcrProvider {
     private final OcrProperties properties;
 
     public TencentCloudOcrProvider(OcrProperties properties) {
+        if (!StringUtils.hasText(properties.getTencent().getSecretId())
+                || !StringUtils.hasText(properties.getTencent().getSecretKey())) {
+            throw new IllegalStateException("Tencent OCR requires FLEET_OCR_TENCENT_SECRET_ID and FLEET_OCR_TENCENT_SECRET_KEY");
+        }
         this.properties = properties;
     }
 
