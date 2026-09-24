@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
+import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
+import com.dfwl.fleet.salary.service.DriverSalaryService;
 import java.math.BigDecimal;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,12 +42,16 @@ class ProfitSettlementIntegrityTests {
     @Autowired
     private TokenAuthenticationService tokenAuthenticationService;
 
+    @Autowired
+    private DriverSalaryService driverSalaryService;
+
     private String token;
 
     @BeforeEach
     void setUp() {
         for (String table : new String[]{
                 "settlement_diff", "settlement_detail", "settlement_version", "settlement_month",
+                "driver_salary_history", "driver_salary_entry",
                 "expense_attribution_history", "expense_reversal_link", "expense_energy_detail", "expense_entry",
                 "route_weight_version", "route_status_history", "route_task",
                 "vehicle", "driver", "product", "customer"}) {
@@ -199,12 +205,44 @@ class ProfitSettlementIntegrityTests {
 
     @Test
     void v2ContainsWeightAdjustDiff() throws Exception {
-        generatedVersionId("2026-09");
+        long v1 = generatedVersionId("2026-09");
+        normalizeStoredSnapshot(v1);
         adjustRouteOneWeight();
         long v2 = generatedVersionId("2026-09");
         assertThat(diffType(v2, "WEIGHT_ADJUST")).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT income_delta FROM settlement_diff WHERE settlement_version_id = ? AND change_type = 'WEIGHT_ADJUST'", BigDecimal.class, v2))
                 .isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void salaryAdjustmentCreatesSalaryDiffWithoutChangingPreviousVersion() throws Exception {
+        driverSalaryService.upsertManual(new DriverSalaryRequest(1L, 1L, new BigDecimal("500.00"), "首次录入"), 8L);
+        long v1 = generatedVersionId("2026-09");
+        BigDecimal v1Profit = jdbcTemplate.queryForObject(
+                "SELECT total_profit FROM settlement_version WHERE id = ?", BigDecimal.class, v1);
+        normalizeStoredSnapshot(v1);
+
+        driverSalaryService.upsertManual(new DriverSalaryRequest(1L, 1L, new BigDecimal("650.00"), "工资调整"), 9L);
+        long v2 = generatedVersionId("2026-09");
+
+        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = 1", BigDecimal.class))
+                .isEqualByComparingTo("650.00");
+        assertThat(jdbcTemplate.queryForObject("SELECT total_profit FROM settlement_version WHERE id = ?", BigDecimal.class, v1))
+                .isEqualByComparingTo(v1Profit);
+        assertThat(jdbcTemplate.queryForObject("SELECT total_profit FROM settlement_version WHERE id = ?", BigDecimal.class, v2))
+                .isEqualByComparingTo(v1Profit.subtract(new BigDecimal("150.00")));
+        assertThat(diffType(v2, "SALARY_ADJUST")).isEqualTo(1);
+        assertThat(diffType(v2, "WEIGHT_ADJUST")).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT profit_delta FROM settlement_diff
+                WHERE settlement_version_id = ? AND fact_type = 'ROUTE' AND source_id = 1
+                """, BigDecimal.class, v2)).isEqualByComparingTo("-150.00");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT business_operator_id FROM settlement_diff
+                WHERE settlement_version_id = ? AND change_type = 'SALARY_ADJUST'
+                """, Long.class, v2)).isEqualTo(9L);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_salary_history WHERE route_id = 1", Integer.class))
+                .isEqualTo(2);
     }
 
     @Test
@@ -283,5 +321,18 @@ class ProfitSettlementIntegrityTests {
 
     private int diffType(long versionId, String type) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_diff WHERE settlement_version_id = ? AND change_type = ?", Integer.class, versionId, type);
+    }
+
+    private void normalizeStoredSnapshot(long versionId) {
+        String snapshot = jdbcTemplate.queryForObject("""
+                SELECT snapshot_json FROM settlement_detail
+                WHERE settlement_version_id = ? AND fact_type = 'ROUTE' AND source_id = 1
+                """, String.class, versionId);
+        String mysqlStyle = snapshot.replace("\"effectiveWeightVersionId\":1", "\"effectiveWeightVersionId\": 1");
+        assertThat(mysqlStyle).isNotEqualTo(snapshot);
+        jdbcTemplate.update("""
+                UPDATE settlement_detail SET snapshot_json = ?
+                WHERE settlement_version_id = ? AND fact_type = 'ROUTE' AND source_id = 1
+                """, mysqlStyle, versionId);
     }
 }

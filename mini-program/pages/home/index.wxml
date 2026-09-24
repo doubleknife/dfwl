@@ -10,7 +10,7 @@
         <view>当前绑定车辆</view>
         <view class="muted">{{vehicle.plateNo || driver.currentVehicleId || '暂无绑定车辆'}}</view>
       </view>
-      <view class="tag">{{driver.status === 1 ? '启用' : '状态未知'}}</view>
+      <view class="tag">{{bindingStatus}}</view>
     </view>
   </view>
 

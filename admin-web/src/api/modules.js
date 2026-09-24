@@ -62,7 +62,7 @@ export const expenseApi = {
 };
 
 export const approvalApi = {
-  list: () => apiClient.get('/approvals?pageNo=1&pageSize=100'),
+  list: (scope = 'ALL', pageNo = 1) => apiClient.get(`/approvals?scope=${scope}&pageNo=${pageNo}&pageSize=100`),
   detail: (id) => apiClient.get(`/approvals/${id}`),
   create: (body) => apiClient.post('/approvals', body),
   approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
@@ -85,7 +85,8 @@ export const approvalTemplateApi = {
 };
 
 export const attachmentApi = {
-  upload: (formData) => apiClient.upload('/attachments', formData)
+  upload: (formData) => apiClient.upload('/attachments', formData),
+  download: (id) => apiClient.download(`/attachments/${id}`)
 };
 
 export const tireApi = {

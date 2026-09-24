@@ -60,10 +60,7 @@ async function download(path) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: buildHeaders({}, false)
   });
-  if (!response.ok) {
-    throw new ApiError('下载失败', `HTTP_${response.status}`, response.status);
-  }
-  return response.blob();
+  return parseResponse(response);
 }
 
 export const apiClient = {

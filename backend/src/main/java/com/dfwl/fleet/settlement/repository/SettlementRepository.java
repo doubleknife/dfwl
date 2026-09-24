@@ -1,6 +1,7 @@
 package com.dfwl.fleet.settlement.repository;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
@@ -356,11 +357,24 @@ public class SettlementRepository {
         }
         if ("ROUTE".equals(after.factType())) {
             Long weightVersionId = longValue(after.snapshot().get("effectiveWeightVersionId"));
-            if (before != null && before.snapshotJson() != null && before.snapshotJson().contains("\"effectiveWeightVersionId\"")) {
-                String marker = "\"effectiveWeightVersionId\":" + weightVersionId;
-                if (weightVersionId != null && !before.snapshotJson().contains(marker)) {
-                    return new BusinessChange("WEIGHT_ADJUST", longValue(after.snapshot().get("weightOperatorId")),
-                            timeValue(after.snapshot().get("weightOperationTime")), stringValue(after.snapshot().get("weightReason")));
+            JsonNode previousSnapshot = before == null ? null : snapshot(before.snapshotJson());
+            JsonNode previousWeight = previousSnapshot == null ? null : previousSnapshot.get("effectiveWeightVersionId");
+            Long previousWeightVersionId = previousWeight == null || previousWeight.isNull() ? null : previousWeight.longValue();
+            if (before != null && weightVersionId != null && !weightVersionId.equals(previousWeightVersionId)) {
+                return new BusinessChange("WEIGHT_ADJUST", longValue(after.snapshot().get("weightOperatorId")),
+                        timeValue(after.snapshot().get("weightOperationTime")), stringValue(after.snapshot().get("weightReason")));
+            }
+            boolean salaryChanged = false;
+            if (before != null) {
+                JsonNode previousSalaryNode = previousSnapshot.get("driverSalary");
+                BigDecimal previousSalary = previousSalaryNode == null || previousSalaryNode.isNull()
+                        ? BigDecimal.ZERO : previousSalaryNode.decimalValue();
+                BigDecimal currentSalary = (BigDecimal) after.snapshot().get("driverSalary");
+                salaryChanged = previousSalary.compareTo(currentSalary) != 0;
+                BigDecimal previousRouteExpense = before.expenseAmount().subtract(previousSalary);
+                BigDecimal currentRouteExpense = after.expenseAmount().subtract(currentSalary);
+                if (salaryChanged && previousRouteExpense.compareTo(currentRouteExpense) == 0) {
+                    return salaryChange(after.sourceId());
                 }
             }
             BusinessChange reassignment = reassignmentChange(after.sourceId());
@@ -371,13 +385,20 @@ public class SettlementRepository {
             if (reversal != null) {
                 return reversal;
             }
-            BusinessChange salary = salaryChange(after.sourceId());
-            if (salary != null) {
-                return salary;
+            if (salaryChanged) {
+                return salaryChange(after.sourceId());
             }
             return new BusinessChange(before == null ? "ADD" : "MODIFY", null, null, null);
         }
         return new BusinessChange(before == null ? "ADD" : "MODIFY", null, null, null);
+    }
+
+    private JsonNode snapshot(String json) {
+        try {
+            return objectMapper.readTree(json);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to read settlement snapshot", ex);
+        }
     }
 
     private BusinessChange salaryChange(long routeId) {
@@ -387,9 +408,10 @@ public class SettlementRepository {
                 WHERE route_id = ?
                 ORDER BY operation_time DESC, id DESC
                 LIMIT 1
-                """, (rs, rowNum) -> new BusinessChange("MODIFY", readLong(rs, "operator_id"),
+                """, (rs, rowNum) -> new BusinessChange("SALARY_ADJUST", readLong(rs, "operator_id"),
                 rs.getTimestamp("operation_time").toLocalDateTime(),
-                rs.getString("reason")), routeId).stream().findFirst().orElse(null);
+                rs.getString("reason")), routeId).stream().findFirst()
+                .orElse(new BusinessChange("SALARY_ADJUST", null, null, null));
     }
 
     private BusinessChange reassignmentChange(long routeId) {

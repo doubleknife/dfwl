@@ -2,7 +2,7 @@ const { request } = require('../../utils/request');
 const { visibleHomeCards } = require('../../utils/permissions');
 
 Page({
-  data: { user: null, driver: null, vehicle: null, cards: [], loading: false },
+  data: { user: null, driver: null, vehicle: null, bindingStatus: '不适用', cards: [], loading: false },
   onShow() { this.load(); },
   async load() {
     this.setData({ loading: true });
@@ -18,7 +18,8 @@ Page({
         currentPlateNo: user.currentPlateNo
       } : null;
       const vehicle = user.currentVehicleId ? { id: user.currentVehicleId, plateNo: user.currentPlateNo } : null;
-      this.setData({ user, driver, vehicle, cards: visibleHomeCards(user, driver) });
+      const bindingStatus = driver ? (vehicle ? '已绑定' : '暂无绑定') : '不适用';
+      this.setData({ user, driver, vehicle, bindingStatus, cards: visibleHomeCards(user, driver) });
     } finally {
       this.setData({ loading: false });
     }

@@ -256,8 +256,8 @@ class DriverSalaryApiTests {
 
         mockMvc.perform(get("/api/v1/settlements/versions/%d/diff".formatted(v2)).header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[?(@.sourceId==1 && @.changeType=='MODIFY')].businessOperatorId").value(1))
-                .andExpect(jsonPath("$.data[?(@.sourceId==1 && @.changeType=='MODIFY')].businessReason").value("历史工资调整"));
+                .andExpect(jsonPath("$.data[?(@.sourceId==1 && @.changeType=='SALARY_ADJUST')].businessOperatorId").value(1))
+                .andExpect(jsonPath("$.data[?(@.sourceId==1 && @.changeType=='SALARY_ADJUST')].businessReason").value("历史工资调整"));
     }
 
     @Test

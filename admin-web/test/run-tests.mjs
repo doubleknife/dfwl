@@ -56,6 +56,14 @@ function configuredForm(category = 'EXPENSE') {
 }
 
 const tests = [
+  ['development API base uses the Vite proxy while production stays same-origin', () => {
+    const development = readFileSync(new URL('../.env.development', import.meta.url), 'utf8');
+    const production = readFileSync(new URL('../.env', import.meta.url), 'utf8');
+    const vite = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8');
+    assert.match(development, /^VITE_API_BASE_URL=\/api\/v1\s*$/m);
+    assert.match(production, /^VITE_API_BASE_URL=\/api\/v1\s*$/m);
+    assert.match(vite, /['"]\/api\/v1['"]:\s*['"]http:\/\/127\.0\.0\.1:8080['"]/);
+  }],
   ['permission helpers allow matching single permission', () => {
     assert.equal(hasPermission(['route:list'], 'route:list'), true);
     assert.equal(hasPermission(['route:list'], 'route:delete'), false);
@@ -272,3 +280,4 @@ for (const [name, run] of tests) {
 
 console.log(`${tests.length} tests passed`);
 await import('./approvalApplicationTests.mjs');
+await import('./approvalDetailTests.mjs');

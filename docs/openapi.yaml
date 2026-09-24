@@ -1035,7 +1035,7 @@ paths:
     post:
       tags: [Settlements]
       summary: 生成新的不可变结算版本
-      description: 按业务发生日期生成不可变快照，保存收入、线路费用、日常费用、司机工资、利润，并相对上一版本生成 ADD、DELETE、MODIFY、REASSIGN、WEIGHT_ADJUST、REVERSAL 差异。
+      description: 按业务发生日期生成不可变快照，保存收入、线路费用、日常费用、司机工资、利润，并相对上一版本生成 ADD、DELETE、MODIFY、REASSIGN、WEIGHT_ADJUST、SALARY_ADJUST、REVERSAL 差异。
       x-permission: settlement:generate
       parameters: [{$ref: '#/components/parameters/YearMonth'}]
       responses: {'200': {description: OK}}
