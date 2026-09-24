@@ -897,6 +897,33 @@ paths:
       summary: 轮胎库存与历史
       x-permission: tire:list
       responses: {'200': {description: OK}}
+  /tires/request-target:
+    get:
+      tags: [Tires]
+      summary: 按完整确认胎号精确查询可申请库存轮胎
+      description: 仅用于换胎申请，返回单条可申请轮胎；创建申请时仍重新校验状态和胎号。
+      x-permission: tire:request
+      parameters:
+        - in: query
+          name: tireNumber
+          required: true
+          schema: {type: string, maxLength: 128}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiResponse'}
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          tireId: {type: integer, format: int64}
+                          tireNumber: {type: string}
+                          status: {type: string, enum: [IN_STOCK]}
   /tire-requests:
     post:
       tags: [Tires]

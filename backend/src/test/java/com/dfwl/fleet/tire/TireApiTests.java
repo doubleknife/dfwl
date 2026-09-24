@@ -136,6 +136,65 @@ class TireApiTests {
     }
 
     @Test
+    void requestOnlyDriverCanResolveExactAvailableTireWithoutInventoryList() throws Exception {
+        String requestOnly = tokenAuthenticationService.issueToken(tireDriver());
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H621769799")
+                        .header("Authorization", "Bearer " + requestOnly))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tireId").value(1))
+                .andExpect(jsonPath("$.data.tireNumber").value("H621769799"))
+                .andExpect(jsonPath("$.data.status").value("IN_STOCK"));
+        mockMvc.perform(get("/api/v1/tires").header("Authorization", "Bearer " + requestOnly))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void requestTargetRejectsMissingPartialAndUnavailableTires() throws Exception {
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H6").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TIRE_002"));
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "NO-SUCH-TIRE").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TIRE_002"));
+        jdbcTemplate.update("UPDATE tire SET status = 'APPROVAL_RESERVED' WHERE id = 1");
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H621769799").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TIRE_001"));
+        jdbcTemplate.update("UPDATE tire SET status = 'CLAIMED' WHERE id = 1");
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H621769799").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TIRE_001"));
+    }
+
+    @Test
+    void inventoryListPermissionAloneCannotResolveRequestTarget() throws Exception {
+        String listOnly = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                8L, "13900000008", 8L, "ADMIN", "list only", Set.of("tire:list")));
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H621769799")
+                        .header("Authorization", "Bearer " + listOnly))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void requestTargetResultCannotBypassSecondReservationCheck() throws Exception {
+        mockMvc.perform(get("/api/v1/tires/request-target")
+                        .param("tireNumber", "H621769799")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/tire-requests").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"driverId\":1,\"vehicleId\":1,\"items\":[{\"tireId\":1,\"confirmedTireNo\":\"H621769799\"}]}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/tire-requests").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"driverId\":1,\"vehicleId\":1,\"items\":[{\"tireId\":1,\"confirmedTireNo\":\"H621769799\"}]}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TIRE_001"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_request", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void extractsSingleAndHStyleCandidate() throws Exception {
         fakeOcrProvider.detections = List.of(new OcrProviderResult.DetectedText(" H621769799 ", 98D));
 

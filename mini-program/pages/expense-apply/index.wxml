@@ -1,44 +1,81 @@
 <view class="page">
   <view class="panel">
-    <view class="title">费用审批申请</view>
-    <view class="field">
-      <text class="label">费用类型</text>
-      <picker mode="selector" range="{{expenseTypes}}" bindchange="chooseType">
-        <view class="picker-box">{{form.expenseType}}</view>
+    <view class="title">发起审批</view>
+    <view wx:if="{{error}}" class="muted">{{error}}</view>
+    <view wx:if="{{templates.length}}" class="field">
+      <text class="label">审批模板</text>
+      <picker mode="selector" range="{{templates}}" range-key="flowName" bindchange="chooseTemplate">
+        <view class="picker-box">{{template.flowName || '请选择可发起模板'}}</view>
       </picker>
     </view>
-    <view class="field">
-      <text class="label">业务日期</text>
-      <picker mode="date" bindchange="setField" data-field="businessDate">
-        <view class="picker-box">{{form.businessDate || '选择日期'}}</view>
-      </picker>
+    <view wx:if="{{template}}" class="muted">{{template.expenseType || template.category}} · V{{template.versionNo}}</view>
+    <view wx:if="{{launchReason}}" class="muted">{{launchReason}}</view>
+  </view>
+
+  <view wx:if="{{canCompose}}">
+    <view class="panel">
+      <view class="title">费用归属</view>
+      <view class="field">
+        <text class="label">归属类型</text>
+        <picker wx:if="{{attributionTypes.length > 1}}" mode="selector" range="{{attributionTypes}}" bindchange="chooseAttribution">
+          <view class="picker-box">{{attributionType || '请选择费用归属'}}</view>
+        </picker>
+        <view wx:else class="picker-box">{{attributionType}}</view>
+      </view>
+      <view wx:if="{{attributionType === 'ROUTE'}}" class="field">
+        <text class="label">线路</text>
+        <picker mode="selector" range="{{routes}}" range-key="routeNo" bindchange="chooseRoute">
+          <view class="picker-box">{{routeId || '请选择线路'}}</view>
+        </picker>
+      </view>
     </view>
-    <view class="field">
-      <text class="label">车辆</text>
-      <picker mode="selector" range="{{vehicles}}" range-key="plateNo" bindchange="chooseVehicle">
-        <view class="picker-box">{{form.vehicleId || '选择车辆'}}</view>
-      </picker>
+
+    <view class="panel">
+      <view class="title">费用明细</view>
+      <view wx:for="{{items}}" wx:for-item="entry" wx:key="itemNo" class="timeline">
+        <view class="row"><text>明细 {{entry.itemNo}}</text><button size="mini" data-index="{{index}}" bindtap="removeItem">删除</button></view>
+        <view class="field">
+          <text class="label">车辆</text>
+          <view wx:if="{{user.driverId}}" class="picker-box">{{user.currentPlateNo || entry.vehicleId || '暂无当前车辆'}}</view>
+          <picker wx:else mode="selector" range="{{vehicles}}" range-key="plateNo" data-index="{{index}}" bindchange="chooseVehicle">
+            <view class="picker-box">{{entry.vehicleId || '请选择车辆'}}</view>
+          </picker>
+        </view>
+        <view class="field">
+          <text class="label">司机</text>
+          <view wx:if="{{user.driverId}}" class="picker-box">{{user.driverName || entry.driverId}}</view>
+          <view wx:else>
+            <picker mode="selector" range="{{drivers}}" range-key="name" data-index="{{index}}" bindchange="chooseDriver">
+              <view class="picker-box">{{entry.driverId || '可选择司机'}}</view>
+            </picker>
+            <button wx:if="{{entry.driverId}}" size="mini" data-index="{{index}}" bindtap="clearDriver">不指定司机</button>
+          </view>
+        </view>
+        <view class="field"><text class="label">金额</text><input type="digit" value="{{entry.amount}}" data-index="{{index}}" data-field="amount" bindinput="setItemField" /></view>
+        <view class="field"><text class="label">业务日期</text><picker mode="date" data-index="{{index}}" data-field="businessDate" bindchange="setItemField"><view class="picker-box">{{entry.businessDate || '请选择日期'}}</view></picker></view>
+        <view class="field"><text class="label">说明</text><textarea value="{{entry.remark}}" data-index="{{index}}" data-field="remark" bindinput="setItemField" /></view>
+        <view wx:if="{{energyTemplate}}">
+          <view class="field"><text class="label">能源订单号</text><input value="{{entry.orderNo}}" data-index="{{index}}" data-field="orderNo" bindinput="setItemField" /></view>
+          <view class="field"><text class="label">能源开始时间（YYYY-MM-DDTHH:mm）</text><input value="{{entry.startTime}}" data-index="{{index}}" data-field="startTime" bindinput="setItemField" /></view>
+          <view class="field"><text class="label">能源数量</text><input type="digit" value="{{entry.quantity}}" data-index="{{index}}" data-field="quantity" bindinput="setItemField" /></view>
+          <view class="field"><text class="label">站点 ID（选填）</text><input type="number" value="{{entry.stationId}}" data-index="{{index}}" data-field="stationId" bindinput="setItemField" /></view>
+        </view>
+      </view>
+      <button bindtap="addItem">添加明细</button>
     </view>
-    <radio-group bindchange="chooseAttribution" class="radio-row">
-      <label><radio value="0" checked="{{form.attributionType === 'DAILY'}}" />日常</label>
-      <label><radio value="1" checked="{{form.attributionType === 'ROUTE'}}" />线路</label>
-    </radio-group>
-    <view wx:if="{{form.attributionType === 'ROUTE'}}" class="field">
-      <text class="label">线路</text>
-      <picker mode="selector" range="{{routes}}" range-key="routeNo" bindchange="chooseRoute">
-        <view class="picker-box">{{form.routeId || '选择线路'}}</view>
-      </picker>
+
+    <view class="panel">
+      <view class="title">申请依据</view>
+      <view class="muted">{{template.evidenceRequirement === 'REQUIRED' ? '必须上传图片依据' : template.evidenceRequirement === 'OPTIONAL' ? '可选图片依据' : '无需图片依据'}}</view>
+      <view wx:if="{{template.evidenceRequirement !== 'NONE'}}">
+        <button bindtap="chooseImage">选择图片</button>
+        <view class="muted">{{uploadStatus || imagePath}}</view>
+        <button wx:if="{{imagePath}}" loading="{{uploading}}" bindtap="uploadEvidence">上传依据图片</button>
+        <view wx:for="{{evidence}}" wx:for-item="file" wx:key="id" class="row">
+          <text>{{file.originalFilename || file.id}}</text><button size="mini" data-index="{{index}}" bindtap="removeEvidence">移除</button>
+        </view>
+      </view>
     </view>
-    <view class="field">
-      <text class="label">金额</text>
-      <input value="{{form.amount}}" bindinput="setField" data-field="amount" type="digit" />
-    </view>
-    <view class="field">
-      <text class="label">说明</text>
-      <textarea value="{{form.remark}}" bindinput="setField" data-field="remark" />
-    </view>
-    <button bindtap="chooseImage">选择单据图片</button>
-    <view class="muted">{{uploadStatus || imagePath}}</view>
-    <button class="primary" loading="{{loading}}" bindtap="submit">提交审批</button>
+    <button class="primary" loading="{{loading}}" disabled="{{loading || uploading}}" bindtap="submit">提交审批</button>
   </view>
 </view>

@@ -3,6 +3,7 @@ package com.dfwl.fleet.tire.repository;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.tire.dto.response.OcrRecordResponse;
 import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireRequestTargetResponse;
 import com.dfwl.fleet.tire.dto.response.TireResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -102,6 +103,14 @@ public class TireRepository {
                 FROM tire
                 WHERE id = ? AND deleted_at IS NULL
                 """, this::mapTire, id).stream().findFirst();
+    }
+
+    public List<TireRequestTargetResponse> findRequestTargetByNo(String tireNo) {
+        return jdbcTemplate.query("""
+                SELECT id, tire_no, status FROM tire
+                WHERE tire_no = ? AND deleted_at IS NULL
+                """, (rs, rowNum) -> new TireRequestTargetResponse(
+                rs.getLong("id"), rs.getString("tire_no"), rs.getString("status")), tireNo);
     }
 
     public Optional<OcrRecordResponse> findOcr(long id) {

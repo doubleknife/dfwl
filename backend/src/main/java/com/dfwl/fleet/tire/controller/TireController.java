@@ -5,6 +5,7 @@ import com.dfwl.fleet.tire.dto.response.OcrRecordResponse;
 import com.dfwl.fleet.tire.dto.request.OcrTireNumberRequest;
 import com.dfwl.fleet.tire.dto.request.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireRequestTargetResponse;
 import com.dfwl.fleet.tire.dto.response.TireResponse;
 
 import com.dfwl.fleet.common.api.ApiResponse;
@@ -42,6 +43,15 @@ public class TireController {
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
         return ApiResponse.success(tireService.list(pageNo, pageSize), RequestIdHolder.get());
+    }
+
+    @GetMapping("/tires/request-target")
+    @PreAuthorize("hasAuthority('tire:request')")
+    public ApiResponse<TireRequestTargetResponse> requestTarget(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam String tireNumber) {
+        tireAccessPolicy.ensureDriverCanUseTireOcr(user);
+        return ApiResponse.success(tireService.findRequestTarget(tireNumber), RequestIdHolder.get());
     }
 
     @PostMapping("/tire-requests")

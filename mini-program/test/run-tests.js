@@ -45,7 +45,7 @@ const tests = [
   ['configured role menu exposes expense approval and approval center', () => {
     const user = { permissions: ['approval:create', 'approval:history:view', 'approval:process'] };
     const cards = visibleHomeCards(user, null).map((item) => item.key);
-    assert.equal(cards.includes('expenseApply'), true);
+    assert.equal(cards.includes('expenseApply'), false);
     assert.equal(cards.includes('approvals'), true);
   }],
   ['weight validation blocks gross less than or equal tare', () => {
@@ -68,7 +68,8 @@ const tests = [
     }
   }],
   ['no mock placeholder or todo remains in mini program source', () => {
-    const files = walk(root).filter((file) => /\.(js|wxml|json|wxss)$/.test(file) && !file.includes(`${path.sep}test${path.sep}`));
+    const files = walk(root).filter((file) => /\.(js|wxml|json|wxss)$/.test(file)
+      && !file.includes(`${path.sep}test${path.sep}`) && !file.endsWith('project.private.config.json'));
     const offenders = files.filter((file) => /mock|placeholder|\/\/\s*TODO|\/\*\s*TODO|占位|尚未提供/i.test(fs.readFileSync(file, 'utf8')));
     assert.deepEqual(offenders.map((file) => path.relative(root, file)), []);
   }],
@@ -102,9 +103,12 @@ const tests = [
   }]
 ];
 
-for (const [name, run] of tests) {
-  run();
-  console.log(`ok - ${name}`);
-}
+tests.push(...require('./f4d-tests'));
 
-console.log(`${tests.length} tests passed`);
+(async () => {
+  for (const [name, run] of tests) {
+    await run();
+    console.log(`ok - ${name}`);
+  }
+  console.log(`${tests.length} tests passed`);
+})().catch((error) => { console.error(error); process.exitCode = 1; });

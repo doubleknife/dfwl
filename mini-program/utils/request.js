@@ -1,3 +1,13 @@
+function apiError(payload, fallback, statusCode) {
+  const message = payload?.message || fallback;
+  const requestId = payload?.requestId;
+  const error = new Error(requestId ? `${message}（请求ID：${requestId}）` : message);
+  error.statusCode = statusCode;
+  error.code = payload?.code;
+  error.requestId = requestId;
+  return error;
+}
+
 function request(options) {
   const app = getApp();
   const token = app.globalData.token || wx.getStorageSync('token');
@@ -12,20 +22,22 @@ function request(options) {
       },
       success(res) {
         if (res.statusCode === 401) {
+          app.clearSession();
           wx.redirectTo({ url: '/pages/login/index' });
-          reject(res);
+          reject(apiError(res.data, '登录已失效，请重新登录', 401));
           return;
         }
         if (res.statusCode >= 200 && res.statusCode < 300 && res.data && res.data.code === '0') {
           resolve(res.data.data);
           return;
         }
-        wx.showToast({ title: res.data?.message || '请求失败', icon: 'none' });
-        reject(res);
+        const error = apiError(res.data, res.statusCode === 403 ? '无权访问' : '请求失败', res.statusCode);
+        wx.showToast({ title: error.message, icon: 'none' });
+        reject(error);
       },
       fail(err) {
         wx.showToast({ title: '网络不可用', icon: 'none' });
-        reject(err);
+        reject(apiError(null, '网络不可用'));
       }
     });
   });
@@ -54,15 +66,42 @@ function uploadFile(options) {
           resolve(payload.data);
           return;
         }
-        wx.showToast({ title: payload.message || '上传失败', icon: 'none' });
-        reject(payload);
+        if (res.statusCode === 401) {
+          app.clearSession();
+          wx.redirectTo({ url: '/pages/login/index' });
+        }
+        const error = apiError(payload, '上传失败', res.statusCode);
+        wx.showToast({ title: error.message, icon: 'none' });
+        reject(error);
       },
       fail(err) {
         wx.showToast({ title: '上传失败', icon: 'none' });
-        reject(err);
+        reject(apiError(null, '上传失败'));
       }
     });
   });
 }
 
-module.exports = { request, uploadFile };
+function downloadAttachment(id) {
+  const app = getApp();
+  const token = app.globalData.token || wx.getStorageSync('token');
+  return new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: `${app.globalData.baseUrl}/attachments/${id}`,
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success(res) {
+        if (res.statusCode === 200) { resolve(res.tempFilePath); return; }
+        const error = apiError(null, res.statusCode === 403 ? '无权查看图片' : '图片下载失败', res.statusCode);
+        wx.showToast({ title: error.message, icon: 'none' });
+        reject(error);
+      },
+      fail() {
+        const error = apiError(null, '图片下载失败');
+        wx.showToast({ title: error.message, icon: 'none' });
+        reject(error);
+      }
+    });
+  });
+}
+
+module.exports = { request, uploadFile, downloadAttachment };

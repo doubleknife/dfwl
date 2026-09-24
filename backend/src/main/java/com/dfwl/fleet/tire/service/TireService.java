@@ -13,6 +13,7 @@ import com.dfwl.fleet.tire.dto.response.OcrRecordResponse;
 import com.dfwl.fleet.tire.dto.request.OcrTireNumberRequest;
 import com.dfwl.fleet.tire.dto.request.TireRequestCreateRequest;
 import com.dfwl.fleet.tire.dto.response.TireRequestResponse;
+import com.dfwl.fleet.tire.dto.response.TireRequestTargetResponse;
 import com.dfwl.fleet.tire.dto.response.TireResponse;
 import com.dfwl.fleet.tire.ocr.OcrProperties;
 import com.dfwl.fleet.tire.ocr.OcrProvider;
@@ -56,6 +57,22 @@ public class TireService {
 
     public PageResponse<TireResponse> list(int pageNo, int pageSize) {
         return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200));
+    }
+
+    public TireRequestTargetResponse findRequestTarget(String tireNumber) {
+        if (tireNumber == null || tireNumber.isBlank() || tireNumber.length() > 128) {
+            throw new BusinessException(ErrorCode.TIRE_002);
+        }
+        List<TireRequestTargetResponse> matches = repository.findRequestTargetByNo(tireNumber);
+        if (matches.size() != 1 || !matches.getFirst().tireNumber().equals(tireNumber)) {
+            throw new BusinessException(ErrorCode.TIRE_002);
+        }
+        TireRequestTargetResponse tire = matches.getFirst();
+        if (!"IN_STOCK".equals(tire.status()) || repository.tireHasActiveRequest(tire.tireId())
+                || repository.tireClaimed(tire.tireId())) {
+            throw new BusinessException(ErrorCode.TIRE_001);
+        }
+        return tire;
     }
 
     public TireRequestResponse findRequest(long id) {

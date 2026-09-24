@@ -1,10 +1,12 @@
 const { request, uploadFile } = require('../../utils/request');
+const { hasPermission, isInternalDriver } = require('../../utils/permissions');
 
 Page({
   data: {
     driver: null,
+    canRequest: false,
+    error: '',
     vehicleId: '',
-    tires: [],
     requests: [],
     tireId: '',
     confirmedTireNo: '',
@@ -14,38 +16,35 @@ Page({
     ocrCandidates: [],
     ocrStatus: '',
     ocrError: '',
+    matchStatus: '',
     items: [],
     loading: false,
     uploadStatus: ''
   },
   onShow() { this.load(); },
   async load() {
-    const [user, tires] = await Promise.all([
-      request({ url: '/me' }),
-      request({ url: '/tires?pageNo=1&pageSize=100' })
-    ]);
-    const driver = user.driverId ? {
-      id: user.driverId,
-      name: user.driverName,
-      driverType: user.driverType,
-      currentVehicleId: user.currentVehicleId,
-      currentPlateNo: user.currentPlateNo
-    } : null;
-    this.setData({
-      driver,
-      vehicleId: driver?.currentVehicleId || '',
-      tires: (tires.records || []).filter((item) => item.status === 'IN_STOCK')
-    });
+    try {
+      const user = await request({ url: '/me' });
+      const driver = user.driverId ? {
+        id: user.driverId,
+        name: user.driverName,
+        driverType: user.driverType,
+        currentVehicleId: user.currentVehicleId,
+        currentPlateNo: user.currentPlateNo
+      } : null;
+      const canRequest = isInternalDriver(driver) && hasPermission(user, 'tire:request');
+      this.setData({ driver, canRequest,
+        vehicleId: canRequest ? driver.currentVehicleId || '' : '',
+        error: canRequest ? '' : '当前账号无换胎申请权限' });
+    } catch (error) {
+      this.setData({ canRequest: false, error: error.message || '账号信息加载失败' });
+    }
   },
   onVehicle(e) { this.setData({ vehicleId: e.detail.value }); },
-  onTire(e) {
-    const tire = this.data.tires[e.detail.value];
-    this.setData({ tireId: tire ? tire.id : '', confirmedTireNo: tire?.tireNo || this.data.confirmedTireNo });
-  },
-  onTireNo(e) { this.setData({ confirmedTireNo: e.detail.value }); },
+  onTireNo(e) { this.setData({ confirmedTireNo: e.detail.value, tireId: '', matchStatus: '' }); },
   chooseCandidate(e) {
     const candidate = this.data.ocrCandidates[e.currentTarget.dataset.index];
-    if (candidate) this.setData({ confirmedTireNo: candidate.candidate });
+    if (candidate) this.setData({ confirmedTireNo: candidate.candidate, tireId: '', matchStatus: '' });
   },
   async chooseImage() {
     wx.chooseMedia({
@@ -91,6 +90,7 @@ Page({
       ocrStatus: ocr.ocrStatus,
       ocrError: ocr.errorMessage || '',
       confirmedTireNo: nextTireNo,
+      tireId: '', matchStatus: '',
       uploadStatus: candidates.length ? `识别到胎号：${nextTireNo}` : '未识别到胎号，可手动输入'
     });
   },
@@ -108,11 +108,20 @@ Page({
       method: 'POST',
       data: { confirmedText: this.data.confirmedTireNo }
     });
-    this.setData({ ocrRecordId: confirmed.id, uploadStatus: '胎号已确认' });
+    this.setData({ ocrRecordId: confirmed.id, tireId: '', matchStatus: '正在匹配库存轮胎' });
+    try {
+      const target = await request({
+        url: `/tires/request-target?tireNumber=${encodeURIComponent(confirmed.confirmedText)}`
+      });
+      this.setData({ tireId: target.tireId, confirmedTireNo: target.tireNumber,
+        matchStatus: `已匹配库存轮胎 ${target.tireNumber}`, uploadStatus: '胎号已确认' });
+    } catch (error) {
+      this.setData({ tireId: '', matchStatus: error.message || '未找到可申请的库存轮胎' });
+    }
   },
   addItem() {
     if (!this.data.tireId || !this.data.confirmedTireNo) {
-      wx.showToast({ title: '请确认胎号', icon: 'none' });
+      wx.showToast({ title: '请先确认胎号并匹配库存轮胎', icon: 'none' });
       return;
     }
     const exists = this.data.items.some((item) => String(item.tireId) === String(this.data.tireId));
@@ -134,6 +143,7 @@ Page({
       ocrCandidates: [],
       ocrStatus: '',
       ocrError: '',
+      matchStatus: '',
       uploadStatus: ''
     });
   },

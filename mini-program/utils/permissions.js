@@ -37,10 +37,7 @@ function visibleHomeCards(user, driver) {
   if (isInternalDriver(driver) && hasPermission(user, 'tire:request')) {
     cards.push({ key: 'tire', title: '换胎申请', url: '/pages/tire-request/index', visible: true });
   }
-  if (!isOutsourcedDriver(driver) && hasPermission(user, 'approval:create')) {
-    cards.push({ key: 'expenseApply', title: '费用申请', url: '/pages/expense-apply/index', visible: true });
-  }
-  if (!isOutsourcedDriver(driver) && hasAnyPermission(user, ['approval:history:view', 'approval:process', 'approval:return'])) {
+  if (!isOutsourcedDriver(driver) && hasAnyPermission(user, ['approval:create', 'approval:history:view', 'approval:process', 'approval:return'])) {
     cards.push({ key: 'approvals', title: '审批中心', url: '/pages/approvals/index', visible: true });
   }
   return cards.filter((card) => card.visible);
