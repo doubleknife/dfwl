@@ -1,3 +1,9 @@
 {
-  "navigationBarTitleText": "工作台"
+  "navigationBarTitleText": "工作台",
+  "usingComponents": {
+    "user-summary": "../../components/user-summary/index",
+    "current-task-card": "../../components/current-task-card/index",
+    "function-grid": "../../components/function-grid/index",
+    "feedback-state": "../../components/feedback-state/index"
+  }
 }

@@ -1,0 +1,1 @@
+<view class="state {{kind}}"><view>{{message}}</view><button wx:if="{{kind === 'error'}}" bindtap="retry">重新加载</button></view>

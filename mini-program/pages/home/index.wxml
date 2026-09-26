@@ -1,23 +1,12 @@
-<view class="page">
-  <view class="panel">
-    <view class="title">{{driver.name || user.phone}}</view>
-    <view class="muted">{{user.role.name || user.roleCode}} · {{driver.driverType || '非司机角色'}}</view>
-  </view>
-
-  <view class="panel">
-    <view class="row">
-      <view>
-        <view>当前绑定车辆</view>
-        <view class="muted">{{vehicle.plateNo || driver.currentVehicleId || '暂无绑定车辆'}}</view>
-      </view>
-      <view class="tag">{{bindingStatus}}</view>
-    </view>
-  </view>
-
-  <view class="grid-menu">
-    <view wx:for="{{cards}}" wx:key="key" class="menu-card" bindtap="open" data-url="{{item.url}}">
-      <view class="menu-title">{{item.title}}</view>
-      <view class="muted">进入</view>
-    </view>
-  </view>
+<view class="mp-home">
+  <user-summary name="{{displayName}}" initial="{{initial}}" subtitle="{{roleLabel}}{{vehicle ? ' · ' + vehicle.plateNo : ''}}" unread-count="{{unreadCount}}" bind:open="openProfile" bind:notice="openNotifications" />
+  <feedback-state wx:if="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
+  <block wx:else>
+    <view class="mp-home-heading">今天的工作</view>
+    <current-task-card task="{{currentTask}}" loading="{{loading}}" bind:open="openTask" />
+    <view wx:if="{{todoCount > 0}}" class="mp-todo" bindtap="openTodo" role="button">您有 {{todoCount}} 项待处理审批 <text>查看待办 ›</text></view>
+    <view class="mp-section-heading">常用功能</view>
+    <function-grid wx:if="{{actions.length}}" actions="{{actions}}" bind:open="openAction" />
+    <feedback-state wx:else kind="empty" message="当前账号暂无可用功能，请联系管理员确认权限。" />
+  </block>
 </view>

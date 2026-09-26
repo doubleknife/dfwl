@@ -1,0 +1,5 @@
+.tag { display: inline-flex; padding: 8rpx 16rpx; border-radius: 10rpx; font-size: 28rpx; font-weight: 600; color: #526d65; background: #eef2f0; }
+.success { color: #227950; background: #e9f6ed; }
+.warning { color: #9b630b; background: #fff4df; }
+.danger { color: #b2372e; background: #fbece9; }
+.info { color: #176f62; background: #e6f4ef; }

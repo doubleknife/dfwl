@@ -1,1 +1,1 @@
-{"navigationBarTitleText": "线路详情"}
+{"navigationBarTitleText": "线路详情", "usingComponents": {"status-tag":"../../components/status-tag/index", "feedback-state":"../../components/feedback-state/index"}}

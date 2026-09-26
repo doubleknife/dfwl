@@ -1,0 +1,18 @@
+page {
+  --mp-page: #f4f7f6;
+  --mp-surface: #ffffff;
+  --mp-surface-soft: #f9fbfa;
+  --mp-text: #18332e;
+  --mp-muted: #526d65;
+  --mp-border: #deebe6;
+  --mp-primary: #147466;
+  --mp-primary-soft: #e6f4ef;
+  --mp-warning: #9b630b;
+  --mp-warning-soft: #fff4df;
+  --mp-danger: #b2372e;
+  --mp-danger-soft: #fbece9;
+  --mp-success: #227950;
+  --mp-success-soft: #e9f6ed;
+  --mp-radius-card: 20rpx;
+  --mp-radius-control: 12rpx;
+}

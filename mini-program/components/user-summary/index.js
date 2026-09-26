@@ -1,0 +1,1 @@
+Component({ properties: { name: String, initial: String, subtitle: String, unreadCount: { type: Number, value: 0 } }, methods: { open() { this.triggerEvent('open'); }, notice() { this.triggerEvent('notice'); } } });

@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/DataTable.vue';
+import DriverManagementSample from '../components/DriverManagementSample.vue';
 import PanelSection from '../components/PanelSection.vue';
 import { masterApi } from '../api/modules.js';
 import { confirmAndRun, useRequest } from '../composables/useRequest.js';
@@ -9,7 +10,6 @@ import { can } from '../stores/auth.js';
 const { loading, error, run } = useRequest();
 const tab = ref('drivers');
 const state = reactive({ drivers: [], vehicles: [], trailers: [], customers: [], products: [], history: [] });
-const driverForm = reactive({ name: '', phone: '', driverType: 'INTERNAL' });
 const vehicleForm = reactive({ plateNo: '', energyType: 'ELECTRIC', maxLoad: '0', loadStandardType: 'PERCENT', loadStandardPercent: '0.9000' });
 const trailerForm = reactive({ plateNo: '', insuranceComplete: true });
 const customerForm = reactive({ id: '', customerCode: '', customerName: '', status: 1, remark: '' });
@@ -30,14 +30,6 @@ async function load() {
     state.trailers = trailers.records || trailers || [];
     state.customers = customers.records || customers || [];
     state.products = products.records || products || [];
-  });
-}
-
-async function createDriver() {
-  await run(async () => {
-    await masterApi.createDriver(driverForm);
-    Object.assign(driverForm, { name: '', phone: '', driverType: 'INTERNAL' });
-    await load();
   });
 }
 
@@ -182,22 +174,11 @@ onMounted(load);
       <button :class="{ active: tab === 'binding' }" @click="tab = 'binding'">绑定</button>
       <button :class="{ active: tab === 'customerProduct' }" @click="tab = 'customerProduct'">客户产品</button>
     </div>
-    <PanelSection v-if="tab === 'drivers'" title="司机">
-      <form v-permission="'driver:add'" class="inline-form" @submit.prevent="createDriver">
-        <input v-model.trim="driverForm.name" required aria-label="姓名" />
-        <input v-model.trim="driverForm.phone" required aria-label="手机号" />
-        <select v-model="driverForm.driverType"><option>INTERNAL</option><option>OUTSOURCED</option></select>
-        <button class="primary" :disabled="loading">新增司机</button>
-      </form>
-      <DataTable :columns="[
-        { key: 'id', label: 'ID' }, { key: 'name', label: '姓名' }, { key: 'phone', label: '手机号' },
-        { key: 'driverType', label: '类型' }, { key: 'status', label: '状态' }
-      ]" :rows="state.drivers" />
-    </PanelSection>
+    <DriverManagementSample v-if="tab === 'drivers'" :drivers="state.drivers" :vehicles="state.vehicles" :loading="loading" @refresh="load" />
     <PanelSection v-if="tab === 'vehicles'" title="车辆">
       <form v-permission="'vehicle:add'" class="inline-form" @submit.prevent="createVehicle">
         <input v-model.trim="vehicleForm.plateNo" required aria-label="车牌号" />
-        <select v-model="vehicleForm.energyType"><option>ELECTRIC</option><option>GAS</option></select>
+        <select v-model="vehicleForm.energyType"><option value="ELECTRIC">电动</option><option value="GAS">燃气</option></select>
         <input v-model="vehicleForm.maxLoad" required aria-label="最大载重" />
         <button class="primary" :disabled="loading">新增车辆</button>
       </form>

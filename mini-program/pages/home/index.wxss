@@ -1,0 +1,4 @@
+.mp-home { min-height: 100vh; box-sizing: border-box; padding: 24rpx 28rpx calc(50rpx + env(safe-area-inset-bottom)); background: var(--mp-page); }
+.mp-home-heading { margin: 30rpx 0 18rpx; font-size: 37rpx; font-weight: 700; color: var(--mp-text); }
+.mp-section-heading { margin: 36rpx 0 20rpx; font-size: 33rpx; font-weight: 700; color: var(--mp-text); }
+.mp-todo { display: flex; justify-content: space-between; align-items: center; min-height: 90rpx; margin-top: 18rpx; padding: 0 22rpx; border-radius: 16rpx; background: var(--mp-warning-soft); color: var(--mp-warning); font-size: 29rpx; font-weight: 600; }

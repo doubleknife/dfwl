@@ -43,6 +43,20 @@ function visibleHomeCards(user, driver) {
   return cards.filter((card) => card.visible);
 }
 
+function visibleHomeActions(user, driver, availableTemplates = []) {
+  const actions = [];
+  if (hasPermission(user, 'route:list')) actions.push({ key: 'routes', title: '我的线路', icon: '线', url: '/pages/routes/index' });
+  if (!isOutsourcedDriver(driver) && hasPermission(user, 'approval:create') && availableTemplates.length) {
+    actions.push({ key: 'launchApproval', title: '发起审批', icon: '审', url: '/pages/expense-apply/index' });
+  }
+  if (!isOutsourcedDriver(driver) && hasAnyPermission(user, ['approval:history:view', 'approval:process', 'approval:return'])) {
+    actions.push({ key: 'approvals', title: '审批中心', icon: '待', url: '/pages/approvals/index' });
+  }
+  if (isInternalDriver(driver) && hasPermission(user, 'salary:mine')) actions.push({ key: 'salary', title: '工资单', icon: '薪', url: '/pages/salary/index' });
+  if (isInternalDriver(driver) && hasPermission(user, 'tire:request')) actions.push({ key: 'tire', title: '换胎申请', icon: '胎', url: '/pages/tire-request/index' });
+  return actions;
+}
+
 module.exports = {
   permissionsOf,
   roleCodeOf,
@@ -51,5 +65,6 @@ module.exports = {
   isDriver,
   isOutsourcedDriver,
   isInternalDriver,
-  visibleHomeCards
+  visibleHomeCards,
+  visibleHomeActions
 };

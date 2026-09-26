@@ -1,0 +1,1 @@
+<view class="grid"><view wx:for="{{actions}}" wx:key="key" class="item" hover-class="item--pressed" bindtap="open" data-url="{{item.url}}" role="button"><view class="icon">{{item.icon}}</view><view class="label">{{item.title}}</view><view wx:if="{{item.badge > 0}}" class="badge">{{item.badge > 99 ? '99+' : item.badge}}</view></view></view>

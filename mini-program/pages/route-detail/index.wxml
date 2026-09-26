@@ -1,16 +1,13 @@
-<view class="page">
-  <view class="panel">
-    <view class="row">
-      <view class="title">{{route.routeNo}}</view>
-      <view class="tag">{{route.status}}</view>
-    </view>
-    <view class="muted">{{route.loadingPlace}} → {{route.unloadingPlace}}</view>
-    <view class="muted">司机 {{route.assignedDriverId || route.departureDriverId}} · 车辆 {{route.departureVehicleId || route.importVehicleId}}</view>
-    <view class="muted">发车 {{route.departureTime || '-'}} · 卸货 {{route.unloadTime || '-'}}</view>
-    <view class="muted">毛重 {{route.grossWeight || '-'}} · 皮重 {{route.tareWeight || '-'}} · 净重 {{route.netWeight || '-'}}</view>
-    <view class="tag">{{route.loadStandardMet === true ? '达标' : (route.loadStandardMet === false ? '不达标' : '未称重')}}</view>
-  </view>
-  <button wx:if="{{route.status === 'PUBLISHED'}}" class="primary" bindtap="depart">发车</button>
-  <button wx:if="{{route.status === 'IN_TRANSIT'}}" class="primary" bindtap="weight">卸货称重</button>
-  <view wx:if="{{route.status === 'COMPLETED'}}" class="panel muted">已卸货完成，重量只读。</view>
+<view class="mp-route-detail">
+  <feedback-state wx:if="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
+  <feedback-state wx:if="{{loading && !route}}" kind="loading" message="正在加载线路…" />
+  <block wx:if="{{route}}">
+    <view class="mp-route-hero"><view class="mp-route-top"><text class="mp-route-number">{{route.routeNo}}</text><status-tag label="{{route.statusLabel}}" tone="{{route.tone}}" /></view><view class="mp-route-places">{{route.loadingPlace || '装货地'}} <text>→</text> {{route.unloadingPlace || '卸货地'}}</view><view class="mp-route-date">{{route.businessDate}}</view></view>
+    <view class="mp-route-next"><view class="mp-route-section-title">下一步</view><view class="mp-route-next-copy">{{route.nextAction}}</view></view>
+    <view class="mp-route-card"><view class="mp-route-section-title">运输信息</view><view class="mp-route-fact"><text>司机</text><text>{{driverLabel}}</text></view><view class="mp-route-fact"><text>车辆</text><text>{{vehicleLabel}}</text></view><view class="mp-route-fact"><text>发车时间</text><text>{{route.departureTime || '未发车'}}</text></view><view class="mp-route-fact"><text>卸货时间</text><text>{{route.unloadTime || '未卸货'}}</text></view></view>
+    <view wx:if="{{route && route.status === 'COMPLETED'}}" class="mp-route-card"><view class="mp-route-section-title">运输结果</view><view class="mp-route-fact"><text>毛重</text><text>{{route.grossWeight || '—'}}</text></view><view class="mp-route-fact"><text>皮重</text><text>{{route.tareWeight || '—'}}</text></view><view class="mp-route-fact"><text>净重</text><text class="mp-route-weight">{{route.netWeight || '—'}}</text></view><view class="mp-route-fact"><text>装载情况</text><text>{{route.loadStandardMet === true ? '达标' : route.loadStandardMet === false ? '未达标' : '未判定'}}</text></view></view>
+  </block>
+  <view wx:if="{{route && route.status === 'PUBLISHED' && canDepart}}" class="mp-route-bottom"><button class="mp-route-primary" loading="{{busy}}" disabled="{{busy || confirming}}" bindtap="depart">{{busy ? '正在发车…' : '确认发车'}}</button></view>
+  <view wx:elif="{{route && route.status === 'IN_TRANSIT' && canUnload}}" class="mp-route-bottom"><button class="mp-route-primary" disabled="{{busy}}" bindtap="weight">录入重量并卸货</button></view>
+  <view wx:elif="{{route && (route.status === 'PUBLISHED' || route.status === 'IN_TRANSIT') && !loading}}" class="mp-route-permission">当前账号没有执行下一步操作的权限，请联系调度。</view>
 </view>

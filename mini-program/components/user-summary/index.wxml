@@ -1,0 +1,10 @@
+<view class="summary">
+  <view class="summary-main" bindtap="open" role="button" aria-label="查看个人信息">
+    <view class="avatar">{{initial || '我'}}</view>
+    <view class="copy"><view class="name">{{name || '我的工作台'}}</view><view class="subtitle">{{subtitle}}</view></view>
+  </view>
+  <view class="notice" catchtap="notice" role="button" aria-label="查看通知">
+    <text class="notice-icon" aria-hidden="true">🔔</text>
+    <view wx:if="{{unreadCount > 0}}" class="notice-count">{{unreadCount > 99 ? '99+' : unreadCount}}</view>
+  </view>
+</view>

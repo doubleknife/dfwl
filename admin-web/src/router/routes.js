@@ -1,7 +1,7 @@
 import { computed, reactive } from 'vue';
 import DashboardView from '../views/DashboardView.vue';
 import MasterDataView from '../views/MasterDataView.vue';
-import RoutesView from '../views/RoutesView.vue';
+import RoutesView from '../views/RoutesSampleView.vue';
 import ImportCenterView from '../views/ImportCenterView.vue';
 import ExpensesView from '../views/ExpensesView.vue';
 import ApprovalsView from '../views/ApprovalsView.vue';

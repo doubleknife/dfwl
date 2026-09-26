@@ -1,0 +1,1 @@
+Component({ properties: { task: { type: Object, value: null }, loading: Boolean }, methods: { open() { if (this.data.task && this.data.task.id) this.triggerEvent('open', { id: this.data.task.id }); } } });

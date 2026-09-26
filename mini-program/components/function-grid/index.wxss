@@ -1,0 +1,6 @@
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16rpx; }
+.item { position: relative; min-height: 170rpx; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14rpx; border-radius: 20rpx; background: var(--mp-surface); }
+.item--pressed { background: var(--mp-primary-soft); }
+.icon { width: 72rpx; height: 72rpx; border-radius: 18rpx; display: flex; align-items: center; justify-content: center; background: var(--mp-primary-soft); color: var(--mp-primary); font-size: 38rpx; font-weight: 700; }
+.label { color: #18332e; font-size: 28rpx; font-weight: 600; }
+.badge { position: absolute; top: 12rpx; right: 14rpx; min-width: 30rpx; height: 30rpx; padding: 0 5rpx; box-sizing: border-box; border-radius: 16rpx; background: var(--mp-danger-soft); color: var(--mp-danger); text-align: center; line-height: 30rpx; font-size: 20rpx; font-weight: 700; }

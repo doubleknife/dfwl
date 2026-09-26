@@ -1,0 +1,8 @@
+.task { padding: 30rpx; background: #ffffff; border: 1rpx solid #deebe6; border-radius: 20rpx; }
+.eyebrow { color: #526d65; font-size: 27rpx; }
+.places { margin-top: 16rpx; color: #18332e; font-size: 40rpx; font-weight: 700; line-height: 1.35; }
+.arrow { color: #147466; margin: 0 8rpx; }
+.number { margin-top: 12rpx; color: #526d65; font-size: 27rpx; }
+.next { margin-top: 24rpx; padding: 20rpx; background: #e6f4ef; color: #176f62; border-radius: 12rpx; font-size: 30rpx; font-weight: 600; }
+.task-action { margin-top: 20rpx; min-height: 92rpx; display: flex; align-items: center; justify-content: center; color: #fff; background: #147466; font-size: 30rpx; border-radius: 12rpx; }
+.empty { margin-top: 18rpx; color: #526d65; font-size: 29rpx; line-height: 1.5; }
