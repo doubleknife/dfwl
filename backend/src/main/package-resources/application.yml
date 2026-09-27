@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: fleet-ops-backend
+  datasource:
+    url: ${FLEET_DB_URL}
+    username: ${FLEET_DB_USERNAME}
+    password: ${FLEET_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: ${FLEET_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  jackson:
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+server:
+  port: ${FLEET_SERVER_PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-}]"
+
+fleet:
+  storage:
+    local-root: ${FLEET_STORAGE_ROOT:${java.io.tmpdir}/fleet-ops-files}
+  ocr:
+    provider: ${FLEET_OCR_PROVIDER:DISABLED}
+    tencent:
+      secret-id: ${FLEET_OCR_TENCENT_SECRET_ID:}
+      secret-key: ${FLEET_OCR_TENCENT_SECRET_KEY:}
+      region: ${FLEET_OCR_TENCENT_REGION:ap-guangzhou}

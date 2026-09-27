@@ -37,7 +37,11 @@ export const masterApi = {
 };
 
 export const routeApi = {
-  list: (pageNo = 1) => apiClient.get(`/routes?pageNo=${pageNo}&pageSize=100`),
+  list: (pageNo = 1, pageSize = 100, filters = {}) => {
+    const params = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
+    for (const [key, value] of Object.entries(filters)) if (value !== '' && value != null) params.set(key, String(value));
+    return apiClient.get(`/routes?${params}`);
+  },
   detail: (id) => apiClient.get(`/routes/${id}`),
   create: (body) => apiClient.post('/routes', body),
   update: (id, body) => apiClient.put(`/routes/${id}`, body),

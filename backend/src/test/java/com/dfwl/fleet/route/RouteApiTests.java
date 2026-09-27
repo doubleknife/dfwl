@@ -2,6 +2,7 @@ package com.dfwl.fleet.route;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -75,6 +76,34 @@ class RouteApiTests {
     }
 
     @Test
+    void managementRouteFiltersApplyBeforePaginationAndReturnRealTotal() throws Exception {
+        long older = createRoute("2026-09-10");
+        createRoute("2026-09-11");
+
+        mockMvc.perform(get("/api/v1/routes")
+                        .header("Authorization", "Bearer " + token)
+                        .param("pageNo", "1").param("pageSize", "1")
+                        .param("businessDate", "2026-09-10")
+                        .param("customerId", "1").param("driverId", "1")
+                        .param("keyword", "A"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(older));
+
+        mockMvc.perform(get("/api/v1/routes")
+                        .header("Authorization", "Bearer " + token)
+                        .param("pageNo", "1").param("pageSize", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        mockMvc.perform(get("/api/v1/routes")
+                        .header("Authorization", "Bearer " + token)
+                        .param("keyword", "missing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
     void routeCanPublishDepartAndUnloadWithFrozenSnapshot() throws Exception {
         jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER_TEST', '测试司机', 1)");
         jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
@@ -129,15 +158,20 @@ class RouteApiTests {
     }
 
     private long createRoute() throws Exception {
+        return createRoute("2026-09-10");
+    }
+
+    private long createRoute(String businessDate) throws Exception {
         mockMvc.perform(post("/api/v1/routes")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"businessDate":"2026-09-10","customerId":1,"productId":1,"direction":"OUTBOUND",
+                                {"businessDate":"%s","customerId":1,"productId":1,"direction":"OUTBOUND",
                                  "loadingPlace":"A","unloadingPlace":"B","assignedDriverId":1,"taxUnitPrice":1.0000}
-                                """))
+                                """.formatted(businessDate)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("UNPUBLISHED"));
-        return jdbcTemplate.queryForObject("SELECT id FROM route_task WHERE business_unique_key LIKE '1|2026-09-10%'", Long.class);
+        return jdbcTemplate.queryForObject("SELECT id FROM route_task WHERE business_unique_key LIKE ?", Long.class,
+                "1|" + businessDate + "%");
     }
 }

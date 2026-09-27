@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import { masterApi, routeApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import { navigate } from '../router/routes.js';
@@ -11,6 +11,7 @@ import FormDialog from '../components/FormDialog.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ErrorState from '../components/ErrorState.vue';
+import PaginationBar from '../components/PaginationBar.vue';
 
 const rows = ref([]);
 const customers = ref([]);
@@ -18,7 +19,8 @@ const products = ref([]);
 const drivers = ref([]);
 const vehicles = ref([]);
 const pageNo = ref(1);
-const hasNext = ref(false);
+const total = ref(0);
+const pageSize = 20;
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -33,22 +35,20 @@ const form = reactive({ businessDate: '', customerId: '', productId: '', directi
 const unloadForm = reactive({ grossWeight: '', tareWeight: '' });
 const adjustForm = reactive({ grossWeight: '', tareWeight: '', reason: '', attachmentIds: '' });
 const columns = [{ key: 'routeNo', label: '线路号' }, { key: 'businessDate', label: '日期' }, { key: 'customerId', label: '客户' }, { key: 'assignedDriverId', label: '司机' }, { key: 'departureVehicleId', label: '车辆' }, { key: 'status', label: '状态' }, { key: 'netWeight', label: '净重', numeric: true }, { key: 'actions', label: '操作' }];
-const visibleRows = computed(() => rows.value.filter((row) =>
-  (!filters.date || row.businessDate === filters.date)
-  && (!filters.status || row.status === filters.status)
-  && (!filters.customerId || String(row.customerId) === filters.customerId)
-  && (!filters.driverId || String(row.assignedDriverId) === filters.driverId)
-  && (!filters.keyword || [row.routeNo, row.externalRouteNo, row.loadingPlace, row.unloadingPlace].some((item) => String(item || '').toLowerCase().includes(filters.keyword.toLowerCase())))));
 const customerName = (id) => customers.value.find((item) => item.id === id)?.customerName || (id ? `客户 #${id}` : '—');
 const driverName = (id) => drivers.value.find((item) => item.id === id)?.name || (id ? `司机 #${id}` : '未分配');
 const vehicleName = (id) => vehicles.value.find((item) => item.id === id)?.plateNo || (id ? `车辆 #${id}` : '未发车');
 
-async function load() {
+async function load(next = pageNo.value) {
   loading.value = true; error.value = '';
   try {
-    const page = await routeApi.list(pageNo.value);
+    const page = await routeApi.list(next, pageSize, {
+      businessDate: filters.date, status: filters.status, customerId: filters.customerId,
+      driverId: filters.driverId, keyword: filters.keyword
+    });
     rows.value = page.records || page || [];
-    hasNext.value = rows.value.length === 100;
+    total.value = Number(page.total || 0);
+    pageNo.value = next;
   } catch (cause) { error.value = cause.message || '线路加载失败'; }
   finally { loading.value = false; }
 }
@@ -122,23 +122,23 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
 
 <template>
   <div class="ui-page-container">
-    <PageHeader title="线路管理" description="查看运输进度、重量版本，并处理线路操作。筛选作用于当前加载的前 100 条记录。">
+    <PageHeader title="线路管理" description="查看运输进度、重量版本，并处理线路操作。">
       <template #actions><button type="button" @click="navigate('imports')">导入线路</button><button v-if="can('route:create')" type="button" class="primary" @click="selected = null; resetForm()">＋ 新建线路</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load" />
     <FilterBar>
-      <label>业务日期<input v-model="filters.date" type="date" /></label>
-      <label>状态<select v-model="filters.status"><option value="">全部状态</option><option value="UNPUBLISHED">未发布</option><option value="PUBLISHED">等待发车</option><option value="IN_TRANSIT">运输中</option><option value="COMPLETED">已完成</option><option value="CANCELLED">已取消</option><option value="VOIDED">已作废</option></select></label>
-      <label>客户<select v-model="filters.customerId"><option value="">全部客户</option><option v-for="item in customers" :key="item.id" :value="String(item.id)">{{ item.customerName }}</option></select></label>
-      <label v-if="can('driver:list')">司机<select v-model="filters.driverId"><option value="">全部司机</option><option v-for="item in drivers" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select></label>
-      <label class="ui-search">线路号或地点<input v-model.trim="filters.keyword" placeholder="搜索当前页" /></label>
+      <label>业务日期<input v-model="filters.date" type="date" @change="load(1)" /></label>
+      <label>状态<select v-model="filters.status" @change="load(1)"><option value="">全部状态</option><option value="UNPUBLISHED">未发布</option><option value="PUBLISHED">等待发车</option><option value="IN_TRANSIT">运输中</option><option value="COMPLETED">已完成</option><option value="CANCELLED">已取消</option><option value="VOIDED">已作废</option></select></label>
+      <label>客户<select v-model="filters.customerId" @change="load(1)"><option value="">全部客户</option><option v-for="item in customers" :key="item.id" :value="String(item.id)">{{ item.customerName }}</option></select></label>
+      <label v-if="can('driver:list')">司机<select v-model="filters.driverId" @change="load(1)"><option value="">全部司机</option><option v-for="item in drivers" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select></label>
+      <label class="ui-search">线路号或地点<input v-model.trim="filters.keyword" placeholder="请输入线路号或地点" @keydown.enter="load(1)" /></label><button type="button" @click="load(1)">查询</button>
     </FilterBar>
-    <DataTable :columns="columns" :rows="visibleRows" :loading="loading" empty-text="当前条件下没有线路">
+    <DataTable :columns="columns" :rows="rows" :loading="loading" empty-text="当前条件下没有线路">
       <template #customerId="{ value }">{{ customerName(value) }}</template><template #assignedDriverId="{ value }">{{ driverName(value) }}</template><template #departureVehicleId="{ value }">{{ vehicleName(value) }}</template>
       <template #status="{ value }"><StatusTag :value="value" /></template><template #netWeight="{ value }">{{ value == null ? '—' : `${value} 吨` }}</template>
       <template #actions="{ row }"><div class="ui-inline-actions"><button type="button" @click="detail(row)">详情</button><button v-if="row.status === 'UNPUBLISHED' && can('route:publish')" type="button" @click="ask(row, 'publish', '发布')">发布</button><button v-if="row.status === 'PUBLISHED' && can('route:depart')" type="button" @click="ask(row, 'depart', '发车')">发车</button><details class="ui-more-menu"><summary>更多</summary><div><button v-if="row.status === 'PUBLISHED' && can('route:cancel')" type="button" @click="ask(row, 'cancel', '取消', true, { reason: '管理端取消' })">取消线路</button><button v-if="row.status === 'IN_TRANSIT' && can('route:void')" type="button" @click="ask(row, 'void', '作废', true, { reason: '管理端作废' })">作废线路</button><button v-if="row.status === 'VOIDED' && can('route:reactivate')" type="button" @click="ask(row, 'reactivate', '重新启用')">重新启用</button><button v-if="can('route:delete')" type="button" @click="ask(row, 'delete', '删除', true)">删除线路</button></div></details></div></template>
     </DataTable>
-    <div class="ui-pagination"><span>第 {{ pageNo }} 页 · 当前显示 {{ visibleRows.length }} 条</span><button :disabled="pageNo <= 1 || loading" @click="pageNo--; load()">上一页</button><button :disabled="!hasNext || loading" @click="pageNo++; load()">下一页</button></div>
+    <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" />
     <FormDialog :open="editing" :title="selected?.id ? '编辑线路' : '新建线路'" :busy="saving" @close="editing = false">
       <form @submit.prevent="save"><div class="ui-form-grid">
         <label class="ui-form-field">业务日期<input v-model="form.businessDate" type="date" required /></label>

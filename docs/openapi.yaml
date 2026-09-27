@@ -365,6 +365,10 @@ paths:
         - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
         - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
         - {name: status, in: query, required: false, description: 精确状态筛选，不改变司机线路归属范围, schema: {type: string, enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, COMPLETED, VOIDED, CANCELLED]}}
+        - {name: businessDate, in: query, required: false, description: 管理端业务日期精确筛选, schema: {type: string, format: date}}
+        - {name: customerId, in: query, required: false, description: 管理端客户精确筛选, schema: {type: integer, format: int64}}
+        - {name: driverId, in: query, required: false, description: 管理端分配司机精确筛选, schema: {type: integer, format: int64}}
+        - {name: keyword, in: query, required: false, description: 管理端线路号或装卸地点包含筛选, schema: {type: string}}
       responses: {'200': {description: OK}}
     post:
       tags: [Routes]

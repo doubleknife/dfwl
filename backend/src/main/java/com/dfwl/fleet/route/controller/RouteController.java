@@ -15,7 +15,9 @@ import com.dfwl.fleet.route.policy.RouteAccessPolicy;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
 import jakarta.validation.Valid;
+import java.time.LocalDate;
 import java.util.List;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -48,11 +50,15 @@ public class RouteController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate,
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long driverId,
+            @RequestParam(required = false) String keyword) {
         if (currentUserService.isDriverUser(user)) {
             return ApiResponse.success(routeService.listForDriver(user, pageNo, pageSize, status), RequestIdHolder.get());
         }
-        return ApiResponse.success(routeService.list(pageNo, pageSize, status), RequestIdHolder.get());
+        return ApiResponse.success(routeService.list(pageNo, pageSize, status, businessDate, customerId, driverId, keyword), RequestIdHolder.get());
     }
 
     @PostMapping

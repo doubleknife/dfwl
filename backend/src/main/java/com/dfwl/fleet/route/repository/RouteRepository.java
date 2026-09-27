@@ -10,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -73,8 +75,36 @@ public class RouteRepository {
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
-        String filter = status == null || status.isBlank() ? "" : " AND r.status = ?";
-        Object[] args = filter.isEmpty() ? new Object[0] : new Object[]{status.trim()};
+        return list(pageNo, pageSize, status, null, null, null, null);
+    }
+
+    public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status, LocalDate businessDate,
+                                            Long customerId, Long driverId, String keyword) {
+        StringBuilder filter = new StringBuilder();
+        List<Object> parameters = new ArrayList<>();
+        if (status != null && !status.isBlank()) {
+            filter.append(" AND r.status = ?");
+            parameters.add(status.trim());
+        }
+        if (businessDate != null) {
+            filter.append(" AND r.business_date = ?");
+            parameters.add(businessDate);
+        }
+        if (customerId != null) {
+            filter.append(" AND r.customer_id = ?");
+            parameters.add(customerId);
+        }
+        if (driverId != null) {
+            filter.append(" AND r.assigned_driver_id = ?");
+            parameters.add(driverId);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            filter.append(" AND (LOWER(r.route_no) LIKE ? OR LOWER(r.external_route_no) LIKE ?"
+                    + " OR LOWER(r.loading_place) LIKE ? OR LOWER(r.unloading_place) LIKE ?)");
+            String pattern = "%" + keyword.trim().toLowerCase(java.util.Locale.ROOT) + "%";
+            for (int i = 0; i < 4; i++) parameters.add(pattern);
+        }
+        Object[] args = parameters.toArray();
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_task r WHERE r.deleted_at IS NULL" + filter, Long.class, args);
         List<RouteResponse> records = jdbcTemplate.query("""
                 SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,

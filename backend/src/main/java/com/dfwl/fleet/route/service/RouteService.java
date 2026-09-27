@@ -23,6 +23,7 @@ import com.dfwl.fleet.security.CurrentUserService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
@@ -50,7 +51,13 @@ public class RouteService {
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
-        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200), status);
+        return list(pageNo, pageSize, status, null, null, null, null);
+    }
+
+    public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status, LocalDate businessDate,
+                                            Long customerId, Long driverId, String keyword) {
+        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200), status,
+                businessDate, customerId, driverId, keyword);
     }
 
     public PageResponse<DriverRouteResponse> listForDriver(AuthenticatedUser user, int pageNo, int pageSize, String status) {

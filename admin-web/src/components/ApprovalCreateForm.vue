@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { approvalApi, approvalTemplateApi, attachmentApi, masterApi, routeApi } from '../api/modules.js';
 import { authStore } from '../stores/auth.js';
+import { businessTypeLabels, displayValue, energyTypeLabels, expenseTypeLabels } from '../utils/displayLabels.js';
 import {
   allowedAttributions, expensePayload, isEnergy, loadAllPages, mapExcelRows, newItem, visibleTemplates
 } from '../views/approvalApplicationModel.js';
@@ -137,14 +138,14 @@ onMounted(loadAvailable);
     <label v-else>审批模板
       <select v-model="selectedId" aria-label="审批模板" :disabled="busy" @change="selectTemplate">
         <option value="">请选择模板</option>
-        <option v-for="template in templates" :key="template.templateId" :value="String(template.templateId)">{{ template.flowName }} · {{ template.category }} · V{{ template.versionNo }}</option>
+        <option v-for="template in templates" :key="template.templateId" :value="String(template.templateId)">{{ template.flowName }} · {{ businessTypeLabels[template.category] || template.category }} · V{{ template.versionNo }}</option>
       </select>
     </label>
     <template v-if="selected?.category === 'OTHER'">
-      <p class="muted">当前 OTHER 契约只定义自由形式 businessSnapshot，没有可供填写的正式业务字段；暂不能在管理端构成有意义的申请。请先明确 OTHER 申请字段契约。</p>
+      <p class="muted">当前其他类型模板尚无可填写的正式业务字段，暂不能在管理端发起申请。</p>
     </template>
     <template v-if="selected?.category === 'EXPENSE'">
-      <p>费用类型：{{ selected.expenseType }}；录入方式：{{ selected.allowedInputModes.join(' + ') }}</p>
+      <p>费用类型：{{ expenseTypeLabels[selected.expenseType] || selected.expenseType }}；录入方式：{{ selected.allowedInputModes.map(mode => mode === 'SINGLE' ? '单条录入' : mode === 'EXCEL' ? 'Excel 录入' : mode).join('、') }}</p>
       <label>费用归属
         <select v-model="attribution" aria-label="费用归属" :disabled="attributions.length === 1 || busy" @change="loadRoutes">
           <option value="">请选择归属</option>
@@ -154,7 +155,7 @@ onMounted(loadAvailable);
       <label v-if="attribution === 'ROUTE'">关联线路
         <select v-model="routeId" aria-label="关联线路" :disabled="busy">
           <option value="">请选择线路</option>
-          <option v-for="route in routes" :key="route.id" :value="String(route.id)">{{ route.routeNo || `线路 #${route.id}` }} · {{ route.status }}</option>
+          <option v-for="route in routes" :key="route.id" :value="String(route.id)">{{ route.routeNo || `线路 #${route.id}` }} · {{ displayValue('status', route.status) }}</option>
         </select>
       </label>
       <template v-if="attribution && (attribution === 'DAILY' || routeId)">
@@ -176,7 +177,7 @@ onMounted(loadAvailable);
           </div>
           <label>备注（可选）<input v-model="item.remark" :aria-label="`${item.itemNo} 备注`" maxlength="1000" /></label>
           <div v-if="isEnergy(selected.expenseType)" class="approval-grid">
-            <label>能源类型<select v-model="item.energyType" :aria-label="`${item.itemNo} 能源类型`"><option value="">请选择</option><option>ELECTRIC</option><option>GAS</option><option>TEMP_ELECTRIC</option></select></label>
+            <label>能源类型<select v-model="item.energyType" :aria-label="`${item.itemNo} 能源类型`"><option value="">请选择</option><option v-for="(label, code) in energyTypeLabels" :key="code" :value="code">{{ label }}</option></select></label>
             <label>站点 ID（可选）<input v-model.trim="item.stationId" type="text" inputmode="numeric" :aria-label="`${item.itemNo} 站点 ID`" /></label>
             <label>订单号<input v-model.trim="item.orderNo" :aria-label="`${item.itemNo} 订单号`" /></label>
             <label>开始时间<input v-model="item.startTime" type="datetime-local" step="1" :aria-label="`${item.itemNo} 开始时间`" /></label>
