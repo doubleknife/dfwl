@@ -3,6 +3,7 @@ package com.dfwl.fleet.salary.repository;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryMonthlySummaryResponse;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -152,6 +153,14 @@ public class DriverSalaryRepository {
         List<DriverSalaryResponse> records = jdbcTemplate.query(baseSelect() + " " + where + " ORDER BY e.business_date DESC, e.id DESC LIMIT ? OFFSET ?",
                 this::mapResponse, args.toArray());
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
+    }
+
+    public DriverSalaryMonthlySummaryResponse monthlySummary(long driverId, String businessMonth) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COALESCE(SUM(salary_amount), 0) AS total_amount, COUNT(*) AS entry_count
+                FROM driver_salary_entry WHERE driver_id = ? AND business_month = ?
+                """, (rs, rowNum) -> new DriverSalaryMonthlySummaryResponse(
+                businessMonth, rs.getBigDecimal("total_amount"), rs.getLong("entry_count")), driverId, businessMonth);
     }
 
     public List<DriverSalaryHistoryResponse> history(long routeId) {

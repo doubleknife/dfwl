@@ -1,6 +1,7 @@
 package com.dfwl.fleet.route.imports;
 
 import com.dfwl.fleet.imports.spi.ImportBusinessHandler;
+import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.imports.spi.ImportBusinessType;
 import com.dfwl.fleet.imports.spi.ImportCommitResult;
 import com.dfwl.fleet.imports.spi.ImportRowContext;
@@ -23,7 +24,11 @@ import org.springframework.util.StringUtils;
 public class RouteImportHandler implements ImportBusinessHandler {
     private static final DateTimeFormatter NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     private final RouteImportRepository repository;
-    public RouteImportHandler(RouteImportRepository repository) { this.repository = repository; }
+    private final NotificationService notifications;
+    public RouteImportHandler(RouteImportRepository repository, NotificationService notifications) {
+        this.repository = repository;
+        this.notifications = notifications;
+    }
 
     @Override
     public ImportBusinessType businessType() { return ImportBusinessType.ROUTE; }
@@ -65,6 +70,10 @@ public class RouteImportHandler implements ImportBusinessHandler {
         catch (RouteValidationException ex) { return failure(ex.result()); }
         long id = repository.insertRoute(route, context.operatorId());
         repository.insertRouteStatusHistory(id, route.status(), context.operatorId());
+        if ("PUBLISHED".equals(route.status()) && route.assignedDriverId() != null) {
+            notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":import", "ROUTE_ASSIGNED",
+                    "有新的运输线路", "线路 " + route.routeNo() + " 已分配，请查看任务", "ROUTE", id);
+        }
         ImportCommitResult.Status status = route.status().equals("PUBLISHED")
                 ? ImportCommitResult.Status.SUCCESS : ImportCommitResult.Status.UNPUBLISHED;
         return new ImportCommitResult(status, id, context.businessUniqueKey(), null, null);

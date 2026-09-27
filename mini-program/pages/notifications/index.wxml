@@ -1,0 +1,14 @@
+<view class="notice-page">
+  <view class="notice-head"><text>站内通知</text><text wx:if="{{unreadCount}}" class="notice-read" bindtap="readAll">全部标记已读</text></view>
+  <feedback-state wx:if="{{loading}}" kind="loading" message="正在加载通知" />
+  <feedback-state wx:elif="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
+  <block wx:else>
+    <feedback-state wx:if="{{records.length === 0}}" kind="empty" message="暂无通知，有新任务时会在这里提醒您" />
+    <view wx:for="{{records}}" wx:key="id" class="notice-item" data-id="{{item.id}}" bindtap="open">
+      <view class="notice-title"><text wx:if="{{!item.readAt}}" class="notice-dot"></text>{{item.title}}<text class="notice-arrow">›</text></view>
+      <view class="notice-summary">{{item.summary}}</view>
+      <view class="notice-time">{{item.createdAt}}</view>
+    </view>
+    <button wx:if="{{hasMore}}" class="notice-more" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">加载更多</button>
+  </block>
+</view>

@@ -47,7 +47,7 @@ function uploadFile(options) {
   const app = getApp();
   const token = app.globalData.token || wx.getStorageSync('token');
   return new Promise((resolve, reject) => {
-    wx.uploadFile({
+    const task = wx.uploadFile({
       url: `${app.globalData.baseUrl}${options.url}`,
       filePath: options.filePath,
       name: options.name || 'file',
@@ -79,6 +79,9 @@ function uploadFile(options) {
         reject(apiError(null, '上传失败'));
       }
     });
+    if (options.onProgress && task && typeof task.onProgressUpdate === 'function') {
+      task.onProgressUpdate((progress) => options.onProgress(progress.progress));
+    }
   });
 }
 

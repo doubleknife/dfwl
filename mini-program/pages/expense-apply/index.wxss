@@ -1,0 +1,22 @@
+@import "../../design/tokens.wxss";
+.expense-page { min-height: 100vh; padding: 28rpx; padding-bottom: 160rpx; background: #f4f8f7; color: #173b36; }
+.expense-heading { font-size: 38rpx; font-weight: 700; margin: 10rpx 0 8rpx; }
+.expense-progress { color: #52736b; font-size: 27rpx; margin-bottom: 26rpx; }
+.expense-card { background: #fff; padding: 30rpx; border-radius: 22rpx; }
+.expense-title { font-size: 32rpx; font-weight: 700; margin-bottom: 18rpx; }
+.expense-hint { color: #536e68; font-size: 26rpx; margin: 14rpx 0; }
+.expense-label { display: block; font-size: 27rpx; font-weight: 650; margin: 24rpx 0 10rpx; }
+.expense-picker, .expense-input { min-height: 88rpx; box-sizing: border-box; border-radius: 15rpx; background: #f4f8f7; padding: 21rpx; font-size: 29rpx; color: #173b36; }
+.expense-textarea { width: 100%; min-height: 135rpx; }
+.expense-item { border-top: 1rpx solid #e5eeea; padding: 20rpx 0 30rpx; margin-top: 24rpx; }
+.expense-item-head { display: flex; justify-content: space-between; font-size: 29rpx; font-weight: 650; }
+.expense-remove { color: #a33c35; }
+.expense-evidence, .expense-summary { display: flex; justify-content: space-between; gap: 16rpx; font-size: 27rpx; padding: 18rpx 0; border-bottom: 1rpx solid #e9efed; }
+.expense-evidence text { color: #a33c35; }
+.expense-summary text:first-child { color: #617771; }
+.expense-error { background: #fff1ee; color: #a03d33; border-radius: 15rpx; padding: 18rpx; margin-bottom: 18rpx; font-size: 27rpx; }
+.expense-actions { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; padding: 16rpx 28rpx 32rpx; display: flex; gap: 18rpx; }
+.expense-primary, .expense-secondary { flex: 1; min-height: 92rpx; border-radius: 17rpx; font-size: 30rpx; }
+.expense-primary { background: #157568; color: #fff; }
+.expense-secondary { background: #e7f3ef; color: #126e61; margin-top: 14rpx; }
+.expense-actions .expense-secondary { margin-top: 0; }

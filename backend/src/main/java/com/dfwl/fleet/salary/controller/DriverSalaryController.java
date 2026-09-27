@@ -5,6 +5,7 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.web.RequestIdHolder;
 import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryMonthlySummaryResponse;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
 import com.dfwl.fleet.salary.service.DriverSalaryService;
 import com.dfwl.fleet.security.AuthenticatedUser;
@@ -62,6 +63,14 @@ public class DriverSalaryController {
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
         return ApiResponse.success(salaryService.mySalary(user, businessMonth, pageNo, pageSize), RequestIdHolder.get());
+    }
+
+    @GetMapping("/me/monthly-summary")
+    @PreAuthorize("hasAuthority('salary:mine')")
+    public ApiResponse<DriverSalaryMonthlySummaryResponse> mineMonthlySummary(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam String businessMonth) {
+        return ApiResponse.success(salaryService.myMonthlySummary(user, businessMonth), RequestIdHolder.get());
     }
 
     @GetMapping("/drivers/{driverId}")

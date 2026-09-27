@@ -1,12 +1,14 @@
 package com.dfwl.fleet.salary.service;
 
 import com.dfwl.fleet.common.api.PageResponse;
+import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.route.service.RouteSalaryService;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
 import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
 import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
+import com.dfwl.fleet.salary.dto.response.DriverSalaryMonthlySummaryResponse;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository.RouteSalaryContext;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository.SalaryEntry;
@@ -15,6 +17,8 @@ import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.CurrentUserService;
 import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -29,12 +33,14 @@ public class DriverSalaryService {
     private final DriverSalaryRepository repository;
     private final CurrentUserService currentUserService;
     private final RouteSalaryService routeSalaryService;
+    private final NotificationService notifications;
 
     public DriverSalaryService(DriverSalaryRepository repository, CurrentUserService currentUserService,
-                               RouteSalaryService routeSalaryService) {
+                               RouteSalaryService routeSalaryService, NotificationService notifications) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.routeSalaryService = routeSalaryService;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -83,6 +89,10 @@ public class DriverSalaryService {
                     operatorId, StringUtils.hasText(reason) ? reason : "工资调整", importTaskId, importRowId);
         }
         routeSalaryService.updateSalary(routeId, amount, sourceType, operatorId);
+        if (before == null) {
+            notifications.toDriver(driverId, "salary:new:" + entryId, "SALARY_NEW",
+                    "有新的工资单", businessMonth + " 工资明细已更新", "SALARY", entryId);
+        }
         return repository.findByRoute(routeId).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }
 
@@ -100,6 +110,19 @@ public class DriverSalaryService {
             throw new AccessDeniedException("outsourced driver cannot view salary");
         }
         return repository.list(driver.driverId(), businessMonth, pageNo, Math.min(Math.max(pageSize, 1), 200));
+    }
+
+    public DriverSalaryMonthlySummaryResponse myMonthlySummary(AuthenticatedUser user, String businessMonth) {
+        CurrentDriverContext driver = currentUserService.requireDriver(user);
+        if (driver.outsourced()) {
+            throw new AccessDeniedException("outsourced driver cannot view salary");
+        }
+        try {
+            YearMonth.parse(businessMonth);
+        } catch (DateTimeParseException | NullPointerException ex) {
+            throw new BusinessException(ErrorCode.SYS_002);
+        }
+        return repository.monthlySummary(driver.driverId(), businessMonth);
     }
 
     public PageResponse<DriverSalaryResponse> salaryForDriver(AuthenticatedUser user, long driverId, String businessMonth,

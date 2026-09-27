@@ -21,7 +21,9 @@ function newItem(itemNo, user = {}) {
   return {
     itemNo,
     vehicleId: user.driverType === 'INTERNAL' ? user.currentVehicleId || '' : '',
+    vehicleName: user.driverType === 'INTERNAL' ? user.currentPlateNo || '' : '',
     driverId: user.driverType === 'INTERNAL' ? user.driverId || '' : '',
+    driverName: user.driverType === 'INTERNAL' ? user.driverName || '' : '',
     amount: '', businessDate: '', remark: '',
     energyType: '', stationId: '', orderNo: '', startTime: '', quantity: ''
   };
@@ -38,6 +40,15 @@ function normalizeAmount(value) {
     throw new Error('金额超出允许范围');
   }
   return canonical;
+}
+
+function totalAmount(items) {
+  const cents = (items || []).reduce((sum, item) => {
+    const normalized = normalizeAmount(item.amount);
+    const [whole, fraction = ''] = normalized.split('.');
+    return sum + BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  }, 0n);
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
 
 function normalizeDate(value) {
@@ -105,4 +116,4 @@ function buildExpensePayload(template, attributionType, routeId, items, attachme
 }
 
 module.exports = { availableTemplates, launchReason, allowedAttributions, newItem,
-  normalizeAmount, normalizeDate, buildExpensePayload };
+  normalizeAmount, normalizeDate, totalAmount, buildExpensePayload };

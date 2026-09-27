@@ -1,5 +1,6 @@
 package com.dfwl.fleet.route;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,6 +42,9 @@ class RouteApiTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM in_app_notification");
+        jdbcTemplate.update("DELETE FROM sys_user WHERE id = 801");
+        jdbcTemplate.update("DELETE FROM sys_role WHERE id = 801");
         jdbcTemplate.update("DELETE FROM route_weight_version");
         jdbcTemplate.update("DELETE FROM route_status_history");
         jdbcTemplate.update("DELETE FROM route_task");
@@ -72,12 +76,15 @@ class RouteApiTests {
 
     @Test
     void routeCanPublishDepartAndUnloadWithFrozenSnapshot() throws Exception {
+        jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER_TEST', '测试司机', 1)");
+        jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
         long routeId = createRoute();
 
         mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId))
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 801 AND type = 'ROUTE_ASSIGNED' AND business_id = ?", Integer.class, routeId)).isEqualTo(1);
 
         mockMvc.perform(post("/api/v1/routes/%d/depart".formatted(routeId))
                         .header("Authorization", "Bearer " + token))

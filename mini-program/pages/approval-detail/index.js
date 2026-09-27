@@ -1,8 +1,9 @@
 const { request, uploadFile, downloadAttachment } = require('../../utils/request');
 const { hasPermission, isDriver } = require('../../utils/permissions');
+const { presentDetail } = require('../../utils/approvalPresentation');
 
 Page({
-  data: { id: null, detail: null, comment: '', targetNodeOrder: '', imagePath: '',
+  data: { id: null, detail: null, comment: '', targetNodeOrder: '', returnNodes: [], selectedNodeName: '', imagePath: '',
     attachmentIds: [], uploadStatus: '', loading: false, canApprove: false, canReturn: false, error: '' },
   onLoad(query) {
     this.setData({ id: query.id });
@@ -16,7 +17,10 @@ Page({
       const myPendingTask = (detail.tasks || []).some((task) =>
         task.status === 'PENDING' && !task.invalidated && Number(task.approverUserId) === Number(user.id));
       const canProcess = !isDriver(user) && myPendingTask;
-      this.setData({ detail, canApprove: canProcess && hasPermission(user, 'approval:process'),
+      const nodes = (detail.flowConfiguration?.nodes || []).filter((node) =>
+        Number(node.nodeOrder) < Number(detail.approval.currentNodeOrder));
+      this.setData({ detail: presentDetail(detail), returnNodes: nodes,
+        canApprove: canProcess && hasPermission(user, 'approval:process'),
         canReturn: canProcess && hasPermission(user, 'approval:return'), error: '' });
     } catch (error) {
       this.setData({ error: error.message || '审批详情加载失败' });
@@ -33,7 +37,10 @@ Page({
     }
   },
   onComment(e) { this.setData({ comment: e.detail.value }); },
-  onTarget(e) { this.setData({ targetNodeOrder: e.detail.value }); },
+  onTarget(e) {
+    const node = this.data.returnNodes[Number(e.detail.value)];
+    if (node) this.setData({ targetNodeOrder: node.nodeOrder, selectedNodeName: node.nodeName });
+  },
   chooseImage() {
     wx.chooseMedia({
       count: 1,
@@ -58,18 +65,24 @@ Page({
   },
   async approve() {
     if (!this.data.canApprove) return;
+    if (!await this.confirm('通过审批', '确认通过本次申请？通过后将进入下一审批节点或完成业务。')) return;
     await this.process(`/approvals/${this.data.id}/approve`, { comment: this.data.comment });
   },
   async returnApplicant() {
     if (!this.data.canReturn) return;
+    if (!await this.confirm('打回申请人', '申请人需要修改并重新提交，确认打回？')) return;
     await this.process(`/approvals/${this.data.id}/return-applicant`, { comment: this.data.comment });
   },
   async returnNode() {
-    if (!this.data.canReturn) return;
+    if (!this.data.canReturn || !this.data.targetNodeOrder) return;
+    if (!await this.confirm('打回审批节点', `将申请打回“${this.data.selectedNodeName}”，确认继续？`)) return;
     await this.process(`/approvals/${this.data.id}/return-node`, {
       comment: this.data.comment,
       targetNodeOrder: this.data.targetNodeOrder ? Number(this.data.targetNodeOrder) : null
     });
+  },
+  confirm(title, content) {
+    return new Promise((resolve) => wx.showModal({ title, content, success: (res) => resolve(!!res.confirm), fail: () => resolve(false) }));
   },
   async process(url, data) {
     if (this.data.loading) return;
@@ -78,7 +91,7 @@ Page({
       const attachmentIds = this.data.imagePath ? await this.uploadActionImage() : [];
       await request({ url, method: 'POST', data: { ...data, attachmentIds } });
       wx.showToast({ title: '已处理' });
-      this.setData({ imagePath: '', attachmentIds: [], uploadStatus: '', comment: '', targetNodeOrder: '' });
+      this.setData({ imagePath: '', attachmentIds: [], uploadStatus: '', comment: '', targetNodeOrder: '', selectedNodeName: '' });
       await this.load();
     } catch (error) {
       this.setData({ error: error.message || '审批处理失败' });

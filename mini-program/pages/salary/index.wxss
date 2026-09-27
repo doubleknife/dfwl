@@ -1,0 +1,15 @@
+@import "../../design/tokens.wxss";
+.salary-page { min-height: 100vh; padding: 28rpx; background: #f4f8f7; color: #173b36; }
+.salary-heading { font-size: 38rpx; font-weight: 700; margin: 12rpx 0 28rpx; }
+.salary-card, .salary-entry { background: #fff; border-radius: 24rpx; padding: 32rpx; margin-bottom: 20rpx; }
+.salary-label { display: block; font-size: 27rpx; color: #536d68; }
+.salary-picker { display: flex; justify-content: space-between; font-size: 34rpx; font-weight: 600; padding: 16rpx 0; }
+.salary-picker text { font-size: 27rpx; color: #16786b; }
+.salary-divider { height: 1rpx; background: #e6eeec; margin: 18rpx 0 24rpx; }
+.salary-amount { font-size: 62rpx; font-weight: 700; margin: 12rpx 0; }
+.salary-hint, .salary-entry-note { font-size: 25rpx; color: #617873; }
+.salary-subheading { font-size: 32rpx; font-weight: 700; margin: 28rpx 0 16rpx; }
+.salary-entry-line { display: flex; justify-content: space-between; gap: 20rpx; font-size: 31rpx; font-weight: 600; }
+.salary-entry-amount { color: #137668; }
+.salary-entry-note { margin-top: 12rpx; }
+.salary-more { margin: 20rpx 0 50rpx; min-height: 88rpx; border-radius: 18rpx; background: #e4f3ee; color: #116f62; font-size: 30rpx; }

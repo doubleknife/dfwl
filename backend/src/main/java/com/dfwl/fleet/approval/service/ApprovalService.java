@@ -21,6 +21,7 @@ import com.dfwl.fleet.approval.repository.ApprovalRepository.FlowRecord;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.SubmissionRecord;
 import com.dfwl.fleet.approval.repository.ApprovalRepository.TaskRecord;
 import com.dfwl.fleet.common.api.PageResponse;
+import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.security.AuthenticatedUser;
@@ -51,11 +52,14 @@ public class ApprovalService {
     private final AttachmentService attachmentService;
     private final ObjectMapper objectMapper;
     private final List<ApprovalBusinessHandler> businessHandlers;
+    private final NotificationService notifications;
+    private final ApprovalDisplayNameService displayNameService;
 
     public ApprovalService(ApprovalRepository repository, ApprovalTemplateRepository templateRepository,
                            ApprovalTemplateService templateService, ApprovalInitiationService initiationService,
                            AttachmentService attachmentService,
-                           ObjectMapper objectMapper, List<ApprovalBusinessHandler> businessHandlers) {
+                           ObjectMapper objectMapper, List<ApprovalBusinessHandler> businessHandlers,
+                           NotificationService notifications, ApprovalDisplayNameService displayNameService) {
         this.repository = repository;
         this.templateRepository = templateRepository;
         this.templateService = templateService;
@@ -63,6 +67,8 @@ public class ApprovalService {
         this.attachmentService = attachmentService;
         this.objectMapper = objectMapper;
         this.businessHandlers = businessHandlers;
+        this.notifications = notifications;
+        this.displayNameService = displayNameService;
     }
 
     public PageResponse<ApprovalResponse> list(int pageNo, int pageSize) {
@@ -120,7 +126,8 @@ public class ApprovalService {
         long submissionId = repository.createSubmission(instanceId, 1, toJson(snapshot), operatorId);
         attachmentService.bindApprovalApplicationAttachments(operatorId, attachmentIds, instanceId, submissionId);
         repository.linkSubmissionEvidence(submissionId, evidenceIds(attachmentIds, referencedEvidenceIds));
-        repository.createTask(instanceId, submissionId, firstNode);
+        long taskId = repository.createTask(instanceId, submissionId, firstNode);
+        notifyApprover(firstNode.approverUserId(), taskId, instanceId);
         ApprovalResponse approval = find(instanceId);
         ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
         ApprovalBusinessContext context = toBusinessContext(approval);
@@ -143,7 +150,8 @@ public class ApprovalService {
         repository.nextNode(approval.flowId(), task.nodeOrder())
                 .ifPresentOrElse(next -> {
                     repository.moveToNode(id, next.nodeOrder());
-                    repository.createTask(id, task.submissionVersionId(), next);
+                    long nextTaskId = repository.createTask(id, task.submissionVersionId(), next);
+                    notifyApprover(next.approverUserId(), nextTaskId, id);
                 }, () -> {
                     ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(task.submissionVersionId()));
                     ApprovalBusinessContext context = toBusinessContext(approval);
@@ -151,6 +159,10 @@ public class ApprovalService {
                             .filter(handler -> handler.supports(context))
                             .forEach(handler -> handler.onApproved(context, submission, operatorId));
                     repository.complete(id);
+                    String type = "TIRE_REQUEST".equals(approval.businessType()) ? "TIRE_RESULT" : "APPROVAL_APPROVED";
+                    notifications.toUser(approval.applicantUserId(), "approval:approved:" + id, type,
+                            "TIRE_RESULT".equals(type) ? "换胎申请已通过" : "审批已通过",
+                            "您的申请已完成审批", "APPROVAL", id);
                 });
         return find(id);
     }
@@ -172,6 +184,11 @@ public class ApprovalService {
                 .filter(handler -> handler.supports(context))
                 .forEach(handler -> handler.onReturnedToApplicant(context, submission, operatorId));
         repository.returnApplicant(id);
+        boolean tireReturn = "TIRE_REQUEST".equals(approval.businessType());
+        notifications.toUser(approval.applicantUserId(), "approval:returned:" + actionId,
+                tireReturn ? "TIRE_RESULT" : "APPROVAL_RETURNED",
+                tireReturn ? "换胎申请已退回" : "申请已退回",
+                "请查看审批意见并修改后重新提交", "APPROVAL", id);
         return find(id);
     }
 
@@ -193,7 +210,8 @@ public class ApprovalService {
         FlowNodeRecord target = repository.nodeByOrder(approval.flowId(), targetOrder)
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_002));
         repository.moveToNode(id, target.nodeOrder());
-        repository.createTask(id, task.submissionVersionId(), target);
+        long targetTaskId = repository.createTask(id, task.submissionVersionId(), target);
+        notifyApprover(target.approverUserId(), targetTaskId, id);
         return find(id);
     }
 
@@ -228,12 +246,18 @@ public class ApprovalService {
         repository.linkSubmissionEvidence(submissionId,
                 evidenceIds(request.attachmentIds(), prepared.referencedEvidenceIds()));
         repository.moveToNode(id, firstNode.nodeOrder());
-        repository.createTask(id, submissionId, firstNode);
+        long resubmittedTaskId = repository.createTask(id, submissionId, firstNode);
+        notifyApprover(firstNode.approverUserId(), resubmittedTaskId, id);
         ApprovalSubmissionContext submission = toSubmissionContext(requireSubmission(submissionId));
         businessHandlers.stream()
                 .filter(handler -> handler.supports(context))
                 .forEach(handler -> handler.onResubmitted(context, submission, operatorId));
         return find(id);
+    }
+
+    private void notifyApprover(long approverUserId, long taskId, long approvalId) {
+        notifications.toEligibleApprover(approverUserId, "approval:todo:" + taskId,
+                "有新的待办审批", "请查看并处理审批申请", approvalId);
     }
 
     @Transactional
@@ -304,7 +328,8 @@ public class ApprovalService {
         FlowRecord flow = repository.findFlow(detail.approval().flowId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_001));
         return new ApprovalDetailResponse(detail.approval(), detail.submissions(), detail.tasks(),
-                flow.templateId(), templateService.version(flow.templateId(), flow.id()));
+                flow.templateId(), templateService.version(flow.templateId(), flow.id()),
+                displayNameService.resolve(detail.submissions()));
     }
 
     private ApprovalResponse requirePending(long id) {

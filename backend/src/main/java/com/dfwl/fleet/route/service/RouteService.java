@@ -1,6 +1,7 @@
 package com.dfwl.fleet.route.service;
 
 import com.dfwl.fleet.common.api.PageResponse;
+import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.route.domain.RouteStatus;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
@@ -38,12 +39,14 @@ public class RouteService {
     private final CurrentUserService currentUserService;
     private final RouteAccessPolicy routeAccessPolicy;
     private final ExpenseAttributionService expenseAttributionService;
+    private final NotificationService notifications;
 
-    public RouteService(RouteRepository repository, CurrentUserService currentUserService, ExpenseAttributionService expenseAttributionService, RouteAccessPolicy routeAccessPolicy) {
+    public RouteService(RouteRepository repository, CurrentUserService currentUserService, ExpenseAttributionService expenseAttributionService, RouteAccessPolicy routeAccessPolicy, NotificationService notifications) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.routeAccessPolicy = routeAccessPolicy;
         this.expenseAttributionService = expenseAttributionService;
+        this.notifications = notifications;
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
@@ -124,6 +127,8 @@ public class RouteService {
         if (!repository.publish(id, route.status(), operatorId)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":publish", "ROUTE_ASSIGNED",
+                "有新的运输线路", "线路 " + route.routeNo() + " 已发布，请查看任务", "ROUTE", id);
         return find(id);
     }
 
@@ -235,6 +240,8 @@ public class RouteService {
         if (!repository.updateStatus(id, route.status(), RouteStatus.PUBLISHED.name(), "REACTIVATE", operatorId, null)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":reactivate", "ROUTE_ASSIGNED",
+                "运输线路已重新发布", "线路 " + route.routeNo() + " 可继续处理", "ROUTE", id);
         return find(id);
     }
 

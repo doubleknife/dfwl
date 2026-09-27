@@ -81,6 +81,8 @@ class DriverSalaryApiTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM in_app_notification");
+        jdbcTemplate.update("DELETE FROM sys_user WHERE id = 101");
         jdbcTemplate.update("DELETE FROM settlement_diff");
         jdbcTemplate.update("DELETE FROM settlement_detail");
         jdbcTemplate.update("DELETE FROM settlement_version");
@@ -455,6 +457,33 @@ class DriverSalaryApiTests {
                 SELECT snapshot_json FROM settlement_detail
                 WHERE settlement_version_id = ? AND fact_type = 'ROUTE' AND source_id = ?
                 """, String.class, versionId, routeId);
+    }
+
+    @Test
+    void monthlySummaryUsesAllEntriesAndStillRejectsOutsourcedDriver() throws Exception {
+        seedSalaryEntry(1, 1, "2026-09", "2026-09-10", "120.50");
+        seedCompletedRoute(4, 1, "2026-09-12", null);
+        seedSalaryEntry(4, 1, "2026-09", "2026-09-12", "3.25");
+        mockMvc.perform(get("/api/v1/driver-salaries/me?businessMonth=2026-09&pageSize=1")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records.length()").value(1));
+        mockMvc.perform(get("/api/v1/driver-salaries/me/monthly-summary?businessMonth=2026-09")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entryCount").value(2))
+                .andExpect(jsonPath("$.data.totalAmount").value(123.75));
+        mockMvc.perform(get("/api/v1/driver-salaries/me/monthly-summary?businessMonth=2026-09")
+                        .header("Authorization", "Bearer " + outsourcedToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void newSalaryEntryNotifiesTheBoundDriverOnlyOnce() throws Exception {
+        jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (101, '13800000001', 'hash', 2, 1)");
+        postSalary(1, 1, "100.00", "首次").andExpect(status().isOk());
+        postSalary(1, 1, "120.00", "调整").andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 101 AND type = 'SALARY_NEW' AND business_type = 'SALARY'", Integer.class)).isEqualTo(1);
     }
 
     private void seedCompletedRoute(long routeId, long driverId, String businessDate, String salary) {

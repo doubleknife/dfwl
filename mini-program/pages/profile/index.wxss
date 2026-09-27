@@ -1,0 +1,17 @@
+@import "../../design/tokens.wxss";
+.profile-page { min-height: 100vh; background: #f4f8f7; color: #173b36; padding: 28rpx; }
+.profile-heading { font-size: 38rpx; font-weight: 700; margin: 12rpx 0 28rpx; }
+.profile-card { background: #fff; border-radius: 24rpx; padding: 30rpx; margin-bottom: 20rpx; }
+.profile-identity { display: flex; gap: 22rpx; align-items: center; margin-bottom: 28rpx; }
+.profile-avatar { width: 88rpx; height: 88rpx; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #e2f2ec; color: #14796b; font-size: 38rpx; font-weight: 700; }
+.profile-name { font-size: 33rpx; font-weight: 700; }
+.profile-role { font-size: 26rpx; color: #5a746d; margin-top: 6rpx; }
+.profile-fact { display: flex; justify-content: space-between; gap: 12rpx; padding: 21rpx 0; border-top: 1rpx solid #e9f0ed; font-size: 28rpx; }
+.profile-fact text:first-child { color: #59716a; }
+.profile-security { min-height: 74rpx; display: flex; align-items: center; justify-content: space-between; font-size: 31rpx; font-weight: 650; }
+.profile-security text { font-size: 26rpx; font-weight: 400; color: #14796b; }
+.profile-label { display: block; font-size: 27rpx; font-weight: 650; margin: 26rpx 0 10rpx; }
+.profile-input { min-height: 88rpx; border-radius: 15rpx; background: #f4f8f7; padding: 0 20rpx; font-size: 30rpx; }
+.profile-save { min-height: 90rpx; border-radius: 16rpx; color: #fff; background: #147568; margin-top: 26rpx; }
+.profile-error { color: #a04436; font-size: 26rpx; margin-top: 14rpx; }
+.profile-logout { min-height: 90rpx; border-radius: 16rpx; background: #fff; color: #a04436; margin-top: 48rpx; }

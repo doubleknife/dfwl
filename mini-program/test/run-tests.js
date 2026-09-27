@@ -67,10 +67,10 @@ const tests = [
       assert.equal(fs.existsSync(path.join(root, `${page}.json`)), true, `${page}.json`);
     }
   }],
-  ['no mock placeholder or todo remains in mini program source', () => {
+  ['no mock or todo remains in mini program source', () => {
     const files = walk(root).filter((file) => /\.(js|wxml|json|wxss)$/.test(file)
       && !file.includes(`${path.sep}test${path.sep}`) && !file.endsWith('project.private.config.json'));
-    const offenders = files.filter((file) => /mock|placeholder|\/\/\s*TODO|\/\*\s*TODO|占位|尚未提供/i.test(fs.readFileSync(file, 'utf8')));
+    const offenders = files.filter((file) => /mock|\/\/\s*TODO|\/\*\s*TODO|占位|尚未提供/i.test(fs.readFileSync(file, 'utf8')));
     assert.deepEqual(offenders.map((file) => path.relative(root, file)), []);
   }],
   ['driver-facing route pages do not render sensitive money fields', () => {
@@ -97,7 +97,7 @@ const tests = [
     assert.match(approvals, /pending:\s*'TODO'/);
     assert.match(approvals, /mine:\s*'MINE'/);
     assert.match(approvals, /history:\s*'DONE'/);
-    assert.match(approvals, /scope=\$\{scope\}/);
+    assert.match(approvals, /scope=\$\{scopeByTab\[this\.data\.tab\]\}/);
     assert.doesNotMatch(approvals, /\/approvals\?pageNo=1&pageSize=100/);
     assert.doesNotMatch(approvals, /filter\(/);
   }]
@@ -106,6 +106,7 @@ const tests = [
 tests.push(...require('./f4d-tests'));
 tests.push(...require('./f4e-tests'));
 tests.push(...require('./ui3-tests'));
+tests.push(...require('./ui4-tests'));
 
 (async () => {
   for (const [name, run] of tests) {

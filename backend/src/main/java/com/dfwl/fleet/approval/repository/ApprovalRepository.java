@@ -226,11 +226,21 @@ public class ApprovalRepository {
         return count != null && count > 0;
     }
 
-    public void createTask(long instanceId, long submissionVersionId, FlowNodeRecord node) {
-        jdbcTemplate.update("""
-                INSERT INTO approval_task (approval_instance_id, submission_version_id, node_id, node_order, approver_user_id)
-                VALUES (?, ?, ?, ?, ?)
-                """, instanceId, submissionVersionId, node.id(), node.nodeOrder(), node.approverUserId());
+    public long createTask(long instanceId, long submissionVersionId, FlowNodeRecord node) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement("""
+                    INSERT INTO approval_task (approval_instance_id, submission_version_id, node_id, node_order, approver_user_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, new String[]{"id"});
+            ps.setLong(1, instanceId);
+            ps.setLong(2, submissionVersionId);
+            ps.setLong(3, node.id());
+            ps.setInt(4, node.nodeOrder());
+            ps.setLong(5, node.approverUserId());
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
     }
 
     public long createFlowVersion(long templateId, String approvalType, String flowName, int versionNo,

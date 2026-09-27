@@ -810,3 +810,21 @@ INSERT IGNORE INTO sys_user (phone, password_hash, role_id, status)
 SELECT '13900000001', '$2a$10$f1bYNYeJ1dGlLjWNF0MWRuVxizwhkJCootIqF736TFBvuJzcywZ6q', r.id, 1
 FROM sys_role r
 WHERE r.role_code = 'ADMIN';
+
+-- V7：只供当前用户查看的站内通知；事件键保证同一用户不会收到重复业务通知。
+CREATE TABLE in_app_notification (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  event_key VARCHAR(160) NOT NULL,
+  type VARCHAR(40) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  summary VARCHAR(300) NOT NULL,
+  business_type VARCHAR(40) NOT NULL,
+  business_id BIGINT UNSIGNED NOT NULL,
+  read_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_notification_event_user (event_key, user_id),
+  KEY idx_notification_user_time (user_id, created_at, id),
+  KEY idx_notification_user_unread (user_id, read_at),
+  CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

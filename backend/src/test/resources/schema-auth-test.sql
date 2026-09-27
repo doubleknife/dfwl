@@ -650,3 +650,17 @@ CREATE TABLE audit_log (
   ip VARCHAR(64) NULL,
   terminal VARCHAR(128) NULL
 );
+
+CREATE TABLE in_app_notification (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  event_key VARCHAR(160) NOT NULL,
+  type VARCHAR(40) NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  summary VARCHAR(300) NOT NULL,
+  business_type VARCHAR(40) NOT NULL,
+  business_id BIGINT NOT NULL,
+  read_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_notification_event_user UNIQUE (event_key, user_id)
+);

@@ -10,7 +10,8 @@
     "pages/expense-apply/index",
     "pages/approvals/index",
     "pages/approval-detail/index",
-    "pages/profile/index"
+    "pages/profile/index",
+    "pages/notifications/index"
   ],
   "window": {
     "navigationBarTitleText": "车队司机端",

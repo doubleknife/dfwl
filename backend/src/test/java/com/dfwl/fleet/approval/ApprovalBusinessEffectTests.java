@@ -46,6 +46,7 @@ class ApprovalBusinessEffectTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM in_app_notification");
         jdbcTemplate.update("DELETE FROM expense_reversal_link");
         jdbcTemplate.update("DELETE FROM expense_energy_detail");
         jdbcTemplate.update("DELETE FROM expense_penalty_detail");
@@ -253,6 +254,7 @@ class ApprovalBusinessEffectTests {
 
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire WHERE id = 1", String.class)).isEqualTo("CLAIMED");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire_claim WHERE tire_id = 1 AND source_type = 'APPROVAL'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 1 AND type = 'TIRE_RESULT' AND business_id = ?", Integer.class, approvalId)).isEqualTo(1);
     }
 
     @Test
@@ -270,6 +272,7 @@ class ApprovalBusinessEffectTests {
 
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire WHERE id = 1", String.class)).isEqualTo("IN_STOCK");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM tire_request WHERE id = ?", String.class, requestId)).isEqualTo("RETURNED_TO_APPLICANT");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 1 AND type = 'TIRE_RESULT' AND business_id = ?", Integer.class, approvalId)).isEqualTo(1);
     }
 
     @Test

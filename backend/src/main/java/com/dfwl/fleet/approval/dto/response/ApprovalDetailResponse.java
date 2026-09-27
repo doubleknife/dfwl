@@ -3,17 +3,19 @@ package com.dfwl.fleet.approval.dto.response;
 import com.dfwl.fleet.attachment.dto.response.AttachmentResponse;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public record ApprovalDetailResponse(
         ApprovalResponse approval,
         List<SubmissionVersion> submissions,
         List<TaskHistory> tasks,
         Long templateId,
-        ApprovalFlowConfigResponse flowConfiguration
+        ApprovalFlowConfigResponse flowConfiguration,
+        Map<String, Map<String, String>> displayNames
 ) {
     public ApprovalDetailResponse(ApprovalResponse approval, List<SubmissionVersion> submissions,
                                   List<TaskHistory> tasks) {
-        this(approval, submissions, tasks, null, null);
+        this(approval, submissions, tasks, null, null, Map.of());
     }
     public record SubmissionVersion(
             Long id,

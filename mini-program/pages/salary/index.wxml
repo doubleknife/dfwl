@@ -1,23 +1,26 @@
-<view class="page">
-  <view class="panel">
-    <view class="title">我的工资单</view>
-    <picker mode="date" fields="month" bindchange="onMonth">
-      <view class="row">
-        <text>月份</text>
-        <text class="tag">{{businessMonth || '全部'}}</text>
-      </view>
+<view class="salary-page">
+  <view class="salary-heading">我的工资单</view>
+  <view class="salary-card">
+    <text class="salary-label">工资月份</text>
+    <picker mode="date" fields="month" value="{{businessMonth}}" bindchange="onMonth">
+      <view class="salary-picker">{{businessMonth}} <text>更换月份 ›</text></view>
     </picker>
-    <view class="row">
-      <text>合计</text>
-      <text class="tag">{{total}}</text>
-    </view>
+    <block wx:if="{{!loading && !error}}">
+      <view class="salary-divider"></view>
+      <text class="salary-label">本月工资总额</text>
+      <view class="salary-amount">¥ {{totalAmount}}</view>
+      <text class="salary-hint">共 {{entryCount}} 条工资明细，金额由服务端完整汇总</text>
+    </block>
   </view>
-  <view wx:for="{{records}}" wx:key="id" class="panel">
-    <view class="row">
-      <view>{{item.routeNo || item.routeId}}</view>
-      <view class="tag">{{item.salaryAmount}}</view>
+  <feedback-state wx:if="{{loading}}" kind="loading" message="正在加载工资单" />
+  <feedback-state wx:elif="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
+  <block wx:else>
+    <view class="salary-subheading">线路明细</view>
+    <feedback-state wx:if="{{records.length === 0}}" kind="empty" message="这个月暂无工资记录" />
+    <view wx:for="{{records}}" wx:key="id" class="salary-entry">
+      <view class="salary-entry-line"><text>{{item.routeNo || '线路工资'}}</text><text class="salary-entry-amount">¥ {{item.salaryAmount}}</text></view>
+      <view class="salary-entry-note">{{item.businessDate}} · {{item.sourceType === 'IMPORT' ? '导入' : '人工录入'}}</view>
     </view>
-    <view class="muted">{{item.businessMonth}} · {{item.businessDate}}</view>
-  </view>
-  <view wx:if="{{records.length === 0}}" class="panel muted">暂无工资数据</view>
+    <button wx:if="{{hasMore}}" class="salary-more" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">{{loadingMore ? '加载中…' : '加载更多明细'}}</button>
+  </block>
 </view>

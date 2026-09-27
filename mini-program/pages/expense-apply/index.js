@@ -1,16 +1,17 @@
 const { request, uploadFile } = require('../../utils/request');
 const { hasPermission, isOutsourcedDriver } = require('../../utils/permissions');
 const { availableTemplates, launchReason, allowedAttributions, newItem,
-  buildExpensePayload } = require('../../utils/approvalApplication');
+  buildExpensePayload, totalAmount } = require('../../utils/approvalApplication');
 
 const ENERGY_TYPES = ['ELECTRIC', 'GAS', 'TEMP_ELECTRIC'];
 
 Page({
   data: {
     user: null, templates: [], templateIndex: -1, template: null, launchReason: '', canCompose: false,
-    attributionTypes: [], attributionType: '', routes: [], routeId: '', vehicles: [], drivers: [],
+    attributionTypes: [], attributionOptions: [], attributionType: '', routes: [], routeId: '', vehicles: [], drivers: [],
     items: [], nextItemSequence: 1, imagePath: '', evidence: [], uploadStatus: '',
-    loading: false, uploading: false, error: '', createdApprovalId: null, energyTemplate: false
+    loading: false, uploading: false, error: '', createdApprovalId: null, energyTemplate: false,
+    step: 1, selectedRouteNo: '', summary: null
   },
   onLoad() { this.load(); },
   async load() {
@@ -36,9 +37,10 @@ Page({
     const item = newItem(itemNo, this.data.user);
     if (ENERGY_TYPES.includes(template?.expenseType)) item.energyType = template.expenseType;
     this.setData({ templateIndex: index, template, launchReason: reason, canCompose: !reason, attributionTypes,
+      attributionOptions: attributionTypes.map((value) => ({ value, label: value === 'ROUTE' ? '线路费用' : '日常费用' })),
       attributionType, routeId: '', items: reason ? [] : [item],
       nextItemSequence: this.data.nextItemSequence + 1, evidence: [], imagePath: '',
-      uploadStatus: '', error: '', createdApprovalId: null,
+      uploadStatus: '', error: '', createdApprovalId: null, step: 1, summary: null, selectedRouteNo: '',
       energyTemplate: ENERGY_TYPES.includes(template?.expenseType) });
     if (!reason) await this.loadResources();
   },
@@ -74,8 +76,35 @@ Page({
   },
   chooseRoute(e) {
     const route = this.data.routes[Number(e.detail.value)];
-    this.setData({ routeId: route ? route.id : '' });
+    this.setData({ routeId: route ? route.id : '', selectedRouteNo: route ? route.routeNo : '' });
   },
+  nextStep() {
+    const step = this.data.step;
+    if (step === 1 && (!this.data.template || !this.data.canCompose)) {
+      this.setData({ error: this.data.launchReason || '请选择可发起的费用审批' }); return;
+    }
+    if (step === 2 && (!this.data.attributionType ||
+      (this.data.attributionType === 'ROUTE' && !this.data.routeId))) {
+      this.setData({ error: '请选择费用归属与线路' }); return;
+    }
+    if (step === 3) {
+      try { totalAmount(this.data.items); }
+      catch (error) { this.setData({ error: error.message }); return; }
+    }
+    if (step === 4) {
+      try {
+        const payload = buildExpensePayload(this.data.template, this.data.attributionType, this.data.routeId,
+          this.data.items, this.data.evidence.map((file) => file.id));
+        this.setData({ summary: {
+          templateName: this.data.template.flowName, attribution: this.data.attributionType === 'ROUTE' ? '线路费用' : '日常费用',
+          routeNo: this.data.selectedRouteNo, itemCount: payload.items.length,
+          amount: totalAmount(payload.items), imageCount: payload.attachmentIds.length
+        } });
+      } catch (error) { this.setData({ error: error.message }); return; }
+    }
+    this.setData({ step: Math.min(5, step + 1), error: '' });
+  },
+  previousStep() { this.setData({ step: Math.max(1, this.data.step - 1), error: '' }); },
   addItem() {
     const itemNo = `m${Date.now().toString(36)}_${this.data.nextItemSequence}`;
     const item = newItem(itemNo, this.data.user);
@@ -93,19 +122,37 @@ Page({
       'startTime', 'quantity', 'stationId'].includes(field)) return;
     this.setData({ [`items[${index}].${field}`]: e.detail.value });
   },
+  chooseEnergyDate(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.items[index];
+    if (!item) return;
+    const date = e.detail.value;
+    this.setData({ [`items[${index}].startDate`]: date,
+      [`items[${index}].startTime`]: item.startClock ? `${date}T${item.startClock}` : '' });
+  },
+  chooseEnergyTime(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = this.data.items[index];
+    if (!item) return;
+    const time = e.detail.value;
+    this.setData({ [`items[${index}].startClock`]: time,
+      [`items[${index}].startTime`]: item.startDate ? `${item.startDate}T${time}` : '' });
+  },
   chooseVehicle(e) {
     const index = Number(e.currentTarget.dataset.index);
     const vehicle = this.data.vehicles[Number(e.detail.value)];
-    if (vehicle && this.data.items[index]) this.setData({ [`items[${index}].vehicleId`]: vehicle.id });
+    if (vehicle && this.data.items[index]) this.setData({ [`items[${index}].vehicleId`]: vehicle.id,
+      [`items[${index}].vehicleName`]: vehicle.plateNo });
   },
   chooseDriver(e) {
     const index = Number(e.currentTarget.dataset.index);
     const driver = this.data.drivers[Number(e.detail.value)];
-    if (driver && this.data.items[index]) this.setData({ [`items[${index}].driverId`]: driver.id });
+    if (driver && this.data.items[index]) this.setData({ [`items[${index}].driverId`]: driver.id,
+      [`items[${index}].driverName`]: driver.name });
   },
   clearDriver(e) {
     const index = Number(e.currentTarget.dataset.index);
-    if (this.data.items[index]) this.setData({ [`items[${index}].driverId`]: '' });
+    if (this.data.items[index]) this.setData({ [`items[${index}].driverId`]: '', [`items[${index}].driverName`]: '' });
   },
   chooseImage() {
     wx.chooseMedia({ count: 1, mediaType: ['image'], sourceType: ['album', 'camera'],

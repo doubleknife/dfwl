@@ -52,6 +52,7 @@ class ApprovalApiTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM in_app_notification");
         jdbcTemplate.update("DELETE FROM driver_vehicle_current");
         jdbcTemplate.update("DELETE FROM driver");
         jdbcTemplate.update("INSERT INTO driver (id, user_id, name, phone, driver_type, status) VALUES (1, 101, 'Driver', '13800000101', 'INTERNAL', 1)");
@@ -93,6 +94,7 @@ class ApprovalApiTests {
                 .andExpect(jsonPath("$.data.flowVersion").value(1));
 
         assertThat(count("SELECT COUNT(*) FROM approval_action WHERE action_type = 'APPROVE'")).isEqualTo(4);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE business_type = 'APPROVAL' AND business_id = ? AND type = 'APPROVAL_APPROVED' AND user_id = 1", Integer.class, id)).isEqualTo(1);
     }
 
     @Test
@@ -126,6 +128,7 @@ class ApprovalApiTests {
 
         returnApplicant(id, approverBToken).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("RETURNED_TO_APPLICANT"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE business_id = ? AND type = 'APPROVAL_RETURNED' AND user_id = 1", Integer.class, id)).isEqualTo(1);
         resubmit(id, 200).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.currentNodeOrder").value(1));
 

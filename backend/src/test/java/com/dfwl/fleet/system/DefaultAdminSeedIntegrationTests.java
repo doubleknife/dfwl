@@ -46,6 +46,7 @@ class DefaultAdminSeedIntegrationTests {
     private static final String DEFAULT_PASSWORD = "Dfwl@Fleet2026!";
     private static final String CHANGED_PASSWORD = "changed-test-password";
     private static final String SEED_MARKER = "INSERT IGNORE INTO sys_role";
+    private static final String SEED_END = "WHERE r.role_code = 'ADMIN';";
 
     @Autowired
     private DataSource dataSource;
@@ -163,7 +164,9 @@ class DefaultAdminSeedIntegrationTests {
         String sql = resource.getContentAsString(StandardCharsets.UTF_8);
         int marker = sql.indexOf(SEED_MARKER);
         assertThat(marker).isGreaterThanOrEqualTo(0);
-        return sql.substring(marker);
+        int end = sql.lastIndexOf(SEED_END);
+        assertThat(end).isGreaterThan(marker);
+        return sql.substring(marker, end + SEED_END.length());
     }
 
     private String normalize(String sql) {
