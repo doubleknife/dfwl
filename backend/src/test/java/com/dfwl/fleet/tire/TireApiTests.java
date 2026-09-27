@@ -136,6 +136,26 @@ class TireApiTests {
     }
 
     @Test
+    void inventoryFiltersAcrossPagesAndShowsRelatedBusinessNames() throws Exception {
+        jdbcTemplate.update("UPDATE tire SET vehicle_id = 1, driver_id = 1 WHERE id = 1");
+        mockMvc.perform(get("/api/v1/tires")
+                        .header("Authorization", "Bearer " + token)
+                        .param("pageNo", "1").param("pageSize", "1")
+                        .param("tireNo", "H621769799").param("status", "IN_STOCK")
+                        .param("vehicleId", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].tireNo").value("H621769799"))
+                .andExpect(jsonPath("$.data.records[0].vehiclePlateNo").value("京A10001"))
+                .andExpect(jsonPath("$.data.records[0].driverName").value("Driver A"));
+        mockMvc.perform(get("/api/v1/tires")
+                        .header("Authorization", "Bearer " + token)
+                        .param("tireNo", "H621769799").param("status", "CLAIMED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
     void requestOnlyDriverCanResolveExactAvailableTireWithoutInventoryList() throws Exception {
         String requestOnly = tokenAuthenticationService.issueToken(tireDriver());
         mockMvc.perform(get("/api/v1/tires/request-target")

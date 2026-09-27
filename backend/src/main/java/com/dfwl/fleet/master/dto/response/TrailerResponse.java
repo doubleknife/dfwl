@@ -6,6 +6,7 @@ public record TrailerResponse(
         String plateNo,
         Boolean insuranceComplete,
         Integer status,
-        Long currentVehicleId
+        Long currentVehicleId,
+        String currentVehiclePlateNo
 ) {
 }

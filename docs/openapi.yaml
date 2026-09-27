@@ -917,6 +917,12 @@ paths:
       tags: [Tires]
       summary: 轮胎库存与历史
       x-permission: tire:list
+      parameters:
+        - {in: query, name: pageNo, schema: {type: integer, default: 1}}
+        - {in: query, name: pageSize, schema: {type: integer, default: 20}}
+        - {in: query, name: tireNo, description: 完整胎号精确筛选, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: vehicleId, schema: {type: integer, format: int64}}
       responses: {'200': {description: OK}}
   /tires/request-target:
     get:
@@ -1050,6 +1056,7 @@ paths:
     get:
       tags: [Settlements]
       summary: 月度结算版本列表
+      description: 返回每版金额、生成时间及生成账号手机号 generatedByPhone；原 generatedBy 编号保留兼容。
       x-permission: settlement:view
       parameters: [{$ref: '#/components/parameters/YearMonth'}]
       responses: {'200': {description: OK}}

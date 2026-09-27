@@ -324,6 +324,7 @@ class SystemManagementContractTests {
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.records[0].beforeJson").value("{\"status\":\"ACTIVE\"}"))
                 .andExpect(jsonPath("$.data.records[0].afterJson").value("{\"status\":\"REVERSED\"}"))
+                .andExpect(jsonPath("$.data.records[0].operatorPhone").value("13800000000"))
                 .andExpect(jsonPath("$.data.records[0].reason").value("冲销"));
     }
 

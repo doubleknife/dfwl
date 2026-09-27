@@ -14,6 +14,9 @@ public record ApprovalResponse(
         String status,
         Integer currentNodeOrder,
         LocalDateTime createdAt,
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+        String applicantPhone,
+        String flowName,
+        String currentNodeName
 ) {
 }

@@ -245,11 +245,12 @@ public class MasterDataRepository {
         long total = count("vehicle", "deleted_at IS NULL");
         List<VehicleResponse> records = jdbcTemplate.query("""
                 SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
-                       ct.plate_no AS current_trailer_plate_no
+                       ct.plate_no AS current_trailer_plate_no, cd.name AS current_driver_name
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
                 LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
+                LEFT JOIN driver cd ON cd.id = dvc.driver_id
                 WHERE v.deleted_at IS NULL
                 ORDER BY v.id DESC
                 LIMIT ? OFFSET ?
@@ -264,7 +265,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no"), rs.getString("current_driver_name")), pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
@@ -279,11 +280,12 @@ public class MasterDataRepository {
                 """, Long.class, driverId, driverId);
         List<VehicleResponse> records = jdbcTemplate.query("""
                 SELECT DISTINCT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
-                       ct.plate_no AS current_trailer_plate_no
+                       ct.plate_no AS current_trailer_plate_no, cd.name AS current_driver_name
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
                 LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
+                LEFT JOIN driver cd ON cd.id = dvc.driver_id
                 LEFT JOIN route_task r ON r.departure_vehicle_id = v.id AND r.departure_driver_id = ? AND r.deleted_at IS NULL
                 WHERE v.deleted_at IS NULL
                   AND (dvc.driver_id = ? OR r.id IS NOT NULL)
@@ -300,7 +302,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), driverId, driverId, pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no"), rs.getString("current_driver_name")), driverId, driverId, pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
@@ -326,11 +328,12 @@ public class MasterDataRepository {
     public Optional<VehicleResponse> findVehicle(long id) {
         return jdbcTemplate.query("""
                 SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
-                       ct.plate_no AS current_trailer_plate_no
+                       ct.plate_no AS current_trailer_plate_no, cd.name AS current_driver_name
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
                 LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
+                LEFT JOIN driver cd ON cd.id = dvc.driver_id
                 WHERE v.id = ? AND v.deleted_at IS NULL
                 """, (rs, rowNum) -> new VehicleResponse(
                 rs.getLong("id"),
@@ -343,7 +346,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), id).stream().findFirst();
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no"), rs.getString("current_driver_name")), id).stream().findFirst();
     }
 
     public long createVehicle(VehicleRequest request) {
@@ -385,9 +388,10 @@ public class MasterDataRepository {
     public PageResponse<TrailerResponse> listTrailers(int pageNo, int pageSize) {
         long total = count("trailer", "deleted_at IS NULL");
         List<TrailerResponse> records = jdbcTemplate.query("""
-                SELECT t.*, vtc.vehicle_id AS current_vehicle_id
+                SELECT t.*, vtc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM trailer t
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.trailer_id = t.id
+                LEFT JOIN vehicle cv ON cv.id = vtc.vehicle_id
                 WHERE t.deleted_at IS NULL
                 ORDER BY t.id DESC
                 LIMIT ? OFFSET ?
@@ -397,15 +401,16 @@ public class MasterDataRepository {
                 rs.getString("plate_no"),
                 rs.getInt("insurance_complete") == 1,
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id")), pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
     public Optional<TrailerResponse> findTrailer(long id) {
         return jdbcTemplate.query("""
-                SELECT t.*, vtc.vehicle_id AS current_vehicle_id
+                SELECT t.*, vtc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM trailer t
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.trailer_id = t.id
+                LEFT JOIN vehicle cv ON cv.id = vtc.vehicle_id
                 WHERE t.id = ? AND t.deleted_at IS NULL
                 """, (rs, rowNum) -> new TrailerResponse(
                 rs.getLong("id"),
@@ -413,7 +418,7 @@ public class MasterDataRepository {
                 rs.getString("plate_no"),
                 rs.getInt("insurance_complete") == 1,
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id")), id).stream().findFirst();
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), id).stream().findFirst();
     }
 
     public long createTrailer(TrailerRequest request) {

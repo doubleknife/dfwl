@@ -10,13 +10,17 @@ export const dashboardApi = {
 
 export const masterApi = {
   drivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=${pageSize}`),
+  driver: (id) => apiClient.get(`/drivers/${id}`),
   vehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=${pageSize}`),
+  vehicle: (id) => apiClient.get(`/vehicles/${id}`),
   trailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/trailers?pageNo=${pageNo}&pageSize=${pageSize}`),
-  customers: () => apiClient.get('/customers?pageNo=1&pageSize=100'),
-  products: () => apiClient.get('/products?pageNo=1&pageSize=100'),
+  customers: (pageNo = 1, pageSize = 100) => apiClient.get(`/customers?pageNo=${pageNo}&pageSize=${pageSize}`),
+  products: (pageNo = 1, pageSize = 100) => apiClient.get(`/products?pageNo=${pageNo}&pageSize=${pageSize}`),
   createDriver: (body) => apiClient.post('/drivers', body),
   createVehicle: (body) => apiClient.post('/vehicles', body),
+  updateVehicle: (id, body) => apiClient.put(`/vehicles/${id}`, body),
   createTrailer: (body) => apiClient.post('/trailers', body),
+  updateTrailer: (id, body) => apiClient.put(`/trailers/${id}`, body),
   createCustomer: (body) => apiClient.post('/customers', body),
   updateCustomer: (id, body) => apiClient.put(`/customers/${id}`, body),
   setCustomerStatus: (id, status) => apiClient.put(`/customers/${id}/status`, { status }),
@@ -48,7 +52,7 @@ export const importApi = {
   uploadFile: (formData) => apiClient.upload('/attachments', formData),
   preview: (body) => apiClient.post('/imports/preview', body),
   commit: (id) => apiClient.post(`/imports/${id}/commit`, {}),
-  history: () => apiClient.get('/imports?pageNo=1&pageSize=100'),
+  history: (pageNo = 1, pageSize = 20) => apiClient.get(`/imports?pageNo=${pageNo}&pageSize=${pageSize}`),
   failures: (id) => apiClient.download(`/imports/${id}/failures/export`)
 };
 
@@ -65,7 +69,12 @@ export const expenseApi = {
 };
 
 export const approvalApi = {
-  list: (scope = 'ALL', pageNo = 1) => apiClient.get(`/approvals?scope=${scope}&pageNo=${pageNo}&pageSize=100`),
+  list: (scope = 'ALL', pageNo = 1, pageSize = 20, filters = {}) => {
+    const query = new URLSearchParams({ scope, pageNo: String(pageNo), pageSize: String(pageSize) });
+    if (filters.approvalType) query.set('approvalType', filters.approvalType);
+    if (filters.status) query.set('status', filters.status);
+    return apiClient.get(`/approvals?${query}`);
+  },
   detail: (id) => apiClient.get(`/approvals/${id}`),
   create: (body) => apiClient.post('/approvals', body),
   approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
@@ -93,7 +102,13 @@ export const attachmentApi = {
 };
 
 export const tireApi = {
-  list: () => apiClient.get('/tires?pageNo=1&pageSize=100'),
+  list: (pageNo = 1, pageSize = 20, filters = {}) => {
+    const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
+    if (filters.tireNo) query.set('tireNo', filters.tireNo);
+    if (filters.status) query.set('status', filters.status);
+    if (filters.vehicleId) query.set('vehicleId', String(filters.vehicleId));
+    return apiClient.get(`/tires?${query}`);
+  },
   request: (body) => apiClient.post('/tire-requests', body),
   requestDetail: (id) => apiClient.get(`/tire-requests/${id}`),
   ocr: (attachmentId) => apiClient.post('/ocr/tire-number', { attachmentId }),

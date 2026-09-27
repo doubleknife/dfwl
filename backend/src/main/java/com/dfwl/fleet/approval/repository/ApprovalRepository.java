@@ -263,7 +263,14 @@ public class ApprovalRepository {
     }
 
     public Optional<ApprovalResponse> find(long id) {
-        return jdbcTemplate.query("SELECT * FROM approval_instance WHERE id = ?", this::mapApproval, id).stream().findFirst();
+        return jdbcTemplate.query("""
+                SELECT i.*, u.phone AS applicant_phone, f.flow_name, n.node_name AS current_node_name
+                FROM approval_instance i
+                LEFT JOIN sys_user u ON u.id = i.applicant_user_id
+                LEFT JOIN approval_flow f ON f.id = i.flow_id
+                LEFT JOIN approval_flow_node n ON n.flow_id = i.flow_id AND n.node_order = i.current_node_order
+                WHERE i.id = ?
+                """, this::mapApproval, id).stream().findFirst();
     }
 
     public void lockInstance(long id) {
@@ -290,7 +297,12 @@ public class ApprovalRepository {
     public PageResponse<ApprovalResponse> list(int pageNo, int pageSize) {
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM approval_instance", Long.class);
         List<ApprovalResponse> records = jdbcTemplate.query("""
-                SELECT * FROM approval_instance ORDER BY id DESC LIMIT ? OFFSET ?
+                SELECT i.*, u.phone AS applicant_phone, f.flow_name, n.node_name AS current_node_name
+                FROM approval_instance i
+                LEFT JOIN sys_user u ON u.id = i.applicant_user_id
+                LEFT JOIN approval_flow f ON f.id = i.flow_id
+                LEFT JOIN approval_flow_node n ON n.flow_id = i.flow_id AND n.node_order = i.current_node_order
+                ORDER BY i.id DESC LIMIT ? OFFSET ?
                 """, this::mapApproval, pageSize, Math.max(pageNo - 1, 0) * pageSize);
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
@@ -342,8 +354,11 @@ public class ApprovalRepository {
         queryArgs.add(pageSize);
         queryArgs.add(Math.max(pageNo - 1, 0) * pageSize);
         List<ApprovalResponse> records = jdbcTemplate.query("""
-                SELECT i.*
+                SELECT i.*, u.phone AS applicant_phone, f.flow_name, n.node_name AS current_node_name
                 FROM approval_instance i
+                LEFT JOIN sys_user u ON u.id = i.applicant_user_id
+                LEFT JOIN approval_flow f ON f.id = i.flow_id
+                LEFT JOIN approval_flow_node n ON n.flow_id = i.flow_id AND n.node_order = i.current_node_order
                 %s
                 ORDER BY i.id DESC
                 LIMIT ? OFFSET ?
@@ -679,7 +694,8 @@ public class ApprovalRepository {
                 rs.getString("status"),
                 readInteger(rs, "current_node_order"),
                 rs.getTimestamp("created_at").toLocalDateTime(),
-                rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toLocalDateTime());
+                rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toLocalDateTime(),
+                rs.getString("applicant_phone"), rs.getString("flow_name"), rs.getString("current_node_name"));
     }
 
     private ApprovalFlowResponse mapFlowResponse(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {

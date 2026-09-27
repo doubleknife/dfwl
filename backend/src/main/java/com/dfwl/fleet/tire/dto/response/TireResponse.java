@@ -11,5 +11,7 @@ public record TireResponse(
         Long vehicleId,
         Long driverId,
         LocalDateTime installTime,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        String vehiclePlateNo,
+        String driverName) {
 }

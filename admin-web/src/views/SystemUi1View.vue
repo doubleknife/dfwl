@@ -13,18 +13,16 @@ import FormDialog from '../components/FormDialog.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ErrorState from '../components/ErrorState.vue';
+import AuditLogsUi2 from '../components/AuditLogsUi2.vue';
 
 const tab = ref(can('user:manage') ? 'users' : can('role:manage') ? 'roles' : can('permission:manage') ? 'permissions' : 'audits');
 const users = ref([]);
 const roles = ref([]);
 const permissions = ref([]);
-const audits = ref([]);
 const userPage = ref(1);
 const userTotal = ref(0);
 const rolePage = ref(1);
 const roleTotal = ref(0);
-const auditPage = ref(1);
-const auditTotal = ref(0);
 const directoryPage = ref(1);
 const loading = ref(false);
 const busy = ref(false);
@@ -46,7 +44,6 @@ const originalCodes = ref([]);
 const permissionSearch = ref('');
 const permissionConfirm = ref(false);
 const filters = reactive({ user: '', userRole: '', userStatus: '', role: '', roleStatus: '', permission: '', module: '' });
-const auditFilter = reactive({ module: '', businessType: '', operatorId: '', startTime: '', endTime: '' });
 const businessModules = { route: '线路', driver: '司机', vehicle: '车辆', trailer: '车挂', expense: '费用', approval: '审批', tire: '轮胎', salary: '工资', import: '导入', report: '报表', settlement: '月结', user: '用户', role: '角色', permission: '权限', audit: '审计', attachment: '附件', auth: '认证' };
 const moduleOf = (code) => code?.split(':')[0] || 'other';
 const moduleName = (code) => businessModules[moduleOf(code)] || '其他';
@@ -90,13 +87,7 @@ async function loadPermissions() {
   catch (cause) { error.value = cause.message || '权限加载失败'; }
   finally { loading.value = false; }
 }
-async function loadAudits(page = 1) {
-  loading.value = true; error.value = '';
-  try { const result = await systemApi.auditLogs({ ...auditFilter, pageNo: page, pageSize: 20 }); audits.value = result.records || []; auditTotal.value = Number(result.total || 0); auditPage.value = page; }
-  catch (cause) { error.value = cause.message || '审计日志加载失败'; }
-  finally { loading.value = false; }
-}
-function changeTab(value) { tab.value = value; error.value = ''; if (value === 'users') loadUsers(1); if (value === 'roles') loadRoles(1); if (value === 'permissions') loadPermissions(); if (value === 'audits') loadAudits(1); }
+function changeTab(value) { tab.value = value; error.value = ''; if (value === 'users') loadUsers(1); if (value === 'roles') loadRoles(1); if (value === 'permissions') loadPermissions(); }
 function openUser(row = null) { Object.assign(userForm, { id: row?.id || '', phone: row?.phone || '', password: '', roleId: row?.roleId || '', status: row?.status ?? 1 }); userDialog.value = true; }
 function openReset(row) { userMore.value = null; resetTarget.value = row; }
 function openUserToggle(row) { userMore.value = null; userToggle.value = row; }
@@ -164,7 +155,6 @@ onMounted(async () => {
   if (can('role:manage') || can('user:manage')) await loadRoles(1);
   if (can('permission:manage') || can('role:manage')) await loadPermissions();
   if (tab.value === 'users') loadUsers(1);
-  if (tab.value === 'audits') loadAudits(1);
 });
 </script>
 
@@ -194,7 +184,7 @@ onMounted(async () => {
         <template #module="{row}">{{ moduleName(row.permissionCode) }}</template><template #permissionCode="{value}"><small class="muted">{{ value }}</small></template><template #description="{row}">{{ displayValue('permissionType', row.permissionType) }}权限</template>
       </DataTable><PaginationBar :page-no="directoryPage" :page-size="15" :total="directoryRows.length" @change="directoryPage = $event" />
     </section>
-    <section v-if="tab === 'audits' && can('audit:view')"><div class="ui-list-heading"><h2>操作日志</h2><button type="button" @click="loadAudits(1)">查询</button></div><FilterBar><label>模块<input v-model.trim="auditFilter.module" /></label><label>业务类型<input v-model.trim="auditFilter.businessType" /></label><label>操作人编号<input v-model.trim="auditFilter.operatorId" /></label><label>开始时间<input v-model="auditFilter.startTime" type="datetime-local" /></label><label>结束时间<input v-model="auditFilter.endTime" type="datetime-local" /></label></FilterBar><DataTable v-if="!error" :columns="[{key:'operationTime',label:'时间'},{key:'module',label:'模块'},{key:'businessType',label:'业务'},{key:'operationType',label:'操作'},{key:'operatorId',label:'操作人'},{key:'reason',label:'原因'},{key:'beforeJson',label:'变更前'},{key:'afterJson',label:'变更后'}]" :rows="audits" :loading="loading" empty-text="暂无操作日志"><template #beforeJson="{value}"><code class="json-inline">{{ value || '—' }}</code></template><template #afterJson="{value}"><code class="json-inline">{{ value || '—' }}</code></template></DataTable><PaginationBar v-if="!error" :page-no="auditPage" :page-size="20" :total="auditTotal" @change="loadAudits" /></section>
+    <AuditLogsUi2 v-if="tab === 'audits' && can('audit:view')" />
     <FormDialog :open="!!userMore" title="用户操作" @close="userMore = null"><div v-if="userMore"><p>{{ userMore.phone }} · {{ userMore.roleName }}</p><div class="ui-object-actions"><button type="button" @click="openReset(userMore)">重置密码</button><button type="button" :class="userMore.status === 1 ? 'ui-danger-link' : ''" @click="openUserToggle(userMore)">{{ userMore.status === 1 ? '停用' : '启用' }}</button></div></div></FormDialog>
     <FormDialog :open="userDialog" :title="userForm.id ? '编辑用户' : '新增用户'" :busy="busy" @close="userDialog = false"><form @submit.prevent="saveUser"><div class="ui-form-grid"><label class="ui-form-field">手机号<input v-model.trim="userForm.phone" required inputmode="tel" /></label><label v-if="!userForm.id" class="ui-form-field">初始密码<input v-model="userForm.password" required type="password" autocomplete="new-password" /></label><label class="ui-form-field">角色<EntityPicker v-model="userForm.roleId" :load-page="systemApi.roles" :label-of="(item) => item.roleName" :selected-label="roleName(userForm.roleId)" placeholder="请选择角色" required /></label><label class="ui-form-field">状态<select v-model.number="userForm.status"><option :value="1">启用</option><option :value="0">停用</option></select></label></div><div class="ui-dialog-actions"><button type="button" @click="userDialog = false">取消</button><button class="primary" :disabled="busy">{{ busy ? '正在保存…' : '保存用户' }}</button></div></form></FormDialog>
     <FormDialog :open="!!resetTarget" title="重置密码" :busy="busy" @close="resetTarget = null"><form v-if="resetTarget" @submit.prevent="savePassword"><p>账号：<strong>{{ resetTarget.phone }}</strong> · {{ resetTarget.roleName }}</p><p class="muted">重置后旧密码将无法继续用于登录。</p><label class="ui-form-field">新密码<input v-model="newPassword" required type="password" autocomplete="new-password" /></label><label class="ui-form-field">确认新密码<input v-model="confirmPassword" required type="password" autocomplete="new-password" /></label><div class="ui-dialog-actions"><button type="button" @click="resetTarget = null">取消</button><button class="ui-danger-button" :disabled="busy">确认重置密码</button></div></form></FormDialog>

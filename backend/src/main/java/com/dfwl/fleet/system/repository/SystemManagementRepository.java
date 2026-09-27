@@ -230,10 +230,11 @@ public class SystemManagementRepository {
         queryArgs.add(pageSize);
         queryArgs.add(Math.max(pageNo - 1, 0) * pageSize);
         List<AuditLogResponse> records = jdbcTemplate.query("""
-                SELECT *
-                FROM audit_log
+                SELECT a.*, u.phone AS operator_phone
+                FROM audit_log a
+                LEFT JOIN sys_user u ON u.id = a.operator_id
                 %s
-                ORDER BY operation_time DESC, id DESC
+                ORDER BY a.operation_time DESC, a.id DESC
                 LIMIT ? OFFSET ?
                 """.formatted(where), (rs, rowNum) -> new AuditLogResponse(
                 rs.getLong("id"),
@@ -247,7 +248,7 @@ public class SystemManagementRepository {
                 rs.getTimestamp("operation_time").toLocalDateTime(),
                 rs.getString("reason"),
                 rs.getString("ip"),
-                rs.getString("terminal")), queryArgs.toArray());
+                rs.getString("terminal"), rs.getString("operator_phone")), queryArgs.toArray());
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 

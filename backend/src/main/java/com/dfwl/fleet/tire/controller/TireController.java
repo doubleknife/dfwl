@@ -41,8 +41,11 @@ public class TireController {
     @PreAuthorize("hasAuthority('tire:list')")
     public ApiResponse<PageResponse<TireResponse>> list(
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        return ApiResponse.success(tireService.list(pageNo, pageSize), RequestIdHolder.get());
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String tireNo,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long vehicleId) {
+        return ApiResponse.success(tireService.list(pageNo, pageSize, tireNo, status, vehicleId), RequestIdHolder.get());
     }
 
     @GetMapping("/tires/request-target")

@@ -85,23 +85,35 @@ public class TireRepository {
     ) {
     }
 
-    public PageResponse<TireResponse> list(int pageNo, int pageSize) {
-        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire WHERE deleted_at IS NULL", Long.class);
+    public PageResponse<TireResponse> list(int pageNo, int pageSize, String tireNo, String status, Long vehicleId) {
+        StringBuilder where = new StringBuilder(" WHERE t.deleted_at IS NULL");
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (tireNo != null && !tireNo.isBlank()) { where.append(" AND t.tire_no = ?"); args.add(tireNo.trim()); }
+        if (status != null && !status.isBlank()) { where.append(" AND t.status = ?"); args.add(status.trim()); }
+        if (vehicleId != null) { where.append(" AND t.vehicle_id = ?"); args.add(vehicleId); }
+        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tire t" + where, Long.class, args.toArray());
+        java.util.List<Object> pageArgs = new java.util.ArrayList<>(args);
+        pageArgs.add(pageSize); pageArgs.add(Math.max(pageNo - 1, 0) * pageSize);
         List<TireResponse> records = jdbcTemplate.query("""
-                SELECT id, tire_no, barcode, status, data_source, vehicle_id, driver_id, install_time, created_at
-                FROM tire
-                WHERE deleted_at IS NULL
-                ORDER BY id DESC
-                LIMIT ? OFFSET ?
-                """, this::mapTire, pageSize, Math.max(pageNo - 1, 0) * pageSize);
+                SELECT t.id, t.tire_no, t.barcode, t.status, t.data_source, t.vehicle_id, t.driver_id, t.install_time, t.created_at,
+                       v.plate_no AS vehicle_plate_no, d.name AS driver_name
+                FROM tire t
+                LEFT JOIN vehicle v ON v.id = t.vehicle_id
+                LEFT JOIN driver d ON d.id = t.driver_id
+                %s
+                ORDER BY t.id DESC LIMIT ? OFFSET ?
+                """.formatted(where), this::mapTire, pageArgs.toArray());
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
     public Optional<TireResponse> findTire(long id) {
         return jdbcTemplate.query("""
-                SELECT id, tire_no, barcode, status, data_source, vehicle_id, driver_id, install_time, created_at
-                FROM tire
-                WHERE id = ? AND deleted_at IS NULL
+                SELECT t.id, t.tire_no, t.barcode, t.status, t.data_source, t.vehicle_id, t.driver_id, t.install_time, t.created_at,
+                       v.plate_no AS vehicle_plate_no, d.name AS driver_name
+                FROM tire t
+                LEFT JOIN vehicle v ON v.id = t.vehicle_id
+                LEFT JOIN driver d ON d.id = t.driver_id
+                WHERE t.id = ? AND t.deleted_at IS NULL
                 """, this::mapTire, id).stream().findFirst();
     }
 
@@ -300,7 +312,8 @@ public class TireRepository {
                 readLong(rs, "vehicle_id"),
                 readLong(rs, "driver_id"),
                 installTime == null ? null : installTime.toLocalDateTime(),
-                rs.getTimestamp("created_at").toLocalDateTime());
+                rs.getTimestamp("created_at").toLocalDateTime(),
+                rs.getString("vehicle_plate_no"), rs.getString("driver_name"));
     }
 
     private OcrRecordResponse mapOcr(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {

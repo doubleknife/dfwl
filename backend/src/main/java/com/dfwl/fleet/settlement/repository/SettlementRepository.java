@@ -33,9 +33,10 @@ public class SettlementRepository {
                 SELECT v.id, m.`year_month` AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
                        v.route_expense AS routeExpense, v.daily_expense AS dailyExpense,
                        v.driver_salary AS driverSalary, v.total_profit AS totalProfit,
-                       v.generated_by AS generatedBy, v.generated_at AS generatedAt
+                       v.generated_by AS generatedBy, u.phone AS generatedByPhone, v.generated_at AS generatedAt
                 FROM settlement_version v
                 JOIN settlement_month m ON m.id = v.settlement_month_id
+                LEFT JOIN sys_user u ON u.id = v.generated_by
                 WHERE m.`year_month` = ?
                 ORDER BY v.version_no DESC
                 """, yearMonth);
@@ -51,9 +52,10 @@ public class SettlementRepository {
                 SELECT v.id, m.`year_month` AS yearMonth, v.version_no AS versionNo, v.total_income AS totalIncome,
                        v.route_expense AS routeExpense, v.daily_expense AS dailyExpense,
                        v.driver_salary AS driverSalary, v.total_profit AS totalProfit,
-                       v.generated_by AS generatedBy, v.generated_at AS generatedAt
+                       v.generated_by AS generatedBy, u.phone AS generatedByPhone, v.generated_at AS generatedAt
                 FROM settlement_version v
                 JOIN settlement_month m ON m.id = v.settlement_month_id
+                LEFT JOIN sys_user u ON u.id = v.generated_by
                 WHERE v.id = ?
                 """, versionId);
     }

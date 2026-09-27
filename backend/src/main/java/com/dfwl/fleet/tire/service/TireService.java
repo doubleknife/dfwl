@@ -55,8 +55,8 @@ public class TireService {
         this.ocrProperties = ocrProperties;
     }
 
-    public PageResponse<TireResponse> list(int pageNo, int pageSize) {
-        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200));
+    public PageResponse<TireResponse> list(int pageNo, int pageSize, String tireNo, String status, Long vehicleId) {
+        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200), tireNo, status, vehicleId);
     }
 
     public TireRequestTargetResponse findRequestTarget(String tireNumber) {

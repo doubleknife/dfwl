@@ -242,6 +242,22 @@ class ApprovalApiTests {
                 .andExpect(jsonPath("$.data.tasks[4].invalidated").value(false));
     }
 
+    @Test
+    void listAndDetailExposeBusinessFlowAndCurrentNodeNames() throws Exception {
+        long id = createApproval(100);
+
+        mockMvc.perform(get("/api/v1/approvals?scope=ALL&pageNo=1&pageSize=20")
+                        .header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].flowName").value("通用审批"))
+                .andExpect(jsonPath("$.data.records[0].currentNodeName").value("A"));
+        mockMvc.perform(get("/api/v1/approvals/%d".formatted(id))
+                        .header("Authorization", "Bearer " + applicantToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.approval.flowName").value("通用审批"))
+                .andExpect(jsonPath("$.data.approval.currentNodeName").value("A"));
+    }
+
     private String token(long userId) {
         return tokenAuthenticationService.issueToken(new AuthenticatedUser(
                 userId, "13" + userId, 1L, "approver", "审批人" + userId,

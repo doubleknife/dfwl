@@ -14,6 +14,7 @@ public record AuditLogResponse(
         LocalDateTime operationTime,
         String reason,
         String ip,
-        String terminal
+        String terminal,
+        String operatorPhone
 ) {
 }

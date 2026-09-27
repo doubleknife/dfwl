@@ -14,6 +14,7 @@ public record VehicleResponse(
         Integer status,
         Long currentDriverId,
         Long currentTrailerId,
-        String currentTrailerPlateNo
+        String currentTrailerPlateNo,
+        String currentDriverName
 ) {
 }

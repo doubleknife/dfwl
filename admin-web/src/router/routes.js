@@ -1,15 +1,15 @@
 import { computed, reactive } from 'vue';
-import DashboardView from '../views/DashboardView.vue';
-import MasterDataView from '../views/MasterDataView.vue';
+import DashboardView from '../views/DashboardUi2View.vue';
+import MasterDataView from '../views/MasterDataUi2View.vue';
 import RoutesView from '../views/RoutesSampleView.vue';
-import ImportCenterView from '../views/ImportCenterView.vue';
+import ImportCenterView from '../views/ImportCenterUi2View.vue';
 import ExpensesView from '../views/ExpensesUi1View.vue';
-import ApprovalsView from '../views/ApprovalsView.vue';
-import ApprovalFlowsView from '../views/ApprovalFlowsView.vue';
-import TiresView from '../views/TiresView.vue';
+import ApprovalsView from '../views/ApprovalsUi2View.vue';
+import ApprovalFlowsView from '../views/ApprovalFlowsUi2View.vue';
+import TiresView from '../views/TiresUi2View.vue';
 import SalariesView from '../views/SalariesUi1View.vue';
-import ReportsView from '../views/ReportsView.vue';
-import SettlementsView from '../views/SettlementsView.vue';
+import ReportsView from '../views/ReportsUi2View.vue';
+import SettlementsView from '../views/SettlementsUi2View.vue';
 import SystemView from '../views/SystemUi1View.vue';
 import { canAny } from '../stores/auth.js';
 

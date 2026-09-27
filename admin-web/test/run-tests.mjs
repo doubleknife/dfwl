@@ -282,3 +282,4 @@ console.log(`${tests.length} tests passed`);
 await import('./approvalApplicationTests.mjs');
 await import('./approvalDetailTests.mjs');
 await import('./ui1Tests.mjs');
+await import('./ui2Tests.mjs');

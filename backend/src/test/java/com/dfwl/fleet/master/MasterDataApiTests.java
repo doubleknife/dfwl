@@ -54,7 +54,7 @@ class MasterDataApiTests {
         AuthenticatedUser user = new AuthenticatedUser(1L, "13800000000", 1L, "admin", "管理员", Set.of(
                 "driver:list", "driver:add", "driver:bindVehicle", "driver:unbindVehicle",
                 "vehicle:list", "vehicle:add", "vehicle:view", "vehicle:bindingHistory",
-                "trailer:add", "trailer:bindVehicle", "trailer:unbindVehicle"));
+                "trailer:list", "trailer:add", "trailer:bindVehicle", "trailer:unbindVehicle"));
         token = tokenAuthenticationService.issueToken(user);
     }
 
@@ -89,6 +89,11 @@ class MasterDataApiTests {
                 .andExpect(jsonPath("$.data[0].targetId").value(driverId))
                 .andExpect(jsonPath("$.data[0].subjectName").value("京A10001"))
                 .andExpect(jsonPath("$.data[0].targetName").value("张三"));
+
+        mockMvc.perform(get("/api/v1/vehicles/%d".formatted(vehicleId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentDriverName").value("张三"));
 
         mockMvc.perform(get("/api/v1/drivers/%d/binding-history".formatted(driverId))
                         .header("Authorization", "Bearer " + token))
@@ -129,6 +134,11 @@ class MasterDataApiTests {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.currentTrailerPlateNo").value("京B10003"));
+
+        mockMvc.perform(get("/api/v1/trailers?pageNo=1&pageSize=20")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentVehiclePlateNo").value("京A10003"));
     }
 
     @Test
