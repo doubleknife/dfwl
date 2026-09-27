@@ -107,6 +107,7 @@ tests.push(...require('./f4d-tests'));
 tests.push(...require('./f4e-tests'));
 tests.push(...require('./ui3-tests'));
 tests.push(...require('./ui4-tests'));
+tests.push(...require('./auth-session-tests'));
 
 (async () => {
   for (const [name, run] of tests) {

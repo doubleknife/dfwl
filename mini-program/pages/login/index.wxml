@@ -9,6 +9,7 @@
       <text class="label">密码</text>
       <input value="{{password}}" bindinput="onPassword" password />
     </view>
+    <view wx:if="{{error}}" class="login-error" role="alert">{{error}}</view>
     <button class="primary" loading="{{loading}}" bindtap="login">登录</button>
   </view>
 </view>

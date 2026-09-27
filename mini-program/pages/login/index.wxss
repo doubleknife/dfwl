@@ -1,0 +1,6 @@
+.login-error {
+  color: #b42318;
+  font-size: 26rpx;
+  line-height: 1.5;
+  margin: 0 0 20rpx;
+}

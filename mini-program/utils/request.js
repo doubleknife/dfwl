@@ -8,6 +8,10 @@ function apiError(payload, fallback, statusCode) {
   return error;
 }
 
+function isCurrentSession(app, token) {
+  return token === (app.globalData.token || wx.getStorageSync('token'));
+}
+
 function request(options) {
   const app = getApp();
   const token = app.globalData.token || wx.getStorageSync('token');
@@ -22,9 +26,12 @@ function request(options) {
       },
       success(res) {
         if (res.statusCode === 401) {
-          app.clearSession();
-          wx.redirectTo({ url: '/pages/login/index' });
-          reject(apiError(res.data, '登录已失效，请重新登录', 401));
+          const isLogin = options.url === '/auth/login';
+          if (!isLogin && isCurrentSession(app, token)) {
+            app.clearSession();
+            wx.redirectTo({ url: '/pages/login/index' });
+          }
+          reject(apiError(res.data, isLogin ? '手机号或密码不正确' : '登录已失效，请重新登录', 401));
           return;
         }
         if (res.statusCode >= 200 && res.statusCode < 300 && res.data && res.data.code === '0') {
@@ -67,8 +74,10 @@ function uploadFile(options) {
           return;
         }
         if (res.statusCode === 401) {
-          app.clearSession();
-          wx.redirectTo({ url: '/pages/login/index' });
+          if (isCurrentSession(app, token)) {
+            app.clearSession();
+            wx.redirectTo({ url: '/pages/login/index' });
+          }
         }
         const error = apiError(payload, '上传失败', res.statusCode);
         wx.showToast({ title: error.message, icon: 'none' });
