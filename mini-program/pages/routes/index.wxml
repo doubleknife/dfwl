@@ -1,19 +1,23 @@
-<view class="page">
-  <view class="panel">
-    <picker mode="selector" range="{{statuses}}" bindchange="onStatus">
-      <view class="row">
-        <text>状态筛选</text>
-        <text class="tag">{{status || '全部'}}</text>
-      </view>
-    </picker>
-  </view>
-  <view wx:for="{{records}}" wx:key="id" class="panel" bindtap="open" data-id="{{item.id}}">
-    <view class="row">
-      <view class="title">{{item.routeNo}}</view>
-      <view class="tag">{{item.status}}</view>
+<view class="mp-routes">
+  <view class="mp-routes-heading"><view class="mp-routes-title">我的线路</view><view class="mp-routes-hint">查看当前运输和历史任务</view></view>
+  <scroll-view class="mp-routes-tabs" scroll-x="true" show-scrollbar="false">
+    <view class="mp-routes-tab-row">
+      <view wx:for="{{tabs}}" wx:key="key" class="mp-routes-tab {{activeStatus === item.key ? 'active' : ''}}" data-status="{{item.key}}" bindtap="onTab">{{item.label}}</view>
     </view>
-    <view class="muted">{{item.businessDate}} · {{item.loadingPlace}} → {{item.unloadingPlace}}</view>
-    <view class="muted">净重 {{item.netWeight || '-'}} · 达标 {{item.loadStandardMet === true ? '是' : (item.loadStandardMet === false ? '否' : '-')}}</view>
-  </view>
-  <view wx:if="{{records.length === 0}}" class="panel muted">暂无线路</view>
+  </scroll-view>
+  <feedback-state wx:if="{{loading && !initialized}}" kind="loading" message="正在加载线路…" />
+  <feedback-state wx:elif="{{error}}" kind="error" message="{{error}}" bind:retry="refresh" />
+  <feedback-state wx:elif="{{initialized && records.length === 0}}" kind="empty" message="{{activeStatus === 'PUBLISHED' ? '当前没有待发车线路' : activeStatus === 'IN_TRANSIT' ? '当前没有运输中线路' : activeStatus === 'COMPLETED' ? '暂无已完成线路' : '暂无线路'}}" />
+  <block wx:else>
+    <view wx:for="{{records}}" wx:key="id" class="mp-route-item" bindtap="open" data-id="{{item.id}}">
+      <view class="mp-route-item-top"><text class="mp-route-item-date">{{item.businessDate}}</text><status-tag label="{{item.statusLabel}}" tone="{{item.tone}}" /></view>
+      <view class="mp-route-item-places">{{item.loadingPlace || '装货地'}} <text>→</text> {{item.unloadingPlace || '卸货地'}}</view>
+      <view class="mp-route-item-next">{{item.nextAction}}</view>
+      <view class="mp-route-item-foot"><text>{{item.routeNo}}</text><text>查看详情 ›</text></view>
+    </view>
+    <feedback-state wx:if="{{moreError}}" kind="error" message="{{moreError}}" bind:retry="loadMore" />
+    <view wx:if="{{loadingMore}}" class="mp-routes-more">正在加载更多…</view>
+    <button wx:elif="{{hasMore && !moreError}}" class="mp-routes-more-button" bindtap="loadMore">加载更多线路</button>
+    <view wx:elif="{{records.length > 0 && !hasMore}}" class="mp-routes-more">已加载全部 {{total}} 条线路</view>
+  </block>
 </view>

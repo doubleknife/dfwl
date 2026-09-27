@@ -47,11 +47,12 @@ public class RouteController {
     public ApiResponse<?> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String status) {
         if (currentUserService.isDriverUser(user)) {
-            return ApiResponse.success(routeService.listForDriver(user, pageNo, pageSize), RequestIdHolder.get());
+            return ApiResponse.success(routeService.listForDriver(user, pageNo, pageSize, status), RequestIdHolder.get());
         }
-        return ApiResponse.success(routeService.list(pageNo, pageSize), RequestIdHolder.get());
+        return ApiResponse.success(routeService.list(pageNo, pageSize, status), RequestIdHolder.get());
     }
 
     @PostMapping

@@ -143,6 +143,35 @@ class DriverScopeApiTests {
     }
 
     @Test
+    void routeStatusFilterKeepsDriverScopeAndAccuratePaginationTotal() throws Exception {
+        mockMvc.perform(get("/api/v1/routes?status=PUBLISHED&pageNo=1&pageSize=1")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records.length()").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(1));
+        mockMvc.perform(get("/api/v1/routes?status=IN_TRANSIT&pageNo=1&pageSize=1")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(3));
+        mockMvc.perform(get("/api/v1/routes?status=PUBLISHED&pageNo=2&pageSize=1")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records.length()").value(0));
+        mockMvc.perform(get("/api/v1/routes?status=PUBLISHED&pageNo=1&pageSize=1")
+                        .header("Authorization", "Bearer " + driverBToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(2));
+        mockMvc.perform(get("/api/v1/routes?status=PUBLISHED&pageNo=1&pageSize=1")
+                        .header("Authorization", "Bearer " + financeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2));
+    }
+
+    @Test
     void driverACannotGuessRouteBDetail() throws Exception {
         mockMvc.perform(get("/api/v1/routes/2").header("Authorization", "Bearer " + driverAToken))
                 .andExpect(status().isForbidden())

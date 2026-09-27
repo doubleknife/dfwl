@@ -105,6 +105,7 @@ const tests = [
 
 tests.push(...require('./f4d-tests'));
 tests.push(...require('./f4e-tests'));
+tests.push(...require('./ui3-tests'));
 
 (async () => {
   for (const [name, run] of tests) {

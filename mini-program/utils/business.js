@@ -24,6 +24,10 @@ function netWeight(grossWeight, tareWeight) {
 }
 
 function validateWeights(grossWeight, tareWeight) {
+  const precision = /^\d+(?:\.\d{1,3})?$/;
+  if (!precision.test(String(grossWeight).trim()) || !precision.test(String(tareWeight).trim())) {
+    return { ok: false, message: '毛重和皮重请填写数字，最多保留三位小数' };
+  }
   const gross = toNumber(grossWeight);
   const tare = toNumber(tareWeight);
   if (gross === null || tare === null || gross <= 0 || tare <= 0) {

@@ -46,13 +46,13 @@ public class RouteService {
         this.expenseAttributionService = expenseAttributionService;
     }
 
-    public PageResponse<RouteResponse> list(int pageNo, int pageSize) {
-        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200));
+    public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
+        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200), status);
     }
 
-    public PageResponse<DriverRouteResponse> listForDriver(AuthenticatedUser user, int pageNo, int pageSize) {
+    public PageResponse<DriverRouteResponse> listForDriver(AuthenticatedUser user, int pageNo, int pageSize, String status) {
         CurrentDriverContext driver = currentUserService.requireDriver(user);
-        PageResponse<RouteResponse> routes = repository.listForDriver(driver.driverId(), pageNo, Math.min(Math.max(pageSize, 1), 200));
+        PageResponse<RouteResponse> routes = repository.listForDriver(driver.driverId(), pageNo, Math.min(Math.max(pageSize, 1), 200), status);
         return new PageResponse<>(
                 routes.pageNo(),
                 routes.pageSize(),

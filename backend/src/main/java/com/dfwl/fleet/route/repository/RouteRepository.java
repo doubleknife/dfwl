@@ -72,27 +72,37 @@ public class RouteRepository {
                 """, amount, sourceType, operatorId, routeId);
     }
 
-    public PageResponse<RouteResponse> list(int pageNo, int pageSize) {
-        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_task WHERE deleted_at IS NULL", Long.class);
+    public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
+        String filter = status == null || status.isBlank() ? "" : " AND r.status = ?";
+        Object[] args = filter.isEmpty() ? new Object[0] : new Object[]{status.trim()};
+        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_task r WHERE r.deleted_at IS NULL" + filter, Long.class, args);
         List<RouteResponse> records = jdbcTemplate.query("""
                 SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,
                        w.load_standard_threshold, w.load_standard_met
                 FROM route_task r
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.deleted_at IS NULL
+                %s
                 ORDER BY r.id DESC
                 LIMIT ? OFFSET ?
-                """, this::mapRoute, pageSize, Math.max(pageNo - 1, 0) * pageSize);
+                """.formatted(filter), this::mapRoute, appendPage(args, pageSize, pageNo));
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
-    public PageResponse<RouteResponse> listForDriver(long driverId, int pageNo, int pageSize) {
+    public PageResponse<RouteResponse> listForDriver(long driverId, int pageNo, int pageSize, String status) {
+        String filter = status == null || status.isBlank() ? "" : " AND r.status = ?";
+        Object[] filterArgs = filter.isEmpty() ? new Object[0] : new Object[]{status.trim()};
+        Object[] scopedArgs = new Object[2 + filterArgs.length];
+        scopedArgs[0] = driverId;
+        scopedArgs[1] = driverId;
+        System.arraycopy(filterArgs, 0, scopedArgs, 2, filterArgs.length);
         Long total = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE deleted_at IS NULL
-                  AND (assigned_driver_id = ? OR departure_driver_id = ?)
-                """, Long.class, driverId, driverId);
+                FROM route_task r
+                WHERE r.deleted_at IS NULL
+                  AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?)
+                %s
+                """.formatted(filter), Long.class, scopedArgs);
         List<RouteResponse> records = jdbcTemplate.query("""
                 SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,
                        w.load_standard_threshold, w.load_standard_met
@@ -100,10 +110,18 @@ public class RouteRepository {
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.deleted_at IS NULL
                   AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?)
+                %s
                 ORDER BY r.id DESC
                 LIMIT ? OFFSET ?
-                """, this::mapRoute, driverId, driverId, pageSize, Math.max(pageNo - 1, 0) * pageSize);
+                """.formatted(filter), this::mapRoute, appendPage(scopedArgs, pageSize, pageNo));
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
+    }
+
+    private Object[] appendPage(Object[] filters, int pageSize, int pageNo) {
+        Object[] args = Arrays.copyOf(filters, filters.length + 2);
+        args[filters.length] = pageSize;
+        args[filters.length + 1] = Math.max(pageNo - 1, 0) * pageSize;
+        return args;
     }
 
     public Optional<RouteResponse> find(long id) {

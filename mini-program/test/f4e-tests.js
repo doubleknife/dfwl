@@ -81,7 +81,7 @@ module.exports = [
     assert.match(source, /onShow\(\).*this\.load\(\)/);
     assert.match(source, /this\.data\.busy \|\| this\.data\.confirming/);
     assert.match(source, /hasPermission\(user, 'route:depart'\)/);
-    assert.match(source, /route\?\.loadingPlace/);
-    assert.match(source, /route\?\.unloadingPlace/);
+    assert.match(source, /route\.loadingPlace/);
+    assert.match(source, /route\.unloadingPlace/);
   }]
 ];

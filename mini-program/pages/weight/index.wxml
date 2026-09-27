@@ -1,22 +1,19 @@
-<view class="page">
-  <view class="panel">
-    <view class="field">
-      <text class="label">毛重</text>
-      <input value="{{grossWeight}}" bindinput="onGross" type="digit" />
+<view class="mp-weight">
+  <feedback-state wx:if="{{loading && !route}}" kind="loading" message="正在加载线路…" />
+  <feedback-state wx:if="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
+  <block wx:if="{{route}}">
+    <view class="mp-weight-route"><view class="mp-weight-muted">卸货线路</view><view class="mp-weight-places">{{route.loadingPlace || '装货地'}} → {{route.unloadingPlace || '卸货地'}}</view><view class="mp-weight-number">{{route.routeNo}}</view></view>
+    <view wx:if="{{route.status === 'IN_TRANSIT' && canUnload}}" class="mp-weight-card">
+      <view class="mp-weight-title">录入过磅重量</view>
+      <view class="mp-weight-help">单位：吨。请按磅单填写，最多三位小数。</view>
+      <view class="mp-weight-field"><text class="mp-weight-label">毛重（吨）</text><input type="digit" value="{{grossWeight}}" bindinput="onGross" disabled="{{busy || confirming}}" /></view>
+      <view class="mp-weight-field"><text class="mp-weight-label">皮重（吨）</text><input type="digit" value="{{tareWeight}}" bindinput="onTare" disabled="{{busy || confirming}}" /></view>
+      <view wx:if="{{fieldError}}" class="mp-weight-error">{{fieldError}}</view>
+      <view class="mp-weight-result"><text>实际载重</text><text class="mp-weight-net">{{netWeight ? netWeight + ' 吨' : '待计算'}}</text></view>
+      <view class="mp-weight-standard">{{standardText}}</view>
     </view>
-    <view class="field">
-      <text class="label">皮重</text>
-      <input value="{{tareWeight}}" bindinput="onTare" type="digit" />
-    </view>
-    <view class="row">
-      <text>实际载重</text>
-      <text class="tag">{{netWeight || '-'}}</text>
-    </view>
-    <view class="row">
-      <text>达标状态</text>
-      <text class="tag">{{standardText}}</text>
-    </view>
-    <button wx:if="{{route.status !== 'COMPLETED'}}" class="primary" loading="{{loading}}" bindtap="submit">提交卸货</button>
-    <view wx:if="{{route.status === 'COMPLETED'}}" class="muted">卸货已完成，司机不可修改重量。</view>
-  </view>
+    <feedback-state wx:elif="{{route.status === 'COMPLETED'}}" kind="empty" message="这条线路已完成卸货，不能重复提交重量" />
+    <feedback-state wx:else kind="empty" message="当前线路状态或账号权限不允许卸货，请联系调度" />
+  </block>
+  <view wx:if="{{route && route.status === 'IN_TRANSIT' && canUnload}}" class="mp-weight-bottom"><button class="mp-weight-primary" loading="{{busy}}" disabled="{{loading || busy || confirming || resultUnknown || error}}" bindtap="submit">{{busy ? '正在提交卸货…' : '核对重量并卸货'}}</button></view>
 </view>
