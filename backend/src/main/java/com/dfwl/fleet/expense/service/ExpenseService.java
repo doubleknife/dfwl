@@ -136,6 +136,11 @@ public class ExpenseService {
                 "approvalInstanceId", expense.approvalInstanceId() == null ? "" : expense.approvalInstanceId());
     }
 
+    public ExpenseResponse reversalRecord(long id) {
+        find(id);
+        return repository.findReversalByOriginalId(id).orElse(null);
+    }
+
     private void ensureEditable(ExpenseResponse current) {
         if (!ExpenseStatus.ACTIVE.name().equals(current.status())) {
             throw new BusinessException(ErrorCode.EXPENSE_002);

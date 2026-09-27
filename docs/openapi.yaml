@@ -269,6 +269,13 @@ paths:
       x-permission: driver:unbindVehicle
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /drivers/{id}/binding-history:
+    get:
+      tags: [Drivers]
+      summary: 司机车辆绑定历史（含操作人手机号）
+      x-permission: vehicle:bindingHistory
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
 
   /vehicles:
     get:
@@ -304,6 +311,13 @@ paths:
     get:
       tags: [Vehicles]
       summary: 车辆绑定历史
+      x-permission: vehicle:bindingHistory
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /vehicles/{id}/trailer-binding-history:
+    get:
+      tags: [Vehicles]
+      summary: 车辆车挂绑定历史（含操作人手机号）
       x-permission: vehicle:bindingHistory
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
@@ -529,6 +543,13 @@ paths:
       tags: [Expenses]
       summary: 冲销审批费用
       x-permission: expense:reversal
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /expenses/{id}/reversal-record:
+    get:
+      tags: [Expenses]
+      summary: 查询原费用对应的冲销记录，未冲销时 data 为 null
+      x-permission: expense:list
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /expenses/{id}/attribution:

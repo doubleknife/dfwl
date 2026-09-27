@@ -144,9 +144,10 @@ public class MasterDataRepository {
     public PageResponse<DriverResponse> listDrivers(int pageNo, int pageSize) {
         long total = count("driver", "deleted_at IS NULL");
         List<DriverResponse> records = jdbcTemplate.query("""
-                SELECT d.*, dvc.vehicle_id AS current_vehicle_id
+                SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM driver d
                 LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
+                LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
                 WHERE d.deleted_at IS NULL
                 ORDER BY d.id DESC
                 LIMIT ? OFFSET ?
@@ -161,15 +162,16 @@ public class MasterDataRepository {
                 rs.getString("id_card_no"),
                 rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id")), pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
     public Optional<DriverResponse> findDriver(long id) {
         return jdbcTemplate.query("""
-                SELECT d.*, dvc.vehicle_id AS current_vehicle_id
+                SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM driver d
                 LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
+                LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
                 WHERE d.id = ? AND d.deleted_at IS NULL
                 """, (rs, rowNum) -> new DriverResponse(
                 rs.getLong("id"),
@@ -182,14 +184,15 @@ public class MasterDataRepository {
                 rs.getString("id_card_no"),
                 rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id")), id).stream().findFirst();
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), id).stream().findFirst();
     }
 
     public Optional<DriverResponse> findDriverByUserIdOrPhone(long userId, String phone) {
         return jdbcTemplate.query("""
-                SELECT d.*, dvc.vehicle_id AS current_vehicle_id
+                SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM driver d
                 LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
+                LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
                 WHERE d.deleted_at IS NULL AND (d.user_id = ? OR d.phone = ?)
                 ORDER BY CASE WHEN d.user_id = ? THEN 0 ELSE 1 END
                 LIMIT 1
@@ -204,7 +207,7 @@ public class MasterDataRepository {
                 rs.getString("id_card_no"),
                 rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id")), userId, phone, userId).stream().findFirst();
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), userId, phone, userId).stream().findFirst();
     }
 
     public long createDriver(DriverRequest request) {
@@ -241,10 +244,12 @@ public class MasterDataRepository {
     public PageResponse<VehicleResponse> listVehicles(int pageNo, int pageSize) {
         long total = count("vehicle", "deleted_at IS NULL");
         List<VehicleResponse> records = jdbcTemplate.query("""
-                SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id
+                SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
+                       ct.plate_no AS current_trailer_plate_no
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
+                LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
                 WHERE v.deleted_at IS NULL
                 ORDER BY v.id DESC
                 LIMIT ? OFFSET ?
@@ -259,7 +264,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id")), pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
@@ -273,10 +278,12 @@ public class MasterDataRepository {
                   AND (dvc.driver_id = ? OR r.id IS NOT NULL)
                 """, Long.class, driverId, driverId);
         List<VehicleResponse> records = jdbcTemplate.query("""
-                SELECT DISTINCT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id
+                SELECT DISTINCT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
+                       ct.plate_no AS current_trailer_plate_no
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
+                LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
                 LEFT JOIN route_task r ON r.departure_vehicle_id = v.id AND r.departure_driver_id = ? AND r.deleted_at IS NULL
                 WHERE v.deleted_at IS NULL
                   AND (dvc.driver_id = ? OR r.id IS NOT NULL)
@@ -293,7 +300,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id")), driverId, driverId, pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), driverId, driverId, pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
@@ -318,10 +325,12 @@ public class MasterDataRepository {
 
     public Optional<VehicleResponse> findVehicle(long id) {
         return jdbcTemplate.query("""
-                SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id
+                SELECT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
+                       ct.plate_no AS current_trailer_plate_no
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
+                LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
                 WHERE v.id = ? AND v.deleted_at IS NULL
                 """, (rs, rowNum) -> new VehicleResponse(
                 rs.getLong("id"),
@@ -334,7 +343,7 @@ public class MasterDataRepository {
                 rs.getBigDecimal("load_standard_min_load"),
                 rs.getInt("status"),
                 readLong(rs, "current_driver_id"),
-                readLong(rs, "current_trailer_id")), id).stream().findFirst();
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")), id).stream().findFirst();
     }
 
     public long createVehicle(VehicleRequest request) {
@@ -505,20 +514,51 @@ public class MasterDataRepository {
     }
 
     public List<BindingHistoryResponse> vehicleBindingHistory(long vehicleId) {
+        return driverVehicleHistory("h.vehicle_id", vehicleId);
+    }
+
+    public List<BindingHistoryResponse> driverBindingHistory(long driverId) {
+        return driverVehicleHistory("h.driver_id", driverId);
+    }
+
+    private List<BindingHistoryResponse> driverVehicleHistory(String column, long id) {
         return jdbcTemplate.query("""
-                SELECT id, vehicle_id AS subject_id, driver_id AS target_id, bind_time, unbind_time, bind_by, unbind_by, unbind_reason
-                FROM driver_vehicle_history
-                WHERE vehicle_id = ?
-                ORDER BY bind_time DESC
-                """, (rs, rowNum) -> new BindingHistoryResponse(
-                rs.getLong("id"),
-                rs.getLong("subject_id"),
-                rs.getLong("target_id"),
+                SELECT h.id, h.vehicle_id AS subject_id, h.driver_id AS target_id,
+                       h.bind_time, h.unbind_time, h.bind_by, h.unbind_by, h.unbind_reason,
+                       b.phone AS bind_by_phone, u.phone AS unbind_by_phone,
+                       v.plate_no AS subject_name, d.name AS target_name
+                FROM driver_vehicle_history h
+                LEFT JOIN sys_user b ON b.id = h.bind_by
+                LEFT JOIN sys_user u ON u.id = h.unbind_by
+                LEFT JOIN vehicle v ON v.id = h.vehicle_id
+                LEFT JOIN driver d ON d.id = h.driver_id
+                WHERE 1 = 1
+                """ + "AND " + column + " = ? ORDER BY h.bind_time DESC", this::mapBindingHistory, id);
+    }
+
+    public List<BindingHistoryResponse> trailerBindingHistory(long vehicleId) {
+        return jdbcTemplate.query("""
+                SELECT h.id, h.vehicle_id AS subject_id, h.trailer_id AS target_id,
+                       h.bind_time, h.unbind_time, h.bind_by, h.unbind_by, h.unbind_reason,
+                       b.phone AS bind_by_phone, u.phone AS unbind_by_phone,
+                       v.plate_no AS subject_name, t.plate_no AS target_name
+                FROM vehicle_trailer_history h
+                LEFT JOIN sys_user b ON b.id = h.bind_by
+                LEFT JOIN sys_user u ON u.id = h.unbind_by
+                LEFT JOIN vehicle v ON v.id = h.vehicle_id
+                LEFT JOIN trailer t ON t.id = h.trailer_id
+                WHERE h.vehicle_id = ? ORDER BY h.bind_time DESC
+                """, this::mapBindingHistory, vehicleId);
+    }
+
+    private BindingHistoryResponse mapBindingHistory(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new BindingHistoryResponse(
+                rs.getLong("id"), rs.getLong("subject_id"), rs.getLong("target_id"),
                 rs.getTimestamp("bind_time").toLocalDateTime(),
                 rs.getTimestamp("unbind_time") == null ? null : rs.getTimestamp("unbind_time").toLocalDateTime(),
-                rs.getLong("bind_by"),
-                readLong(rs, "unbind_by"),
-                rs.getString("unbind_reason")), vehicleId);
+                rs.getLong("bind_by"), readLong(rs, "unbind_by"), rs.getString("unbind_reason"),
+                rs.getString("bind_by_phone"), rs.getString("unbind_by_phone"),
+                rs.getString("subject_name"), rs.getString("target_name"));
     }
 
     public boolean hasInTransitDriverOrVehicle(long driverId, long vehicleId) {

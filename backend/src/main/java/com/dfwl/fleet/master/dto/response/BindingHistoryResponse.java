@@ -10,6 +10,10 @@ public record BindingHistoryResponse(
         LocalDateTime unbindTime,
         Long bindBy,
         Long unbindBy,
-        String unbindReason
+        String unbindReason,
+        String bindByPhone,
+        String unbindByPhone,
+        String subjectName,
+        String targetName
 ) {
 }

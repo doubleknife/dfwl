@@ -1,4 +1,5 @@
 @import './design/tokens.css';
+@import './design/ui1.css';
 
 :root {
   color: var(--ui-text);

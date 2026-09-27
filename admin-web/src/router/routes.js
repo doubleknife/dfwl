@@ -3,14 +3,14 @@ import DashboardView from '../views/DashboardView.vue';
 import MasterDataView from '../views/MasterDataView.vue';
 import RoutesView from '../views/RoutesSampleView.vue';
 import ImportCenterView from '../views/ImportCenterView.vue';
-import ExpensesView from '../views/ExpensesView.vue';
+import ExpensesView from '../views/ExpensesUi1View.vue';
 import ApprovalsView from '../views/ApprovalsView.vue';
 import ApprovalFlowsView from '../views/ApprovalFlowsView.vue';
 import TiresView from '../views/TiresView.vue';
-import SalariesView from '../views/SalariesView.vue';
+import SalariesView from '../views/SalariesUi1View.vue';
 import ReportsView from '../views/ReportsView.vue';
 import SettlementsView from '../views/SettlementsView.vue';
-import SystemView from '../views/SystemView.vue';
+import SystemView from '../views/SystemUi1View.vue';
 import { canAny } from '../stores/auth.js';
 
 export const routes = [

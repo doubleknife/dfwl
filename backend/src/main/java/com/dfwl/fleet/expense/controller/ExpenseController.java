@@ -110,4 +110,12 @@ public class ExpenseController {
         currentUserService.denyAllDrivers(user);
         return ApiResponse.success(expenseService.approvalChain(id), RequestIdHolder.get());
     }
+
+    @GetMapping("/{id}/reversal-record")
+    @PreAuthorize("hasAuthority('expense:list')")
+    public ApiResponse<ExpenseResponse> reversalRecord(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(expenseService.reversalRecord(id), RequestIdHolder.get());
+    }
 }

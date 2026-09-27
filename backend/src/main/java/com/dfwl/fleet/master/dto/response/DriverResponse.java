@@ -13,6 +13,7 @@ public record DriverResponse(
         String idCardNo,
         LocalDate birthDate,
         Integer status,
-        Long currentVehicleId
+        Long currentVehicleId,
+        String currentVehiclePlateNo
 ) {
 }

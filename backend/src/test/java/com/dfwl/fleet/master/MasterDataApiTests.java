@@ -74,13 +74,61 @@ class MasterDataApiTests {
         mockMvc.perform(get("/api/v1/drivers/%d".formatted(driverId))
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.currentVehicleId").value(vehicleId));
+                .andExpect(jsonPath("$.data.currentVehicleId").value(vehicleId))
+                .andExpect(jsonPath("$.data.currentVehiclePlateNo").value("京A10001"));
+
+        mockMvc.perform(get("/api/v1/drivers?pageNo=1&pageSize=20")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentVehiclePlateNo").value("京A10001"));
 
         mockMvc.perform(get("/api/v1/vehicles/%d/binding-history".formatted(vehicleId))
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].subjectId").value(vehicleId))
-                .andExpect(jsonPath("$.data[0].targetId").value(driverId));
+                .andExpect(jsonPath("$.data[0].targetId").value(driverId))
+                .andExpect(jsonPath("$.data[0].subjectName").value("京A10001"))
+                .andExpect(jsonPath("$.data[0].targetName").value("张三"));
+
+        mockMvc.perform(get("/api/v1/drivers/%d/binding-history".formatted(driverId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].subjectId").value(vehicleId))
+                .andExpect(jsonPath("$.data[0].targetId").value(driverId))
+                .andExpect(jsonPath("$.data[0].subjectName").value("京A10001"))
+                .andExpect(jsonPath("$.data[0].targetName").value("张三"));
+    }
+
+    @Test
+    void readsVehicleTrailerBindingHistoryWithoutChangingBinding() throws Exception {
+        long vehicleId = createVehicle("京A10003");
+        mockMvc.perform(post("/api/v1/trailers")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"trailerNo":"T10003","plateNo":"京B10003","insuranceComplete":true,"status":1}
+                                """))
+                .andExpect(status().isOk());
+        long trailerId = jdbcTemplate.queryForObject("SELECT id FROM trailer WHERE plate_no = '京B10003'", Long.class);
+        mockMvc.perform(post("/api/v1/trailers/%d/bind-vehicle".formatted(trailerId))
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"vehicleId":%d}
+                                """.formatted(vehicleId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/vehicles/%d/trailer-binding-history".formatted(vehicleId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].subjectId").value(vehicleId))
+                .andExpect(jsonPath("$.data[0].targetId").value(trailerId))
+                .andExpect(jsonPath("$.data[0].subjectName").value("京A10003"))
+                .andExpect(jsonPath("$.data[0].targetName").value("京B10003"));
+
+        mockMvc.perform(get("/api/v1/vehicles/%d".formatted(vehicleId))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentTrailerPlateNo").value("京B10003"));
     }
 
     @Test

@@ -9,9 +9,9 @@ export const dashboardApi = {
 };
 
 export const masterApi = {
-  drivers: (pageNo = 1) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=100`),
-  vehicles: (pageNo = 1) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=100`),
-  trailers: () => apiClient.get('/trailers?pageNo=1&pageSize=100'),
+  drivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=${pageSize}`),
+  vehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=${pageSize}`),
+  trailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/trailers?pageNo=${pageNo}&pageSize=${pageSize}`),
   customers: () => apiClient.get('/customers?pageNo=1&pageSize=100'),
   products: () => apiClient.get('/products?pageNo=1&pageSize=100'),
   createDriver: (body) => apiClient.post('/drivers', body),
@@ -27,7 +27,9 @@ export const masterApi = {
   unbindDriverVehicle: (driverId, body = {}) => apiClient.post(`/drivers/${driverId}/unbind-vehicle`, body),
   bindTrailerVehicle: (trailerId, body) => apiClient.post(`/trailers/${trailerId}/bind-vehicle`, body),
   unbindTrailerVehicle: (trailerId, body = {}) => apiClient.post(`/trailers/${trailerId}/unbind-vehicle`, body),
-  vehicleHistory: (vehicleId) => apiClient.get(`/vehicles/${vehicleId}/binding-history`)
+  vehicleHistory: (vehicleId) => apiClient.get(`/vehicles/${vehicleId}/binding-history`),
+  driverHistory: (driverId) => apiClient.get(`/drivers/${driverId}/binding-history`),
+  trailerHistory: (vehicleId) => apiClient.get(`/vehicles/${vehicleId}/trailer-binding-history`)
 };
 
 export const routeApi = {
@@ -51,11 +53,12 @@ export const importApi = {
 };
 
 export const expenseApi = {
-  list: () => apiClient.get('/expenses?pageNo=1&pageSize=100'),
+  list: (pageNo = 1, pageSize = 100) => apiClient.get(`/expenses?pageNo=${pageNo}&pageSize=${pageSize}`),
   create: (body) => apiClient.post('/expenses', body),
   update: (id, body) => apiClient.put(`/expenses/${id}`, body),
   delete: (id) => apiClient.delete(`/expenses/${id}`),
   reverse: (id, body) => apiClient.post(`/expenses/${id}/reversal`, body),
+  reversalRecord: (id) => apiClient.get(`/expenses/${id}/reversal-record`),
   attribution: (id, body) => apiClient.put(`/expenses/${id}/attribution`, body),
   attributionHistory: (id) => apiClient.get(`/expenses/${id}/attribution-history`),
   approval: (id) => apiClient.get(`/expenses/${id}/approval`)
@@ -98,7 +101,12 @@ export const tireApi = {
 };
 
 export const salaryApi = {
-  list: () => apiClient.get('/driver-salaries?pageNo=1&pageSize=100'),
+  list: (pageNo = 1, driverId = '', businessMonth = '', pageSize = 100) => {
+    const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
+    if (driverId) query.set('driverId', String(driverId));
+    if (businessMonth) query.set('businessMonth', businessMonth);
+    return apiClient.get(`/driver-salaries?${query}`);
+  },
   create: (body) => apiClient.post('/driver-salaries', body),
   history: (routeId) => apiClient.get(`/driver-salaries/routes/${routeId}/history`)
 };
@@ -120,12 +128,12 @@ export const settlementApi = {
 
 export const systemApi = {
   me: () => apiClient.get('/me'),
-  users: () => apiClient.get('/users?pageNo=1&pageSize=100'),
+  users: (pageNo = 1, pageSize = 100) => apiClient.get(`/users?pageNo=${pageNo}&pageSize=${pageSize}`),
   createUser: (body) => apiClient.post('/users', body),
   updateUser: (id, body) => apiClient.put(`/users/${id}`, body),
   resetPassword: (id, body) => apiClient.post(`/users/${id}/reset-password`, body),
   setStatus: (id, body) => apiClient.put(`/users/${id}/status`, body),
-  roles: () => apiClient.get('/roles?pageNo=1&pageSize=100'),
+  roles: (pageNo = 1, pageSize = 100) => apiClient.get(`/roles?pageNo=${pageNo}&pageSize=${pageSize}`),
   role: (id) => apiClient.get(`/roles/${id}`),
   createRole: (body) => apiClient.post('/roles', body),
   updateRole: (id, body) => apiClient.put(`/roles/${id}`, body),

@@ -13,6 +13,7 @@ public record VehicleResponse(
         BigDecimal loadStandardMinLoad,
         Integer status,
         Long currentDriverId,
-        Long currentTrailerId
+        Long currentTrailerId,
+        String currentTrailerPlateNo
 ) {
 }

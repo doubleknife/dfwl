@@ -199,6 +199,16 @@ public class MasterDataService {
         return repository.vehicleBindingHistory(vehicleId);
     }
 
+    public List<BindingHistoryResponse> driverBindingHistory(long driverId) {
+        findDriver(driverId);
+        return repository.driverBindingHistory(driverId);
+    }
+
+    public List<BindingHistoryResponse> trailerBindingHistory(long vehicleId) {
+        findVehicle(vehicleId);
+        return repository.trailerBindingHistory(vehicleId);
+    }
+
     public PageResponse<TrailerResponse> listTrailers(int pageNo, int pageSize) {
         return repository.listTrailers(pageNo, normalizePageSize(pageSize));
     }

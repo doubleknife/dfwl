@@ -1,0 +1,27 @@
+.ui-list-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:24px 0 16px; }
+.ui-list-heading h2 { margin:0; font-size:18px; }
+.ui-entity-picker { display:grid; gap:6px; min-width:220px; }
+.ui-entity-picker input, .ui-entity-picker select { min-height:38px; }
+.ui-entity-picker .ui-pagination { justify-content:flex-start; margin:4px 0; font-size:12px; }
+.ui-entity-picker .ui-pagination button { min-height:28px; }
+.ui-detail-sections { display:grid; gap:20px; }
+.ui-detail-sections section { padding-bottom:18px; border-bottom:1px solid var(--ui-border); }
+.ui-detail-sections section:last-child { border:0; }
+.ui-detail-sections h3 { margin:0 0 12px; font-size:16px; }
+.ui-timeline { margin:12px 0 0; padding:0 0 0 20px; border-left:2px solid var(--ui-border); list-style:none; }
+.ui-timeline li { position:relative; margin:0 0 18px; padding:0 0 0 14px; }
+.ui-timeline li::before { content:''; position:absolute; left:-26px; top:5px; width:8px; height:8px; border-radius:50%; background:var(--ui-primary); }
+.ui-timeline li p { margin:5px 0 0; color:var(--ui-text-secondary); }
+.ui-form-summary { margin:18px 0 4px; padding:12px; background:var(--ui-primary-soft); border-radius:var(--ui-radius-control); }
+.ui-permission-group { margin:18px 0; padding-top:14px; border-top:1px solid var(--ui-border); }
+.ui-permission-group-head { display:flex; align-items:center; justify-content:space-between; }
+.ui-permission-group-head h3 { margin:0; font-size:15px; }
+.ui-permission-group-head button { border:0; color:var(--ui-primary); }
+.ui-permission-item { display:flex; align-items:flex-start; gap:10px; margin:8px 0; padding:10px; border-radius:6px; background:var(--ui-surface-subtle); }
+.ui-permission-item input { width:auto; min-height:auto; margin:4px 0 0; }
+.ui-permission-item span { display:grid; gap:2px; }
+.ui-permission-item small { color:var(--ui-text-secondary); }
+.ui-more-menu > div span { display:block; padding:8px; font-size:12px; }
+.ui-object-actions { display:grid; gap:8px; margin-top:16px; }
+.ui-object-actions button { text-align:left; padding:10px 12px; }
+@media (max-width:760px) { .ui-list-heading { align-items:flex-start; } .ui-entity-picker { min-width:0; } .ui-permission-group-head { gap:8px; } }

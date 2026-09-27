@@ -156,10 +156,11 @@ public class DriverSalaryRepository {
 
     public List<DriverSalaryHistoryResponse> history(long routeId) {
         return jdbcTemplate.query("""
-                SELECT *
-                FROM driver_salary_history
-                WHERE route_id = ?
-                ORDER BY operation_time, id
+                SELECT h.*, u.phone AS operator_phone
+                FROM driver_salary_history h
+                LEFT JOIN sys_user u ON u.id = h.operator_id
+                WHERE h.route_id = ?
+                ORDER BY h.operation_time, h.id
                 """, (rs, rowNum) -> new DriverSalaryHistoryResponse(
                 rs.getLong("id"),
                 readLong(rs, "salary_entry_id"),
@@ -173,7 +174,8 @@ public class DriverSalaryRepository {
                 rs.getTimestamp("operation_time").toLocalDateTime(),
                 rs.getString("reason"),
                 readLong(rs, "import_task_id"),
-                readLong(rs, "import_row_id")), routeId);
+                readLong(rs, "import_row_id"),
+                rs.getString("operator_phone")), routeId);
     }
 
     private List<DriverSalaryResponse> queryResponses(String where, Object... args) {

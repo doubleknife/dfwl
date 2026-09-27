@@ -16,6 +16,7 @@ public record DriverSalaryHistoryResponse(
         LocalDateTime operationTime,
         String reason,
         Long importTaskId,
-        Long importRowId
+        Long importRowId,
+        String operatorPhone
 ) {
 }

@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/DataTable.vue';
 import DriverManagementSample from '../components/DriverManagementSample.vue';
+import BindingManagement from '../components/BindingManagement.vue';
 import PanelSection from '../components/PanelSection.vue';
 import { masterApi } from '../api/modules.js';
 import { confirmAndRun, useRequest } from '../composables/useRequest.js';
@@ -14,7 +15,6 @@ const vehicleForm = reactive({ plateNo: '', energyType: 'ELECTRIC', maxLoad: '0'
 const trailerForm = reactive({ plateNo: '', insuranceComplete: true });
 const customerForm = reactive({ id: '', customerCode: '', customerName: '', status: 1, remark: '' });
 const productForm = reactive({ id: '', productCode: '', productName: '', status: 1, remark: '' });
-const binding = reactive({ driverId: '', vehicleId: '', trailerId: '' });
 
 async function load() {
   await run(async () => {
@@ -47,34 +47,6 @@ async function createTrailer() {
     Object.assign(trailerForm, { plateNo: '', insuranceComplete: true });
     await load();
   });
-}
-
-async function bindDriverVehicle() {
-  await run(async () => {
-    await masterApi.bindDriverVehicle(Number(binding.driverId), { vehicleId: Number(binding.vehicleId) });
-    await load();
-  });
-}
-
-async function unbindDriverVehicle() {
-  await confirmAndRun('确认解绑司机当前车辆？', async () => run(async () => {
-    await masterApi.unbindDriverVehicle(Number(binding.driverId));
-    await load();
-  }));
-}
-
-async function bindTrailerVehicle() {
-  await run(async () => {
-    await masterApi.bindTrailerVehicle(Number(binding.trailerId), { vehicleId: Number(binding.vehicleId) });
-    await load();
-  });
-}
-
-async function unbindTrailerVehicle() {
-  await confirmAndRun('确认解绑车挂当前车辆？', async () => run(async () => {
-    await masterApi.unbindTrailerVehicle(Number(binding.trailerId));
-    await load();
-  }));
 }
 
 async function showVehicleHistory(vehicleId) {
@@ -199,24 +171,7 @@ onMounted(load);
         { key: 'id', label: 'ID' }, { key: 'plateNo', label: '车挂号' }, { key: 'insuranceComplete', label: '保险' }, { key: 'status', label: '状态' }
       ]" :rows="state.trailers" />
     </PanelSection>
-    <PanelSection v-if="tab === 'binding'" title="绑定与解绑">
-      <form class="inline-form" @submit.prevent="bindDriverVehicle">
-        <input v-model="binding.driverId" aria-label="司机 ID" />
-        <input v-model="binding.vehicleId" aria-label="车辆 ID" />
-        <button v-permission="'driver:bindVehicle'" class="primary">司机绑定车辆</button>
-        <button v-permission="'driver:unbindVehicle'" type="button" @click="unbindDriverVehicle">司机解绑</button>
-      </form>
-      <form class="inline-form" @submit.prevent="bindTrailerVehicle">
-        <input v-model="binding.trailerId" aria-label="车挂 ID" />
-        <input v-model="binding.vehicleId" aria-label="车辆 ID" />
-        <button v-permission="'trailer:bindVehicle'" class="primary">车挂绑定车辆</button>
-        <button v-permission="'trailer:unbindVehicle'" type="button" @click="unbindTrailerVehicle">车挂解绑</button>
-      </form>
-      <DataTable :columns="[
-        { key: 'id', label: 'ID' }, { key: 'driverId', label: '司机' }, { key: 'vehicleId', label: '车辆' },
-        { key: 'trailerId', label: '车挂' }, { key: 'operationTime', label: '时间' }
-      ]" :rows="state.history" />
-    </PanelSection>
+    <BindingManagement v-if="tab === 'binding'" />
     <PanelSection v-if="tab === 'customerProduct'" title="客户与产品">
       <div class="two-column">
         <section>

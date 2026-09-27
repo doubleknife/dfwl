@@ -245,6 +245,22 @@ public class MasterDataController {
         return ApiResponse.success(masterDataService.vehicleBindingHistory(id), RequestIdHolder.get());
     }
 
+    @GetMapping("/drivers/{id}/binding-history")
+    @PreAuthorize("hasAuthority('vehicle:bindingHistory')")
+    public ApiResponse<List<BindingHistoryResponse>> driverBindingHistory(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(masterDataService.driverBindingHistory(id), RequestIdHolder.get());
+    }
+
+    @GetMapping("/vehicles/{id}/trailer-binding-history")
+    @PreAuthorize("hasAuthority('vehicle:bindingHistory')")
+    public ApiResponse<List<BindingHistoryResponse>> trailerBindingHistory(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(masterDataService.trailerBindingHistory(id), RequestIdHolder.get());
+    }
+
     @GetMapping("/trailers")
     @PreAuthorize("hasAuthority('trailer:list')")
     public ApiResponse<PageResponse<TrailerResponse>> listTrailers(
