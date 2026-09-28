@@ -78,6 +78,7 @@ class ProfitSettlementIntegrityTests {
                        (3, 'R003', 'K003', DATE '2026-08-20', 1, 1, 'OUTBOUND', 'X', 'Y', 70.00, 20.0000,
                         'COMPLETED', 1, 1, TIMESTAMP '2026-08-20 08:00:00', TIMESTAMP '2026-08-20 16:00:00', 3, 10.00, 1, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         jdbcTemplate.update("""
                 INSERT INTO route_weight_version (id, route_id, version_no, gross_weight, tare_weight, net_weight,
                                                   source_type, operator_id, operation_time, reason)

@@ -19,6 +19,7 @@ import com.dfwl.fleet.master.repository.MasterDataRepository;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.CurrentUserService;
+import com.dfwl.fleet.system.service.AuditWriteService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,11 +35,13 @@ public class MasterDataService {
     private final MasterDataRepository repository;
     private final CurrentUserService currentUserService;
     private final VehicleAccessPolicy vehicleAccessPolicy;
+    private final AuditWriteService audit;
 
-    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy) {
+    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy, AuditWriteService audit) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.vehicleAccessPolicy = vehicleAccessPolicy;
+        this.audit = audit;
     }
 
     public PageResponse<CustomerResponse> listCustomers(int pageNo, int pageSize) {
@@ -111,6 +114,10 @@ public class MasterDataService {
         return repository.listDrivers(pageNo, normalizePageSize(pageSize));
     }
 
+    public PageResponse<DriverResponse> listBindingCandidates(int pageNo, int pageSize) {
+        return repository.listBindingCandidates(pageNo, normalizePageSize(pageSize));
+    }
+
     public DriverResponse findDriver(long id) {
         return repository.findDriver(id).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
     }
@@ -130,6 +137,9 @@ public class MasterDataService {
 
     @Transactional
     public DriverResponse createDriver(DriverRequest request) {
+        if (!"INTERNAL".equals(request.driverType()) && !"OUTSOURCED".equals(request.driverType())) {
+            throw new BusinessException(ErrorCode.SYS_002);
+        }
         try {
             return findDriver(repository.createDriver(request));
         } catch (DataIntegrityViolationException ex) {
@@ -138,9 +148,25 @@ public class MasterDataService {
     }
 
     @Transactional
-    public DriverResponse updateDriver(long id, DriverRequest request) {
+    public DriverResponse updateDriver(long id, DriverRequest request, long operatorId) {
+        DriverResponse before = findDriver(id);
+        if (!"INTERNAL".equals(request.driverType()) && !"OUTSOURCED".equals(request.driverType())) {
+            throw new BusinessException(ErrorCode.SYS_002);
+        }
+        if (before.userId() != null && !before.phone().equals(request.phone())) {
+            throw new BusinessException(ErrorCode.SYS_002);
+        }
+        if (!before.driverType().equals(request.driverType())
+                && (before.currentVehicleId() != null || repository.hasDriverRouteOrSalaryHistory(id))) {
+            throw new BusinessException(ErrorCode.BIND_003);
+        }
         if (!repository.updateDriver(id, request)) {
             throw new BusinessException(ErrorCode.DATA_001);
+        }
+        if (!before.driverType().equals(request.driverType())) {
+            audit.write("DRIVER", "DRIVER", id, "CHANGE_TYPE",
+                    java.util.Map.of("driverType", before.driverType()),
+                    java.util.Map.of("driverType", request.driverType()), operatorId, null);
         }
         return findDriver(id);
     }
@@ -236,7 +262,10 @@ public class MasterDataService {
 
     @Transactional
     public void bindDriverVehicle(long driverId, long vehicleId, long operatorId) {
-        findDriver(driverId);
+        DriverResponse driver = findDriver(driverId);
+        if (!"INTERNAL".equals(driver.driverType())) {
+            throw new BusinessException(ErrorCode.AUTH_003);
+        }
         findVehicle(vehicleId);
         if (repository.hasInTransitDriverOrVehicle(driverId, vehicleId)) {
             throw new BusinessException(ErrorCode.BIND_003);

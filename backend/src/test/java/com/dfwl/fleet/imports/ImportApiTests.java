@@ -185,6 +185,7 @@ class ImportApiTests {
                                         assigned_driver_id, created_by)
                 VALUES (10, 'R010', 'RK10', '2026-09-11', 1, 1, 'OUTBOUND', 'A', 'B', 1.0000, 'COMPLETED', 1, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         long fileId = uploadCsv("salary.csv", """
                 routeId,driverId,salaryAmount
                 10,1,230.50
@@ -441,6 +442,7 @@ class ImportApiTests {
                                         direction, loading_place, unloading_place, tax_unit_price, status, assigned_driver_id, created_by)
                 VALUES (10, 'R-SALARY', 'R-SALARY', '2026-09-18', 1, 1, 'OUTBOUND', 'A', 'B', 1, 'COMPLETED', 1, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         long file = uploadWorkbook(xlsx ? "salary.xlsx" : "salary.xls", workbook(xlsx,
                 new String[]{"routeId", "driverId", "salaryAmount"}, new Object[][]{{10, 1, "88.50"}}));
         long task = preview("SALARY", null, file);

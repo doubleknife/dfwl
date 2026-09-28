@@ -75,6 +75,7 @@ class ApprovalInitiationApiTests {
                 VALUES (41, 'R41', 'K41', DATE '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 1, 'COMPLETED', 11, 11, 31, 201),
                        (42, 'R42', 'K42', DATE '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 1, 'COMPLETED', 12, 12, 32, 201)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbc);
         finance = token(201, 2, "FINANCE", Set.of("approval:create", "approval:history:view"));
         otherFinance = token(203, 2, "FINANCE", Set.of("approval:create"));
         driver = token(101, 1, "DRIVER", Set.of("approval:create"));

@@ -209,6 +209,7 @@ class CriticalConcurrencyTests {
     void concurrentVoidCreatesOneRouteAndEnergyAttributionHistory() throws Exception {
         insertPublishedRoute(1, 1);
         routeService.depart(1, 1);
+        routeService.unload(1, new UnloadRequest(new BigDecimal("30.000"), new BigDecimal("10.000")), 1);
         jdbcTemplate.update("DELETE FROM expense_attribution_history");
         jdbcTemplate.update("""
                 INSERT INTO expense_entry (id, expense_no, expense_type, business_date, vehicle_id,
@@ -228,9 +229,9 @@ class CriticalConcurrencyTests {
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE route_id = 1 AND operation_type = 'VOID'", Integer.class))
                 .isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = 1", String.class)).isEqualTo("PENDING_ATTRIBUTION");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = 1", String.class)).isEqualTo("ACTIVE");
         assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = 1", Long.class)).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = 1", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = 1", Integer.class)).isZero();
     }
 
 
@@ -241,6 +242,7 @@ class CriticalConcurrencyTests {
                                         assigned_driver_id, created_by)
                 VALUES (?, ?, ?, DATE '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 1.0000, 'PUBLISHED', ?, 1)
                 """, id, "R00" + id, "K00" + id, driverId);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
     }
 
     private Results runConcurrently(int count, Callable<?> task) throws Exception {

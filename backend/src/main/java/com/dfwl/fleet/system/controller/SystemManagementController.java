@@ -110,9 +110,10 @@ public class SystemManagementController {
     @PutMapping("/roles/{id}/permissions")
     @PreAuthorize("hasAuthority('role:manage')")
     public ApiResponse<RoleResponse> replaceRolePermissions(
+            @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
             @RequestBody RolePermissionRequest request) {
-        return ApiResponse.success(service.replaceRolePermissions(id, request), RequestIdHolder.get());
+        return ApiResponse.success(service.replaceRolePermissions(id, request, user.id()), RequestIdHolder.get());
     }
 
     @GetMapping("/permissions")

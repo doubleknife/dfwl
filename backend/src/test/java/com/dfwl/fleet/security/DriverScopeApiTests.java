@@ -111,6 +111,7 @@ class DriverScopeApiTests {
                        (2, 'R2', 'r2', '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'C', 8.0000, 2, 'PUBLISHED', NULL, NULL, NULL, 1),
                        (3, 'R3', 'r3', '2026-09-11', 1, 1, 'RETURN', 'C', 'A', 7.0000, 1, 'IN_TRANSIT', 1, 1, CURRENT_TIMESTAMP, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         jdbcTemplate.update("INSERT INTO tire (id, tire_no, barcode, status, data_source) VALUES (1, 'TIRE-001', 'B001', 'IN_STOCK', 'MANUAL')");
         jdbcTemplate.update("INSERT INTO approval_template (id, template_code, category, approval_type, created_by) VALUES (1, 'TIRE_REQUEST', 'TIRE', 'TIRE_REQUEST', 1)");
         jdbcTemplate.update("INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by) VALUES (1, 1, 'TIRE_REQUEST', '换胎审批', 1, 'ACTIVE', 1)");
@@ -407,6 +408,28 @@ class DriverScopeApiTests {
         jdbcTemplate.update("UPDATE route_task SET status = ?, assigned_driver_id = ?, departure_driver_id = ?, "
                 + "deleted_at = " + (deleted ? "CURRENT_TIMESTAMP" : "NULL") + " WHERE id = 1",
                 routeStatus, assigned, departure);
+        jdbcTemplate.update("DELETE FROM route_participant WHERE route_id = 1");
+        String initialStatus = routeStatus.equals("PUBLISHED") ? "ASSIGNED" : "COMPLETED";
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                    source_type, status, assigned_at, created_by)
+                VALUES (1, 1, ?, 'INTERNAL', 'INITIAL', ?, CURRENT_TIMESTAMP, 1)
+                """, assigned, initialStatus);
+        if (departure != assigned) {
+            jdbcTemplate.update("""
+                    INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                        source_type, status, assigned_at, created_by)
+                    VALUES (1, 2, ?, 'INTERNAL', 'TRANSFER', ?, CURRENT_TIMESTAMP, 1)
+                    """, departure, routeStatus.equals("IN_TRANSIT") ? "IN_TRANSIT" : "COMPLETED");
+        } else if (routeStatus.equals("IN_TRANSIT")) {
+            jdbcTemplate.update("UPDATE route_participant SET status = 'IN_TRANSIT' WHERE route_id = 1");
+        }
+        int currentSequence = routeStatus.equals("PUBLISHED") || departure == assigned ? 1 : 2;
+        jdbcTemplate.update("""
+                UPDATE route_task SET current_participant_id =
+                  (SELECT id FROM route_participant WHERE route_id = 1 AND sequence_no = ?)
+                WHERE id = 1
+                """, currentSequence);
     }
 
     private void assertRouteAccess(Runnable action, boolean allowed, String message) {

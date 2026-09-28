@@ -62,6 +62,7 @@ class SalaryImportMigrationTests {
                                         direction, loading_place, unloading_place, tax_unit_price, status, assigned_driver_id, created_by)
                 VALUES (?, ?, ?, '2026-09-18', 1, 1, 'OUTBOUND', 'A', 'B', 1, 'COMPLETED', 1, 1)
                 """, id, "R" + id, "KEY" + id);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbc);
     }
 
     @ParameterizedTest

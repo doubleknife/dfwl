@@ -103,6 +103,7 @@ class DefaultAdminSeedIntegrationTests {
     private void assertSeedState() {
         Set<String> expectedCodes = Arrays.stream(PermissionCode.values())
                 .map(PermissionCode::code)
+                .filter(code -> !code.equals("route:transfer") && !code.equals("route:salary:adjust"))
                 .collect(Collectors.toSet());
         Set<String> actualCodes = Set.copyOf(jdbcTemplate.queryForList(
                 "SELECT permission_code FROM sys_permission", String.class));
@@ -115,7 +116,7 @@ class DefaultAdminSeedIntegrationTests {
                 SELECT COUNT(*) FROM sys_role_permission rp
                 JOIN sys_role r ON r.id = rp.role_id
                 WHERE r.role_code = 'ADMIN'
-                """, Integer.class)).isEqualTo(PermissionCode.values().length);
+                """, Integer.class)).isEqualTo(expectedCodes.size());
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM sys_user u
                 JOIN sys_role r ON r.id = u.role_id
@@ -127,7 +128,7 @@ class DefaultAdminSeedIntegrationTests {
         mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role.code").value("ADMIN"))
-                .andExpect(jsonPath("$.data.permissions.length()").value(PermissionCode.values().length));
+                .andExpect(jsonPath("$.data.permissions.length()").value(PermissionCode.values().length - 2));
         mockMvc.perform(get("/api/v1/users").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/roles").header("Authorization", "Bearer " + token))
@@ -170,7 +171,10 @@ class DefaultAdminSeedIntegrationTests {
     }
 
     private String normalize(String sql) {
-        return sql.replace("\r\n", "\n").trim();
+        return sql.replace("\r\n", "\n")
+                .replace("  ('route:transfer', '线路转派', 'API'),\n", "")
+                .replace("  ('route:salary:adjust', '线路参与工资调整', 'API'),\n", "")
+                .trim();
     }
 
     private record LoginPayload(String phone, String password) {

@@ -187,6 +187,7 @@ CREATE TABLE route_task (
   tax_unit_price DECIMAL(18,4) NOT NULL,
   info_fee DECIMAL(18,2) NULL DEFAULT 0,
   assigned_driver_id BIGINT UNSIGNED NULL,
+  current_participant_id BIGINT UNSIGNED NULL,
   import_vehicle_id BIGINT UNSIGNED NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'UNPUBLISHED',
   departure_driver_id BIGINT UNSIGNED NULL,
@@ -210,7 +211,8 @@ CREATE TABLE route_task (
   KEY idx_route_status_driver_date (status, assigned_driver_id, business_date),
   KEY idx_route_vehicle_time (departure_vehicle_id, departure_time, unload_time),
   KEY idx_route_business_date (business_date, status),
-  KEY idx_route_external_trip (external_route_no, trip_sequence)
+  KEY idx_route_external_trip (external_route_no, trip_sequence),
+  KEY idx_route_current_participant (current_participant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE route_status_history (
@@ -223,6 +225,54 @@ CREATE TABLE route_status_history (
   operation_time DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   reason VARCHAR(500) NULL,
   KEY idx_route_status_hist (route_id, operation_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE route_participant (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  route_id BIGINT UNSIGNED NOT NULL,
+  sequence_no INT UNSIGNED NOT NULL,
+  driver_id BIGINT UNSIGNED NOT NULL,
+  driver_type_snapshot VARCHAR(32) NULL,
+  company_vehicle_id BIGINT UNSIGNED NULL,
+  outsourced_plate_no VARCHAR(32) NULL,
+  source_type VARCHAR(16) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  assigned_at DATETIME(3) NULL,
+  departed_at DATETIME(3) NULL,
+  ended_at DATETIME(3) NULL,
+  end_reason VARCHAR(500) NULL,
+  transfer_reason VARCHAR(500) NULL,
+  salary_amount DECIMAL(18,2) NULL,
+  historical_data_complete TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  version INT UNSIGNED NOT NULL DEFAULT 0,
+  created_by BIGINT UNSIGNED NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  active_route_id BIGINT UNSIGNED GENERATED ALWAYS AS
+    (CASE WHEN status IN ('ASSIGNED', 'IN_TRANSIT') THEN route_id ELSE NULL END) STORED,
+  UNIQUE KEY uk_participant_route_sequence (route_id, sequence_no),
+  UNIQUE KEY uk_participant_one_active (active_route_id),
+  KEY idx_participant_route_current (route_id, status, sequence_no),
+  KEY idx_participant_driver_status (driver_id, status),
+  KEY idx_participant_company_vehicle_route (company_vehicle_id, route_id),
+  CONSTRAINT chk_participant_salary_nonnegative CHECK (salary_amount IS NULL OR salary_amount >= 0),
+  CONSTRAINT chk_participant_source CHECK (source_type IN ('INITIAL', 'TRANSFER')),
+  CONSTRAINT chk_participant_status CHECK (status IN ('ASSIGNED', 'IN_TRANSIT', 'TRANSFERRED', 'COMPLETED', 'CANCELLED', 'LEGACY_ENDED')),
+  CONSTRAINT chk_participant_history_flag CHECK (historical_data_complete IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE route_participant_salary_history (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  participant_id BIGINT UNSIGNED NOT NULL,
+  before_amount DECIMAL(18,2) NULL,
+  after_amount DECIMAL(18,2) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  operator_id BIGINT UNSIGNED NOT NULL,
+  operation_time DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_participant_salary_history (participant_id, operation_time),
+  CONSTRAINT chk_participant_salary_before CHECK (before_amount IS NULL OR before_amount >= 0),
+  CONSTRAINT chk_participant_salary_after CHECK (after_amount >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE route_weight_version (
@@ -719,6 +769,7 @@ CREATE TABLE audit_log (
   reason VARCHAR(500) NULL,
   ip VARCHAR(64) NULL,
   terminal VARCHAR(128) NULL,
+  request_id VARCHAR(64) NULL,
   KEY idx_audit_business (business_type, business_id, operation_time),
   KEY idx_audit_operator_time (operator_id, operation_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -760,6 +811,8 @@ VALUES
   ('route:unload', '线路卸货', 'API'),
   ('route:void', '线路作废', 'API'),
   ('route:reactivate', '线路重新启用', 'API'),
+  ('route:transfer', '线路转派', 'API'),
+  ('route:salary:adjust', '线路参与工资调整', 'API'),
   ('route:weight:adjust', '线路重量调整', 'API'),
   ('expense:list', '费用列表', 'API'),
   ('expense:add', '费用新增', 'API'),

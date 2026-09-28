@@ -31,6 +31,8 @@ public enum PermissionCode {
     ROUTE_UNLOAD("route:unload"),
     ROUTE_VOID("route:void"),
     ROUTE_REACTIVATE("route:reactivate"),
+    ROUTE_TRANSFER("route:transfer"),
+    ROUTE_SALARY_ADJUST("route:salary:adjust"),
     ROUTE_WEIGHT_ADJUST("route:weight:adjust"),
     EXPENSE_LIST("expense:list"),
     EXPENSE_ADD("expense:add"),

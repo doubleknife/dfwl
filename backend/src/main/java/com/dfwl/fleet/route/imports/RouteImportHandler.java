@@ -7,6 +7,7 @@ import com.dfwl.fleet.imports.spi.ImportCommitResult;
 import com.dfwl.fleet.imports.spi.ImportRowContext;
 import com.dfwl.fleet.imports.spi.ImportValidationResult;
 import com.dfwl.fleet.route.repository.RouteImportRepository;
+import com.dfwl.fleet.route.repository.RouteParticipantRepository;
 import com.dfwl.fleet.route.repository.RouteImportRepository.BindingSnapshot;
 import com.dfwl.fleet.route.repository.RouteImportRepository.ImportedRoute;
 import java.math.BigDecimal;
@@ -24,9 +25,11 @@ import org.springframework.util.StringUtils;
 public class RouteImportHandler implements ImportBusinessHandler {
     private static final DateTimeFormatter NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     private final RouteImportRepository repository;
+    private final RouteParticipantRepository participants;
     private final NotificationService notifications;
-    public RouteImportHandler(RouteImportRepository repository, NotificationService notifications) {
+    public RouteImportHandler(RouteImportRepository repository, RouteParticipantRepository participants, NotificationService notifications) {
         this.repository = repository;
+        this.participants = participants;
         this.notifications = notifications;
     }
 
@@ -71,6 +74,8 @@ public class RouteImportHandler implements ImportBusinessHandler {
         long id = repository.insertRoute(route, context.operatorId());
         repository.insertRouteStatusHistory(id, route.status(), context.operatorId());
         if ("PUBLISHED".equals(route.status()) && route.assignedDriverId() != null) {
+            participants.createInitial(id, route.assignedDriverId(), "INTERNAL", route.importVehicleId(), null,
+                    route.driverSalary(), context.operatorId());
             notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":import", "ROUTE_ASSIGNED",
                     "有新的运输线路", "线路 " + route.routeNo() + " 已分配，请查看任务", "ROUTE", id);
         }
@@ -119,7 +124,7 @@ public class RouteImportHandler implements ImportBusinessHandler {
             if (vehicleId != null && !vehicleId.equals(binding.vehicleId())) {
                 throw new RouteValidationException(key, "ROUTE_003", "导入车辆与司机当前绑定车辆不匹配");
             }
-            if (bindingValid(binding)) {
+            if ("INTERNAL".equals(binding.driverType()) && bindingValid(binding)) {
                 status = "PUBLISHED";
                 vehicleId = binding.vehicleId();
             }

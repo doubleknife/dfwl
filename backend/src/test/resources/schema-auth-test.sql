@@ -164,6 +164,7 @@ CREATE TABLE route_task (
   tax_unit_price DECIMAL(18,4) NOT NULL,
   info_fee DECIMAL(18,2) NULL DEFAULT 0,
   assigned_driver_id BIGINT NULL,
+  current_participant_id BIGINT NULL,
   import_vehicle_id BIGINT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'UNPUBLISHED',
   departure_driver_id BIGINT NULL,
@@ -194,6 +195,43 @@ CREATE TABLE route_status_history (
   operator_id BIGINT NOT NULL,
   operation_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reason VARCHAR(500) NULL
+);
+
+CREATE TABLE route_participant (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  route_id BIGINT NOT NULL,
+  sequence_no INT NOT NULL,
+  driver_id BIGINT NOT NULL,
+  driver_type_snapshot VARCHAR(32) NULL,
+  company_vehicle_id BIGINT NULL,
+  outsourced_plate_no VARCHAR(32) NULL,
+  source_type VARCHAR(16) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  assigned_at TIMESTAMP NULL,
+  departed_at TIMESTAMP NULL,
+  ended_at TIMESTAMP NULL,
+  end_reason VARCHAR(500) NULL,
+  transfer_reason VARCHAR(500) NULL,
+  salary_amount DECIMAL(18,2) NULL CHECK (salary_amount >= 0),
+  historical_data_complete TINYINT NOT NULL DEFAULT 1,
+  version INT NOT NULL DEFAULT 0,
+  created_by BIGINT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by BIGINT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (route_id, sequence_no),
+  CONSTRAINT fk_test_participant_route FOREIGN KEY (route_id) REFERENCES route_task(id) ON DELETE CASCADE
+);
+
+CREATE TABLE route_participant_salary_history (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  participant_id BIGINT NOT NULL,
+  before_amount DECIMAL(18,2) NULL,
+  after_amount DECIMAL(18,2) NOT NULL CHECK (after_amount >= 0),
+  reason VARCHAR(500) NOT NULL,
+  operator_id BIGINT NOT NULL,
+  operation_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_test_participant_salary FOREIGN KEY (participant_id) REFERENCES route_participant(id) ON DELETE CASCADE
 );
 
 CREATE TABLE route_weight_version (
@@ -648,7 +686,8 @@ CREATE TABLE audit_log (
   operation_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reason VARCHAR(500) NULL,
   ip VARCHAR(64) NULL,
-  terminal VARCHAR(128) NULL
+  terminal VARCHAR(128) NULL,
+  request_id VARCHAR(64) NULL
 );
 
 CREATE TABLE in_app_notification (

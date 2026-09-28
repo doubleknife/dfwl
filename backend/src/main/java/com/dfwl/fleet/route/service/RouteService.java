@@ -5,7 +5,7 @@ import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.route.domain.RouteStatus;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.expense.service.ExpenseAttributionService;
+import com.dfwl.fleet.system.service.AuditWriteService;
 import com.dfwl.fleet.route.dto.response.DriverRouteResponse;
 import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
 import com.dfwl.fleet.route.dto.request.RouteRequest;
@@ -14,6 +14,7 @@ import com.dfwl.fleet.route.dto.response.RouteWeightVersionResponse;
 import com.dfwl.fleet.route.dto.request.UnloadRequest;
 import com.dfwl.fleet.route.dto.request.WeightAdjustmentRequest;
 import com.dfwl.fleet.route.repository.RouteRepository;
+import com.dfwl.fleet.route.repository.RouteParticipantRepository;
 import com.dfwl.fleet.route.repository.RouteRepository.LoadStandardConfig;
 import com.dfwl.fleet.route.repository.RouteRepository.RouteBindingSnapshot;
 import com.dfwl.fleet.route.policy.RouteAccessPolicy;
@@ -37,16 +38,18 @@ public class RouteService {
     private static final DateTimeFormatter ROUTE_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
     private final RouteRepository repository;
+    private final RouteParticipantRepository participants;
     private final CurrentUserService currentUserService;
     private final RouteAccessPolicy routeAccessPolicy;
-    private final ExpenseAttributionService expenseAttributionService;
+    private final AuditWriteService audit;
     private final NotificationService notifications;
 
-    public RouteService(RouteRepository repository, CurrentUserService currentUserService, ExpenseAttributionService expenseAttributionService, RouteAccessPolicy routeAccessPolicy, NotificationService notifications) {
+    public RouteService(RouteRepository repository, RouteParticipantRepository participants, CurrentUserService currentUserService, AuditWriteService audit, RouteAccessPolicy routeAccessPolicy, NotificationService notifications) {
         this.repository = repository;
+        this.participants = participants;
         this.currentUserService = currentUserService;
         this.routeAccessPolicy = routeAccessPolicy;
-        this.expenseAttributionService = expenseAttributionService;
+        this.audit = audit;
         this.notifications = notifications;
     }
 
@@ -72,6 +75,11 @@ public class RouteService {
 
     public RouteResponse find(long id) {
         return repository.find(id).orElseThrow(() -> new BusinessException(ErrorCode.ROUTE_001));
+    }
+
+    public List<RouteParticipantRepository.Participant> participants(long id) {
+        find(id);
+        return participants.list(id);
     }
 
     public DriverRouteResponse findForDriver(AuthenticatedUser user, long id) {
@@ -101,11 +109,17 @@ public class RouteService {
 
     @Transactional
     public RouteResponse update(long id, RouteRequest request, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse current = find(id);
         if (!RouteStatus.UNPUBLISHED.name().equals(current.status()) && !RouteStatus.PUBLISHED.name().equals(current.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
         validateCustomerProduct(request);
+        // A published participant is a historical assignment, never an editable projection.
+        if (RouteStatus.PUBLISHED.name().equals(current.status())
+                && !java.util.Objects.equals(current.assignedDriverId(), request.assignedDriverId())) {
+            throw new BusinessException(ErrorCode.ROUTE_002);
+        }
         String businessKey = businessKey(request);
         if (repository.duplicateBusinessKeyExists(businessKey, id)) {
             throw new BusinessException(ErrorCode.ROUTE_005);
@@ -118,7 +132,11 @@ public class RouteService {
 
     @Transactional
     public void delete(long id, long operatorId) {
-        find(id);
+        repository.lockRoute(id);
+        RouteResponse route = find(id);
+        if (RouteStatus.PUBLISHED.name().equals(route.status())) {
+            participants.cancelInitial(id, operatorId, "发车前删除线路");
+        }
         if (!repository.logicDelete(id, operatorId)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
@@ -126,14 +144,19 @@ public class RouteService {
 
     @Transactional
     public RouteResponse publish(long id, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.UNPUBLISHED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        validateDriverVehicle(route.assignedDriverId());
+        RouteBindingSnapshot snapshot = validateDriverVehicle(route.assignedDriverId());
         if (!repository.publish(id, route.status(), operatorId)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        if (!participants.list(id).isEmpty()) {
+            throw new BusinessException(ErrorCode.ROUTE_002);
+        }
+        participants.createInitial(id, snapshot.driverId(), snapshot.driverType(), snapshot.vehicleId(), null, null, operatorId);
         notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":publish", "ROUTE_ASSIGNED",
                 "有新的运输线路", "线路 " + route.routeNo() + " 已发布，请查看任务", "ROUTE", id);
         return find(id);
@@ -141,6 +164,7 @@ public class RouteService {
 
     @Transactional
     public RouteResponse depart(long id, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.PUBLISHED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
@@ -150,11 +174,13 @@ public class RouteService {
         if (!repository.depart(id, route.status(), snapshot, operatorId, LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.ROUTE_003);
         }
+        participants.departed(id, snapshot.driverId(), snapshot.vehicleId(), operatorId, LocalDateTime.now());
         return find(id);
     }
 
     @Transactional
     public RouteResponse unload(long id, UnloadRequest request, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.IN_TRANSIT.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
@@ -176,6 +202,7 @@ public class RouteService {
         if (!repository.unload(id, route.status(), weightVersionId, operatorId, LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        participants.completed(id, operatorId, LocalDateTime.now());
         return find(id);
     }
 
@@ -209,6 +236,7 @@ public class RouteService {
 
     @Transactional
     public RouteResponse cancel(long id, RouteReasonRequest request, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.UNPUBLISHED.name().equals(route.status()) && !RouteStatus.PUBLISHED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
@@ -217,38 +245,43 @@ public class RouteService {
                 request == null ? null : request.reason())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        participants.cancelInitial(id, operatorId, request == null ? null : request.reason());
         return find(id);
     }
 
     @Transactional
     public RouteResponse voidRoute(long id, RouteReasonRequest request, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
-        if (!RouteStatus.IN_TRANSIT.name().equals(route.status())) {
+        if (!RouteStatus.COMPLETED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
+        }
+        if (request == null || request.reason() == null || request.reason().isBlank()) {
+            throw new BusinessException(ErrorCode.SYS_002);
         }
         if (!repository.updateStatus(id, route.status(), RouteStatus.VOIDED.name(), "VOID", operatorId,
                 request == null ? null : request.reason())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        expenseAttributionService.onRouteVoided(
-                id,
-                operatorId,
-                request == null || request.reason() == null ? "线路作废，能源费用待确认归属" : request.reason());
+        audit.write("ROUTE", "ROUTE", id, "VOID",
+                java.util.Map.of("status", route.status()),
+                java.util.Map.of("status", RouteStatus.VOIDED.name()), operatorId, request.reason());
         return find(id);
     }
 
     @Transactional
     public RouteResponse reactivate(long id, long operatorId) {
+        repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.VOIDED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        validateDriverVehicle(route.assignedDriverId());
-        if (!repository.updateStatus(id, route.status(), RouteStatus.PUBLISHED.name(), "REACTIVATE", operatorId, null)) {
+        if (!repository.updateStatus(id, route.status(), RouteStatus.COMPLETED.name(), "REACTIVATE", operatorId, null)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        notifications.toDriver(route.assignedDriverId(), "route:assigned:" + id + ":reactivate", "ROUTE_ASSIGNED",
-                "运输线路已重新发布", "线路 " + route.routeNo() + " 可继续处理", "ROUTE", id);
+        audit.write("ROUTE", "ROUTE", id, "REACTIVATE",
+                java.util.Map.of("status", route.status()),
+                java.util.Map.of("status", RouteStatus.COMPLETED.name()), operatorId, null);
         return find(id);
     }
 
@@ -265,6 +298,10 @@ public class RouteService {
         RouteBindingSnapshot snapshot = repository.findBindingSnapshot(driverId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ROUTE_003));
         boolean validDriver = snapshot.driverStatus() == 1;
+        if (!"INTERNAL".equals(snapshot.driverType())) {
+            // The existing publish request has no outsourced plate/salary fields. BIZ-1B owns that flow.
+            throw new BusinessException(ErrorCode.ROUTE_003);
+        }
         boolean validVehicle = snapshot.vehicleId() != null
                 && snapshot.vehicleStatus() != null
                 && snapshot.vehicleStatus() == 1

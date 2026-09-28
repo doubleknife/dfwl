@@ -94,6 +94,8 @@ class DriverSalaryApiTests {
         jdbcTemplate.update("DELETE FROM file_attachment");
         jdbcTemplate.update("DELETE FROM route_weight_version");
         jdbcTemplate.update("DELETE FROM route_status_history");
+        jdbcTemplate.update("DELETE FROM route_participant_salary_history");
+        jdbcTemplate.update("DELETE FROM route_participant");
         jdbcTemplate.update("DELETE FROM route_task");
         jdbcTemplate.update("DELETE FROM driver_vehicle_current");
         jdbcTemplate.update("DELETE FROM vehicle");
@@ -501,6 +503,13 @@ class DriverSalaryApiTests {
                                                   load_standard_threshold, load_standard_met, source_type, operator_id)
                 VALUES (?, ?, 1, 30.000, 10.000, 20.000, 27.000, 0, 'UNLOAD', 101)
                 """, routeId, routeId);
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, source_type, status, salary_amount, created_by)
+                VALUES (?, 1, ?, 'INTERNAL', ?, 'INITIAL', 'COMPLETED', ?, 1)
+                """, routeId, driverId, driverId, salary == null ? null : new java.math.BigDecimal(salary));
+        jdbcTemplate.update("UPDATE route_task SET current_participant_id = (SELECT id FROM route_participant WHERE route_id = ?) WHERE id = ?",
+                routeId, routeId);
     }
 
     private void seedSalaryEntry(long routeId, long driverId, String month, String businessDate, String amount) {

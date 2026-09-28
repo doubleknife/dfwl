@@ -80,7 +80,7 @@ public class RouteImportRepository {
 
     public Optional<BindingSnapshot> driverBinding(long driverId) {
         return jdbcTemplate.query("""
-                SELECT d.id AS driver_id, d.status AS driver_status,
+                SELECT d.id AS driver_id, d.status AS driver_status, d.driver_type,
                        v.id AS vehicle_id, v.status AS vehicle_status, v.insurance_complete,
                        t.id AS trailer_id, t.status AS trailer_status, t.insurance_complete AS trailer_insurance_complete
                 FROM driver d
@@ -92,6 +92,7 @@ public class RouteImportRepository {
                 """, (rs, rowNum) -> new BindingSnapshot(
                 rs.getLong("driver_id"),
                 rs.getInt("driver_status"),
+                rs.getString("driver_type"),
                 readLong(rs, "vehicle_id"),
                 readInteger(rs, "vehicle_status"),
                 readInteger(rs, "insurance_complete"),
@@ -143,6 +144,7 @@ public class RouteImportRepository {
     public record BindingSnapshot(
             long driverId,
             int driverStatus,
+            String driverType,
             Long vehicleId,
             Integer vehicleStatus,
             Integer vehicleInsuranceComplete,

@@ -83,6 +83,7 @@ class RouteWeightAdjustmentTests {
                        (3, 'R3', 'r3', '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'D', 10.0000, 1, 'IN_TRANSIT', 1, 2, CURRENT_TIMESTAMP, NULL, NULL, 1),
                        (4, 'R4', 'r4', '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'E', 10.0000, 1, 'IN_TRANSIT', 1, 1, CURRENT_TIMESTAMP, NULL, NULL, 1)
                 """);
+        RouteParticipantFixture.backfill(jdbcTemplate);
         jdbcTemplate.update("""
                 INSERT INTO route_weight_version (id, route_id, version_no, gross_weight, tare_weight, net_weight,
                                                   load_standard_threshold, load_standard_met, source_type, operator_id, reason)

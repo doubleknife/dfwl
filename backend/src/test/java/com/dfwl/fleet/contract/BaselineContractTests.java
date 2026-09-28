@@ -24,8 +24,8 @@ class BaselineContractTests {
         String openapi = read("docs/openapi.yaml");
 
         assertThat(enumNames(RouteStatus.class))
-                .containsExactly("UNPUBLISHED", "PUBLISHED", "IN_TRANSIT", "COMPLETED", "VOIDED", "CANCELLED");
-        assertThat(openapi).contains("enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, COMPLETED, VOIDED, CANCELLED]");
+                .containsExactly("UNPUBLISHED", "PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING", "COMPLETED", "VOIDED", "CANCELLED");
+        assertThat(openapi).contains("enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]");
         assertThat(openapi).doesNotContain("DRAFT, PUBLISHED");
     }
 

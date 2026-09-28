@@ -198,15 +198,14 @@ class ExpenseImportMigrationTests {
     }
 
     @org.junit.jupiter.api.Test
-    void importedEnergyCanBeVoidedAndReattributed() throws Exception {
+    void importedEnergyFactsRemainAfterCompletedRouteVoid() throws Exception {
         jdbc.update("INSERT INTO customer (id,customer_name,status) VALUES (1,'C',1)");
         jdbc.update("INSERT INTO product (id,product_name,status) VALUES (1,'P',1)");
         long task=prepare(raw("ELECTRIC"),null);long id=imports.commit(task,7).rows().get(0).businessId();
+        jdbc.update("UPDATE route_task SET status = 'COMPLETED' WHERE id = 1");
         routes.voidRoute(1,new com.dfwl.fleet.route.dto.request.RouteReasonRequest("void"),7);
-        assertThat(jdbc.queryForMap("SELECT * FROM expense_entry WHERE id=?",id)).containsEntry("status","PENDING_ATTRIBUTION").containsEntry("route_id",1L);
-        expenseService.adjustAttribution(id,new com.dfwl.fleet.expense.dto.request.ExpenseAttributionRequest("DAILY",null,"confirmed"),7);
-        assertThat(jdbc.queryForMap("SELECT * FROM expense_entry WHERE id=?",id)).containsEntry("status","ACTIVE").containsEntry("route_id",null).containsEntry("attribution_type","DAILY");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id=?",Integer.class,id)).isEqualTo(2);
+        assertThat(jdbc.queryForMap("SELECT * FROM expense_entry WHERE id=?",id)).containsEntry("status","ACTIVE").containsEntry("route_id",1L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id=?",Integer.class,id)).isZero();
     }
 
     @org.junit.jupiter.api.Test

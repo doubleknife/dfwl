@@ -33,4 +33,10 @@
 29. **git diff --check**：完成后执行；无空白错误。既有本机配置文件出现 Git 的 LF/CRLF 提示，不是本轮文档空白缺陷。
 30. **git status**：本阶段预期为 AGENTS.md、七份 Word、docs/15、docs/16、本文；另有进入阶段前已存在的本机 application.yml 与微信 project.config.json 差异。未暂存、未提交。
 
+## BIZ-1A 验收后的冻结补充
+
+此节记录 BIZ-1A 验收后的新增决策，不改写上述 BIZ-1P 阶段历史结论。创建司机时，新手机号由后台创建人填写初始密码并建立安全哈希 DRIVER User；已有合法 DRIVER User 则只关联且不改密码。密码不明文返回、不写 Audit/日志，重置沿用正式流程。外协初始线路需真实外协车牌与必填工资（允许 `0.00`）；无 `vehicleId`、公司 vehicle 查询/创建或绑定，校验分支只能由后端 `Driver.driverType` 决定。这两项已进入 docs/15、docs/16 和相应正式 Word 的目标基线；BIZ-1A 只具备账号服务及参与结构底座，后续入口不能据此声称已实现。
+
+BIZ-1A 已确认 V8 不写 Settlement 表且原数据仍存在。旧 Snapshot 升级前后逐字段/hash 不变性尚未比较，作为 NON-BLOCKING 限制留给 BIZ-1R 最终验收。
+
 文档结构核验：七份 DOCX ZIP 校验通过，首段均为 V2 修订，并检查各文档关键目标词条。专用 DOCX 渲染器在当前 Windows 运行环境缺少 `soffice.exe`，未能完成逐页 PNG 排版验收；这是文档视觉核验的剩余限制，不影响上述结构核验结论。

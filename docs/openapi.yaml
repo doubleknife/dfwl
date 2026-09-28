@@ -93,7 +93,7 @@ paths:
       responses: {'200': {description: OK}}
     post:
       tags: [System]
-      summary: 新增账号并分配单一角色
+      summary: 新增账号并分配单一非 DRIVER 角色；DRIVER 只能由司机业务流程创建或关联
       x-permission: user:manage
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -106,7 +106,7 @@ paths:
       responses: {'200': {description: OK}}
     put:
       tags: [System]
-      summary: 编辑账号并保持单一角色
+      summary: 编辑非 DRIVER 账号并保持单一角色；不可借此修改现有 DRIVER 账号或分配 DRIVER
       x-permission: user:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
@@ -243,6 +243,15 @@ paths:
       summary: 新增司机
       x-permission: driver:add
       responses: {'200': {description: OK}}
+  /drivers/binding-candidates:
+    get:
+      tags: [Drivers]
+      summary: 公司车辆绑定候选司机，仅返回启用的 INTERNAL 司机
+      x-permission: driver:bindVehicle
+      parameters:
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+      responses: {'200': {description: OK}}
   /drivers/{id}:
     get:
       tags: [Drivers]
@@ -259,7 +268,7 @@ paths:
   /drivers/{id}/bind-vehicle:
     post:
       tags: [Drivers]
-      summary: 绑定车辆
+      summary: 绑定公司车辆；OUTSOURCED 后端强制拒绝
       x-permission: driver:bindVehicle
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -359,15 +368,15 @@ paths:
   /routes:
     get:
       tags: [Routes]
-      summary: 线路分页列表；司机仅返回本人当前分配或历史发车线路
+      summary: 线路分页列表；司机仅返回本人参与线路，按路线分页不重复
       x-permission: route:list
       parameters:
         - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
         - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
-        - {name: status, in: query, required: false, description: 精确状态筛选，不改变司机线路归属范围, schema: {type: string, enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, COMPLETED, VOIDED, CANCELLED]}}
+        - {name: status, in: query, required: false, description: 精确状态筛选，不改变司机线路归属范围, schema: {type: string, enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]}}
         - {name: businessDate, in: query, required: false, description: 管理端业务日期精确筛选, schema: {type: string, format: date}}
         - {name: customerId, in: query, required: false, description: 管理端客户精确筛选, schema: {type: integer, format: int64}}
-        - {name: driverId, in: query, required: false, description: 管理端分配司机精确筛选, schema: {type: integer, format: int64}}
+        - {name: driverId, in: query, required: false, description: 管理端参与司机精确筛选, schema: {type: integer, format: int64}}
         - {name: keyword, in: query, required: false, description: 管理端线路号或装卸地点包含筛选, schema: {type: string}}
       responses: {'200': {description: OK}}
     post:
@@ -393,6 +402,13 @@ paths:
       tags: [Routes]
       summary: 发车前逻辑删除
       x-permission: route:delete
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /routes/{id}/participants:
+    get:
+      tags: [Routes]
+      summary: 管理端按 sequenceNo 查询已存在的线路参与记录；本阶段不提供转派或参与工资调整写入
+      x-permissions: [route:list, salary:view]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /routes/{id}/publish:
@@ -427,14 +443,15 @@ paths:
   /routes/{id}/void:
     post:
       tags: [Routes]
-      summary: 运输中作废
+      summary: 仅已完成线路可作废，原因必填；经营影响口径将在 BIZ-1C 实施
       x-permission: route:void
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteReasonRequest'}}}}
       responses: {'200': {description: OK}}
   /routes/{id}/reactivate:
     post:
       tags: [Routes]
-      summary: 作废线路重新启用并强校验
+      summary: 作废线路恢复为 COMPLETED，不再次发布或发车
       x-permission: route:reactivate
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -1353,7 +1370,7 @@ components:
         terminal: {type: [string, 'null']}
     RouteStatus:
       type: string
-      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, COMPLETED, VOIDED, CANCELLED]
+      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]
     AttachmentPurpose:
       type: string
       enum: [TIRE_OCR, WEIGHT_ADJUST, APPROVAL_APPLICATION, APPROVAL_ACTION, IMPORT_FILE]
@@ -1892,6 +1909,11 @@ components:
         taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
         externalRouteNo: {type: [string, 'null']}
         tripSequence: {type: [string, 'null']}
+    RouteReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, description: 作废原因必填且不可只含空白}
     UnloadRequest:
       type: object
       required: [grossWeight, tareWeight]
@@ -1975,6 +1997,8 @@ components:
         - route:unload
         - route:void
         - route:reactivate
+        - route:transfer
+        - route:salary:adjust
         - route:weight:adjust
         - expense:list
         - expense:add

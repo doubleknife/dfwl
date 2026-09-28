@@ -34,23 +34,20 @@ public class RouteRepository {
     public boolean canDriverViewRoute(long routeId, long driverId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND (
-                    assigned_driver_id = ?
-                    OR departure_driver_id = ?
-                  )
-                """, Integer.class, routeId, driverId, driverId);
+                FROM route_task r
+                WHERE r.id = ? AND r.deleted_at IS NULL
+                  AND EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id AND p.driver_id = ?)
+                """, Integer.class, routeId, driverId);
         return count != null && count > 0;
     }
 
     public boolean canDriverDepartRoute(long routeId, long driverId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND status = ?
-                  AND assigned_driver_id = ?
+                FROM route_task r
+                JOIN route_participant p ON p.id = r.current_participant_id AND p.route_id = r.id
+                WHERE r.id = ? AND r.deleted_at IS NULL
+                  AND r.status = ? AND p.status = 'ASSIGNED' AND p.driver_id = ?
                 """, Integer.class, routeId, RouteStatus.PUBLISHED.name(), driverId);
         return count != null && count > 0;
     }
@@ -58,10 +55,10 @@ public class RouteRepository {
     public boolean canDriverUnloadRoute(long routeId, long driverId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE id = ? AND deleted_at IS NULL
-                  AND status = ?
-                  AND departure_driver_id = ?
+                FROM route_task r
+                JOIN route_participant p ON p.id = r.current_participant_id AND p.route_id = r.id
+                WHERE r.id = ? AND r.deleted_at IS NULL
+                  AND r.status = ? AND p.status = 'IN_TRANSIT' AND p.driver_id = ?
                 """, Integer.class, routeId, RouteStatus.IN_TRANSIT.name(), driverId);
         return count != null && count > 0;
     }
@@ -95,7 +92,8 @@ public class RouteRepository {
             parameters.add(customerId);
         }
         if (driverId != null) {
-            filter.append(" AND r.assigned_driver_id = ?");
+            filter.append(" AND (r.assigned_driver_id = ? OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id AND p.driver_id = ?))");
+            parameters.add(driverId);
             parameters.add(driverId);
         }
         if (keyword != null && !keyword.isBlank()) {
@@ -122,15 +120,14 @@ public class RouteRepository {
     public PageResponse<RouteResponse> listForDriver(long driverId, int pageNo, int pageSize, String status) {
         String filter = status == null || status.isBlank() ? "" : " AND r.status = ?";
         Object[] filterArgs = filter.isEmpty() ? new Object[0] : new Object[]{status.trim()};
-        Object[] scopedArgs = new Object[2 + filterArgs.length];
+        Object[] scopedArgs = new Object[1 + filterArgs.length];
         scopedArgs[0] = driverId;
-        scopedArgs[1] = driverId;
-        System.arraycopy(filterArgs, 0, scopedArgs, 2, filterArgs.length);
+        System.arraycopy(filterArgs, 0, scopedArgs, 1, filterArgs.length);
         Long total = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
                 FROM route_task r
                 WHERE r.deleted_at IS NULL
-                  AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?)
+                  AND EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id AND p.driver_id = ?)
                 %s
                 """.formatted(filter), Long.class, scopedArgs);
         List<RouteResponse> records = jdbcTemplate.query("""
@@ -139,7 +136,7 @@ public class RouteRepository {
                 FROM route_task r
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.deleted_at IS NULL
-                  AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?)
+                  AND EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id AND p.driver_id = ?)
                 %s
                 ORDER BY r.id DESC
                 LIMIT ? OFFSET ?
@@ -229,7 +226,7 @@ public class RouteRepository {
 
     public Optional<RouteBindingSnapshot> findBindingSnapshot(long driverId) {
         return jdbcTemplate.query("""
-                SELECT d.id AS driver_id, d.status AS driver_status,
+                SELECT d.id AS driver_id, d.status AS driver_status, d.driver_type,
                        v.id AS vehicle_id, v.status AS vehicle_status, v.insurance_complete,
                        t.id AS trailer_id, t.status AS trailer_status, t.insurance_complete AS trailer_insurance_complete
                 FROM driver d
@@ -241,6 +238,7 @@ public class RouteRepository {
                 """, (rs, rowNum) -> new RouteBindingSnapshot(
                 rs.getLong("driver_id"),
                 rs.getInt("driver_status"),
+                rs.getString("driver_type"),
                 readLong(rs, "vehicle_id"),
                 readInteger(rs, "vehicle_status"),
                 readInteger(rs, "insurance_complete"),
@@ -286,7 +284,7 @@ public class RouteRepository {
                     SELECT 1 FROM (
                       SELECT id FROM route_task
                       WHERE id <> ?
-                        AND status = 'IN_TRANSIT'
+                        AND status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
                         AND departure_vehicle_id = ?
                         AND deleted_at IS NULL
                     ) busy_vehicle
@@ -488,6 +486,7 @@ public class RouteRepository {
     public record RouteBindingSnapshot(
             long driverId,
             int driverStatus,
+            String driverType,
             Long vehicleId,
             Integer vehicleStatus,
             Integer vehicleInsuranceComplete,

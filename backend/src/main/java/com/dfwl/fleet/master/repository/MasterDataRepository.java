@@ -166,6 +166,25 @@ public class MasterDataRepository {
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
+    public PageResponse<DriverResponse> listBindingCandidates(int pageNo, int pageSize) {
+        long total = count("driver", "deleted_at IS NULL AND status = 1 AND driver_type = 'INTERNAL'");
+        List<DriverResponse> records = jdbcTemplate.query("""
+                SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
+                FROM driver d
+                LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
+                LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
+                WHERE d.deleted_at IS NULL AND d.status = 1 AND d.driver_type = 'INTERNAL'
+                ORDER BY d.id DESC LIMIT ? OFFSET ?
+                """, (rs, rowNum) -> new DriverResponse(
+                rs.getLong("id"), readLong(rs, "user_id"), rs.getString("driver_type"),
+                rs.getString("name"), rs.getString("phone"), rs.getString("vehicle_license_no"),
+                rs.getString("driving_license_no"), rs.getString("id_card_no"),
+                rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
+                rs.getInt("status"), readLong(rs, "current_vehicle_id"),
+                rs.getString("current_vehicle_plate_no")), pageSize, offset(pageNo, pageSize));
+        return new PageResponse<>(pageNo, pageSize, total, records);
+    }
+
     public Optional<DriverResponse> findDriver(long id) {
         return jdbcTemplate.query("""
                 SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
@@ -239,6 +258,32 @@ public class MasterDataRepository {
                 """, request.driverType(), request.name(), request.phone(), request.vehicleLicenseNo(),
                 request.drivingLicenseNo(), request.idCardNo(),
                 request.birthDate() == null ? null : Date.valueOf(request.birthDate()), request.status(), id) == 1;
+    }
+
+    public boolean hasDriverRouteOrSalaryHistory(long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT
+                  (SELECT COUNT(*) FROM route_task WHERE assigned_driver_id = ? OR departure_driver_id = ?)
+                + (SELECT COUNT(*) FROM route_participant WHERE driver_id = ?)
+                + (SELECT COUNT(*) FROM driver_salary_entry WHERE driver_id = ?)
+                + (SELECT COUNT(*) FROM driver_salary_history WHERE driver_id = ?)
+                """, Integer.class, driverId, driverId, driverId, driverId, driverId);
+        return count != null && count > 0;
+    }
+
+    public void lockDriver(long driverId) {
+        jdbcTemplate.queryForList("SELECT id FROM driver WHERE id = ? AND deleted_at IS NULL FOR UPDATE", Long.class, driverId);
+    }
+
+    public int activeDriversWithPhone(String phone) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM driver WHERE phone = ? AND deleted_at IS NULL", Integer.class, phone);
+        return count == null ? 0 : count;
+    }
+
+    public boolean linkDriverUser(long driverId, long userId) {
+        return jdbcTemplate.update("UPDATE driver SET user_id = ? WHERE id = ? AND user_id IS NULL AND deleted_at IS NULL",
+                userId, driverId) == 1;
     }
 
     public PageResponse<VehicleResponse> listVehicles(int pageNo, int pageSize) {
@@ -569,20 +614,25 @@ public class MasterDataRepository {
     public boolean hasInTransitDriverOrVehicle(long driverId, long vehicleId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE status = 'IN_TRANSIT'
-                  AND (assigned_driver_id = ? OR departure_driver_id = ? OR import_vehicle_id = ? OR departure_vehicle_id = ?)
-                """, Integer.class, driverId, driverId, vehicleId, vehicleId);
+                FROM route_task r
+                WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
+                  AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?
+                       OR r.import_vehicle_id = ? OR r.departure_vehicle_id = ?
+                       OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
+                                  AND (p.driver_id = ? OR p.company_vehicle_id = ?)))
+                """, Integer.class, driverId, driverId, vehicleId, vehicleId, driverId, vehicleId);
         return count != null && count > 0;
     }
 
     public boolean hasInTransitVehicleOrTrailer(long vehicleId, long trailerId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task
-                WHERE status = 'IN_TRANSIT'
-                  AND (import_vehicle_id = ? OR departure_vehicle_id = ? OR departure_trailer_id = ?)
-                """, Integer.class, vehicleId, vehicleId, trailerId);
+                FROM route_task r
+                WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
+                  AND (r.import_vehicle_id = ? OR r.departure_vehicle_id = ? OR r.departure_trailer_id = ?
+                       OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
+                                  AND p.company_vehicle_id = ?))
+                """, Integer.class, vehicleId, vehicleId, trailerId, vehicleId);
         return count != null && count > 0;
     }
 

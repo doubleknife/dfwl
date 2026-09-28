@@ -79,6 +79,13 @@ public class RouteController {
         return ApiResponse.success(routeService.find(id), RequestIdHolder.get());
     }
 
+    @GetMapping("/{id}/participants")
+    @PreAuthorize("hasAuthority('route:list') and hasAuthority('salary:view')")
+    public ApiResponse<?> participants(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(routeService.participants(id), RequestIdHolder.get());
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('route:edit')")
     public ApiResponse<RouteResponse> update(

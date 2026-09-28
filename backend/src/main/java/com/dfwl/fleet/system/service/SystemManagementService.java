@@ -24,10 +24,12 @@ public class SystemManagementService {
 
     private final SystemManagementRepository repository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditWriteService audit;
 
-    public SystemManagementService(SystemManagementRepository repository, PasswordEncoder passwordEncoder) {
+    public SystemManagementService(SystemManagementRepository repository, PasswordEncoder passwordEncoder, AuditWriteService audit) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
+        this.audit = audit;
     }
 
     public PageResponse<UserResponse> listUsers(int pageNo, int pageSize) {
@@ -54,6 +56,9 @@ public class SystemManagementService {
 
     @Transactional
     public UserResponse updateUser(long id, UserRequest request, long operatorId) {
+        if ("DRIVER".equals(repository.userRoleCode(id))) {
+            throw new BusinessException(ErrorCode.AUTH_003);
+        }
         validateRole(request.roleId());
         try {
             if (repository.updateUser(id, request, operatorId) != 1) {
@@ -108,8 +113,9 @@ public class SystemManagementService {
     }
 
     @Transactional
-    public RoleResponse replaceRolePermissions(long roleId, RolePermissionRequest request) {
+    public RoleResponse replaceRolePermissions(long roleId, RolePermissionRequest request, long operatorId) {
         findRole(roleId);
+        List<String> before = repository.rolePermissions(roleId).stream().map(PermissionResponse::permissionCode).sorted().toList();
         List<String> codes = request.permissionCodes() == null
                 ? List.of()
                 : new LinkedHashSet<>(request.permissionCodes()).stream().toList();
@@ -118,6 +124,9 @@ public class SystemManagementService {
             throw new BusinessException(ErrorCode.SYS_002);
         }
         repository.replaceRolePermissions(roleId, permissions.stream().map(PermissionResponse::id).toList());
+        audit.write("SYSTEM", "ROLE", roleId, "REPLACE_PERMISSIONS",
+                java.util.Map.of("permissions", before),
+                java.util.Map.of("permissions", codes.stream().sorted().toList()), operatorId, null);
         return findRole(roleId);
     }
 
@@ -127,8 +136,12 @@ public class SystemManagementService {
     }
 
     private void validateRole(long roleId) {
-        if (!repository.roleExists(roleId)) {
+        String roleCode = repository.roleCode(roleId);
+        if (roleCode == null) {
             throw new BusinessException(ErrorCode.SYS_002);
+        }
+        if ("DRIVER".equals(roleCode)) {
+            throw new BusinessException(ErrorCode.AUTH_003);
         }
     }
 

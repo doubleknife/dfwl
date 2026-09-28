@@ -117,35 +117,16 @@ class EnergyAttributionTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"ELECTRIC", "GAS", "TEMP_ELECTRIC"})
-    void routeVoidMovesMatchedEnergyExpensesToPendingAttribution(String energyType) throws Exception {
+    void completedRouteVoidPreservesEnergyExpenseFacts(String energyType) throws Exception {
         long expenseId = createEnergyExpense("E-VOID", energyType, "2026-09-10T09:00:00");
-
-        mockMvc.perform(post("/api/v1/routes/1/void")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"异常作废\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("VOIDED"));
-
+        completeRouteForVoid();
+        voidRouteSuccessfully("{\"reason\":\"完成后作废\"}");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
-                .isEqualTo("PENDING_ATTRIBUTION");
-        assertThat(jdbcTemplate.queryForObject("SELECT attribution_type FROM expense_entry WHERE id = ?", String.class, expenseId))
-                .isEqualTo("ROUTE");
+                .isEqualTo("ACTIVE");
         assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId))
                 .isEqualTo(1L);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = ?", Integer.class, expenseId))
-                .isEqualTo(1);
-        var history = jdbcTemplate.queryForMap("SELECT * FROM expense_attribution_history WHERE expense_id = ?", expenseId);
-        assertThat(history.get("before_attribution_type")).isEqualTo("ROUTE");
-        assertThat(history.get("after_attribution_type")).isEqualTo("ROUTE");
-        assertThat(history.get("before_route_id")).isEqualTo(1L);
-        assertThat(history.get("after_route_id")).isEqualTo(1L);
-        assertThat(history.get("before_status")).isEqualTo("ACTIVE");
-        assertThat(history.get("after_status")).isEqualTo("PENDING_ATTRIBUTION");
-        assertThat(history.get("operator_id")).isEqualTo(1L);
-        assertThat(history.get("operation_time")).isNotNull();
-        assertThat(history.get("reason")).isEqualTo("异常作废");
-        assertThat(jdbcTemplate.queryForObject("SELECT updated_by FROM expense_entry WHERE id = ?", Long.class, expenseId)).isEqualTo(1L);
+                .isZero();
     }
 
     @Test
@@ -186,19 +167,14 @@ class EnergyAttributionTests {
     }
 
     @Test
-    void nonEnergyExpenseIsNotChangedWhenRouteVoided() throws Exception {
+    void nonEnergyExpenseIsNotChangedWhenCompletedRouteVoided() throws Exception {
         jdbcTemplate.update("""
                 INSERT INTO expense_entry (id, expense_no, expense_type, business_date, vehicle_id, attribution_type,
                                            route_id, amount, source_type, status, created_by)
                 VALUES (100, 'R-REPAIR', 'REPAIR', '2026-09-10', 1, 'ROUTE', 1, 66.00, 'MANUAL', 'ACTIVE', 1)
                 """);
-
-        mockMvc.perform(post("/api/v1/routes/1/void")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"异常作废\"}"))
-                .andExpect(status().isOk());
-
+        completeRouteForVoid();
+        voidRouteSuccessfully("{\"reason\":\"完成后作废\"}");
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = 100", String.class))
                 .isEqualTo("ACTIVE");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = 100", Integer.class))
@@ -206,21 +182,15 @@ class EnergyAttributionTests {
     }
 
     @Test
-    void reactivatingRouteDoesNotRestorePendingEnergyAttribution() throws Exception {
+    void reactivatedRouteReturnsToCompletedWithoutRewritingEnergy() throws Exception {
         long expenseId = createEnergyExpense("E-REACT", "ELECTRIC", "2026-09-10T09:00:00");
-        mockMvc.perform(post("/api/v1/routes/1/void")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"异常作废\"}"))
-                .andExpect(status().isOk());
-
+        completeRouteForVoid();
+        voidRouteSuccessfully("{\"reason\":\"完成后作废\"}");
         mockMvc.perform(post("/api/v1/routes/1/reactivate").header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("COMPLETED"));
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
-                .isEqualTo("PENDING_ATTRIBUTION");
-        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId))
-                .isEqualTo(1L);
+                .isEqualTo("ACTIVE");
     }
 
     @Test
@@ -253,119 +223,69 @@ class EnergyAttributionTests {
                 .isEqualByComparingTo("30.00");
     }
 
-    @Test
-    void voidTransactionRollsBackExpensePendingUpdateWhenHistoryWriteFails() throws Exception {
-        long expenseId = createEnergyExpense("E-ROLLBACK", "ELECTRIC", "2026-09-10T09:00:00");
-        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
-        jdbcTemplate.execute("ALTER TABLE expense_attribution_history ALTER COLUMN reason VARCHAR(1)");
-
-        mockMvc.perform(post("/api/v1/routes/1/void")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"超过长度\"}"))
-                .andExpect(status().is5xxServerError());
-
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
-                .isEqualTo("IN_TRANSIT");
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
-                .isEqualTo("ACTIVE");
-        assertVoidRolledBack(expenseId, version);
-    }
-
     @ParameterizedTest
-    @ValueSource(strings = {"PENDING_ATTRIBUTION", "REVERSED", "REVERSAL"})
-    void nonActiveEnergyExpenseIsNotChangedWhenRouteVoided(String expenseStatus) throws Exception {
-        long expenseId = createEnergyExpense("E-NON-ACTIVE", "ELECTRIC", "2026-09-10T09:00:00");
-        jdbcTemplate.update("UPDATE expense_entry SET status = ? WHERE id = ?", expenseStatus, expenseId);
-
-        voidRouteSuccessfully("{\"reason\":\"异常作废\"}");
-
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
-                .isEqualTo(expenseStatus);
-        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId))
-                .isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"UNPUBLISHED", "PUBLISHED", "COMPLETED", "CANCELLED", "VOIDED"})
-    void disallowedRouteVoidDoesNotChangeEnergyExpenses(String routeStatus) throws Exception {
+    @ValueSource(strings = {"UNPUBLISHED", "PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING", "CANCELLED", "VOIDED"})
+    void onlyCompletedRouteCanBeVoided(String routeStatus) throws Exception {
         long expenseId = createEnergyExpense("E-INVALID-ROUTE", "ELECTRIC", "2026-09-10T09:00:00");
         jdbcTemplate.update("UPDATE route_task SET status = ? WHERE id = 1", routeStatus);
-
         mockMvc.perform(post("/api/v1/routes/1/void")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"不允许作废\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ROUTE_002"));
-
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo(routeStatus);
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("ACTIVE");
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history", Integer.class)).isZero();
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
+                .isEqualTo("ACTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE route_id = 1", Integer.class))
+                .isZero();
     }
 
     @Test
-    void repeatedRouteVoidDoesNotDuplicateAttributionHistory() throws Exception {
+    void repeatedCompletedRouteVoidIsRejectedWithoutChangingExpense() throws Exception {
         long expenseId = createEnergyExpense("E-REPEAT", "GAS", "2026-09-10T09:00:00");
+        completeRouteForVoid();
         voidRouteSuccessfully("{\"reason\":\"首次作废\"}");
-
         mockMvc.perform(post("/api/v1/routes/1/void")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"重复作废\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ROUTE_002"));
-
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("PENDING_ATTRIBUTION");
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE operation_type = 'VOID'", Integer.class)).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM expense_attribution_history", String.class)).isEqualTo("首次作废");
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE route_id = 1 AND operation_type = 'VOID'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
+                .isEqualTo("ACTIVE");
     }
 
     @Test
-    void routeHistoryFailureLeavesEnergyExpensesUnchanged() throws Exception {
-        long expenseId = createEnergyExpense("E-ROUTE-FAILURE", "ELECTRIC", "2026-09-10T09:00:00");
-        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
-
+    void blankReasonDoesNotVoidCompletedRoute() throws Exception {
+        completeRouteForVoid();
         mockMvc.perform(post("/api/v1/routes/1/void")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"" + "x".repeat(501) + "\"}"))
-                .andExpect(status().is5xxServerError());
-
-        assertVoidRolledBack(expenseId, version);
+                        .content("{}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
+                .isEqualTo("COMPLETED");
     }
 
     @Test
-    void outerTransactionFailureRollsBackSuccessfulRouteAndExpenseChanges() throws Exception {
+    void outerTransactionFailureRollsBackRouteVoidAndPreservesExpense() throws Exception {
         long expenseId = createEnergyExpense("E-OUTER-ROLLBACK", "ELECTRIC", "2026-09-10T09:00:00");
-        Integer version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class);
-
+        completeRouteForVoid();
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
             routeService.voidRoute(1, new RouteReasonRequest("外层回滚"), 1);
-            assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("VOIDED");
-            assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
-                    .isEqualTo("PENDING_ATTRIBUTION");
-            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isEqualTo(1);
-            throw new IllegalStateException("fail after business effects");
-        })).isInstanceOf(IllegalStateException.class).hasMessage("fail after business effects");
-
-        assertVoidRolledBack(expenseId, version);
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
+                    .isEqualTo("VOIDED");
+            throw new IllegalStateException("fail after route change");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
+                .isEqualTo("COMPLETED");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId))
+                .isEqualTo("ACTIVE");
     }
 
-    @Test
-    void voidWithoutReasonPreservesDefaultExpenseHistoryReason() throws Exception {
-        createEnergyExpense("E-DEFAULT-REASON", "ELECTRIC", "2026-09-10T09:00:00");
-
-        voidRouteSuccessfully("{}");
-
-        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM expense_attribution_history", String.class))
-                .isEqualTo("线路作废，能源费用待确认归属");
-        assertThat(jdbcTemplate.queryForObject("SELECT reason FROM route_status_history WHERE operation_type = 'VOID'", String.class))
-                .isNull();
+    private void completeRouteForVoid() {
+        jdbcTemplate.update("UPDATE route_task SET status = 'COMPLETED' WHERE id = 1");
     }
 
     private void voidRouteSuccessfully(String request) throws Exception {
@@ -376,16 +296,6 @@ class EnergyAttributionTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("VOIDED"));
     }
-
-    private void assertVoidRolledBack(long expenseId, Integer version) {
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class)).isEqualTo("IN_TRANSIT");
-        assertThat(jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = 1", Integer.class)).isEqualTo(version);
-        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, expenseId)).isEqualTo("ACTIVE");
-        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, expenseId)).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_status_history", Integer.class)).isZero();
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
-    }
-
 
     private long createEnergyExpense(String no, String type, String startTime) throws Exception {
         mockMvc.perform(post("/api/v1/expenses")

@@ -138,6 +138,16 @@ public class MasterDataController {
         return ApiResponse.success(masterDataService.listDrivers(pageNo, pageSize), RequestIdHolder.get());
     }
 
+    @GetMapping("/drivers/binding-candidates")
+    @PreAuthorize("hasAuthority('driver:bindVehicle')")
+    public ApiResponse<PageResponse<DriverResponse>> bindingCandidates(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(masterDataService.listBindingCandidates(pageNo, pageSize), RequestIdHolder.get());
+    }
+
     @PostMapping("/drivers")
     @PreAuthorize("hasAuthority('driver:add')")
     public ApiResponse<DriverResponse> createDriver(
@@ -163,7 +173,7 @@ public class MasterDataController {
             @PathVariable long id,
             @Valid @RequestBody DriverRequest request) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.updateDriver(id, request), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.updateDriver(id, request, user.id()), RequestIdHolder.get());
     }
 
     @PostMapping("/drivers/{id}/bind-vehicle")

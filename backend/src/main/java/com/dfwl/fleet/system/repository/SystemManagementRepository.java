@@ -73,6 +73,36 @@ public class SystemManagementRepository {
         return count != null && count > 0;
     }
 
+    public String roleCode(long roleId) {
+        return jdbcTemplate.query("SELECT role_code FROM sys_role WHERE id = ?", (rs, ignored) -> rs.getString(1), roleId)
+                .stream().findFirst().orElse(null);
+    }
+
+    public String userRoleCode(long userId) {
+        return jdbcTemplate.query("""
+                SELECT r.role_code FROM sys_user u JOIN sys_role r ON r.id = u.role_id WHERE u.id = ?
+                """, (rs, ignored) -> rs.getString(1), userId).stream().findFirst().orElse(null);
+    }
+
+    public Long driverRoleId() {
+        return jdbcTemplate.query("SELECT id FROM sys_role WHERE role_code = 'DRIVER' AND status = 1",
+                (rs, ignored) -> rs.getLong(1)).stream().findFirst().orElse(null);
+    }
+
+    public Optional<UserResponse> findUserByPhoneForUpdate(String phone) {
+        return jdbcTemplate.query("""
+                SELECT u.*, r.role_code, r.role_name
+                FROM sys_user u JOIN sys_role r ON r.id = u.role_id
+                WHERE u.phone = ? FOR UPDATE
+                """, (rs, ignored) -> new UserResponse(
+                rs.getLong("id"), rs.getString("phone"), rs.getLong("role_id"),
+                rs.getString("role_code"), rs.getString("role_name"), rs.getInt("status"),
+                rs.getTimestamp("last_login_at") == null ? null : rs.getTimestamp("last_login_at").toLocalDateTime(),
+                readLong(rs, "created_by"), rs.getTimestamp("created_at").toLocalDateTime(),
+                readLong(rs, "updated_by"), rs.getTimestamp("updated_at").toLocalDateTime()), phone)
+                .stream().findFirst();
+    }
+
     public long createUser(UserRequest request, String passwordHash, long operatorId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
