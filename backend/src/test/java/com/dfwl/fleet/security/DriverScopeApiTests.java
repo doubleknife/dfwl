@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dfwl.fleet.master.policy.VehicleAccessPolicy;
 import com.dfwl.fleet.route.policy.RouteAccessPolicy;
+import com.dfwl.fleet.route.RouteTicketFixture;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.util.Set;
@@ -59,6 +60,8 @@ class DriverScopeApiTests {
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM route_unload_evidence");
+        jdbcTemplate.update("DELETE FROM file_attachment");
         jdbcTemplate.update("DELETE FROM tire_claim");
         jdbcTemplate.update("DELETE FROM tire_request_item");
         jdbcTemplate.update("DELETE FROM tire_request");
@@ -206,6 +209,7 @@ class DriverScopeApiTests {
         jdbcTemplate.update("DELETE FROM driver_vehicle_current WHERE driver_id IN (1, 2)");
         jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (2, 1, CURRENT_TIMESTAMP, 1)");
 
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 3, 101);
         mockMvc.perform(post("/api/v1/routes/3/unload")
                         .header("Authorization", "Bearer " + driverBToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -215,7 +219,7 @@ class DriverScopeApiTests {
         mockMvc.perform(post("/api/v1/routes/3/unload")
                         .header("Authorization", "Bearer " + driverAToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"grossWeight\":30.000,\"tareWeight\":10.000}"))
+                        .content("{\"grossWeight\":30.000,\"tareWeight\":10.000,\"evidenceAttachmentIds\":[" + ticket + "]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"));
     }
@@ -226,7 +230,39 @@ class DriverScopeApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(1))
                 .andReturn().getResponse().getContentAsString();
-        assertThat(body).doesNotContain("taxUnitPrice", "driverSalary", "profit", "income", "expense", "attribution");
+        assertThat(body).doesNotContain("taxUnitPrice", "driverSalary", "profit", "income", "expense", "attribution",
+                "loadStandardMet", "loadStandardThreshold", "salaryAmount");
+    }
+
+    @Test
+    void driverCannotReadManagementWeightVersionsOrGuessThreshold() throws Exception {
+        mockMvc.perform(get("/api/v1/routes/3/weight-versions")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_003"));
+        mockMvc.perform(get("/api/v1/routes/2/weight-versions")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_003"));
+        mockMvc.perform(get("/api/v1/routes/3/weight-versions")
+                        .header("Authorization", "Bearer " + financeToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void driverListAndDepartResponsesUseRestrictedDto() throws Exception {
+        // Route 3 is in transit on the same test vehicle; close that fixture before testing departure DTO.
+        jdbcTemplate.update("UPDATE route_task SET status = 'COMPLETED' WHERE id = 3");
+        String list = mockMvc.perform(get("/api/v1/routes").header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(list).doesNotContain("taxUnitPrice", "salaryAmount", "loadStandardMet",
+                "loadStandardThreshold", "incomeAmount", "profitAmount");
+        String departed = mockMvc.perform(post("/api/v1/routes/1/depart")
+                        .header("Authorization", "Bearer " + driverAToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(departed).doesNotContain("taxUnitPrice", "salaryAmount", "loadStandardMet",
+                "loadStandardThreshold", "incomeAmount", "profitAmount");
+        assertThat(departed).contains("京A10001");
     }
 
     @Test

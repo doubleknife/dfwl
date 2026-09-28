@@ -10,10 +10,17 @@
       <view class="mp-weight-field"><text class="mp-weight-label">皮重（吨）</text><input type="digit" value="{{tareWeight}}" bindinput="onTare" disabled="{{busy || confirming}}" /></view>
       <view wx:if="{{fieldError}}" class="mp-weight-error">{{fieldError}}</view>
       <view class="mp-weight-result"><text>实际载重</text><text class="mp-weight-net">{{netWeight ? netWeight + ' 吨' : '待计算'}}</text></view>
-      <view class="mp-weight-standard">{{standardText}}</view>
     </view>
-    <feedback-state wx:elif="{{route.status === 'COMPLETED'}}" kind="empty" message="这条线路已完成卸货，不能重复提交重量" />
-    <feedback-state wx:else kind="empty" message="当前线路状态或账号权限不允许卸货，请联系调度" />
+    <view wx:if="{{route.status === 'IN_TRANSIT' && canUnload || route.status === 'COMPLETED'}}" class="mp-weight-card">
+      <view class="mp-weight-title">卸货磅单 {{route.status === 'IN_TRANSIT' ? '（必传）' : ''}}</view>
+      <view class="mp-weight-help">{{route.status === 'COMPLETED' ? '卸货时提交的原始磅单，只能查看' : '拍照或从相册选择，上传成功后才能卸货'}}</view>
+      <button wx:if="{{route.status === 'IN_TRANSIT' && canUnload}}" class="mp-weight-add" loading="{{uploading}}" disabled="{{busy || uploading}}" bindtap="chooseTickets">{{uploading ? '正在上传 ' + uploadProgress + '%' : '拍照或选择磅单'}}</button>
+      <view wx:if="{{mediaError}}" class="mp-weight-error">{{mediaError}}</view>
+      <view wx:if="{{tickets.length}}" class="mp-weight-count">已上传 {{tickets.length}} 张</view>
+      <view class="mp-weight-images"><view wx:for="{{tickets}}" wx:key="id" class="mp-weight-image"><image src="{{item.path}}" mode="aspectFill" data-index="{{index}}" bindtap="previewTicket" /><button wx:if="{{route.status === 'IN_TRANSIT' && canUnload}}" data-index="{{index}}" bindtap="removeTicket">移除</button></view></view>
+    </view>
+    <feedback-state wx:if="{{route.status === 'COMPLETED'}}" kind="empty" message="这条线路已完成卸货，重量和磅单只读" />
+    <feedback-state wx:if="{{route.status !== 'COMPLETED' && !(route.status === 'IN_TRANSIT' && canUnload)}}" kind="empty" message="当前线路状态或账号权限不允许卸货，请联系调度" />
   </block>
-  <view wx:if="{{route && route.status === 'IN_TRANSIT' && canUnload}}" class="mp-weight-bottom"><button class="mp-weight-primary" loading="{{busy}}" disabled="{{loading || busy || confirming || resultUnknown || error}}" bindtap="submit">{{busy ? '正在提交卸货…' : '核对重量并卸货'}}</button></view>
+  <view wx:if="{{route && route.status === 'IN_TRANSIT' && canUnload}}" class="mp-weight-bottom"><button class="mp-weight-primary" loading="{{busy}}" disabled="{{loading || busy || uploading || confirming || resultUnknown || error || !tickets.length}}" bindtap="submit">{{busy ? '正在提交卸货…' : '核对重量并卸货'}}</button></view>
 </view>

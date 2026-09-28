@@ -450,14 +450,14 @@ paths:
   /routes/{id}/depart:
     post:
       tags: [Routes]
-      summary: 发车并冻结司机车辆车挂快照
+      summary: 发车并冻结司机车辆车挂快照；司机仅返回 DriverRoute（不含经营、工资、达标字段）
       x-permission: route:depart
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /routes/{id}/unload:
     post:
       tags: [Routes]
-      summary: 提交毛重皮重并卸货
+      summary: 当前参与司机提交毛重、皮重及至少一张独立用途的磅单并卸货；仅返回 DriverRoute
       x-permission: route:unload
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UnloadRequest'}}}}
@@ -496,7 +496,7 @@ paths:
     get:
       tags: [Routes]
       summary: 查询线路重量版本历史
-      description: 返回司机原始重量和每次财务纠错版本，包含修改前后可比对字段、修改人、时间、原因和 WEIGHT_ADJUST 附件 ID。
+      description: 仅非 DRIVER 管理端账号可查；返回司机原始重量和每次财务纠错版本，包含达标阈值、修改人、时间、原因和 WEIGHT_ADJUST 附件 ID。DRIVER 即使具备 route:list 也返回 403。
       x-permission: route:list
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses:
@@ -1235,7 +1235,7 @@ paths:
     get:
       tags: [Attachments]
       summary: 按 ownerType/ownerId/purpose 查询附件元数据
-      description: 文件读取权限由后端根据 owner_type、owner_id、purpose 映射到既有业务权限并校验业务归属。
+      description: 文件读取权限由后端根据 owner_type、owner_id、purpose 映射到既有业务权限并校验业务归属。ROUTE_UNLOAD_WEIGHT_TICKET 对司机要求线路参与范围；WEIGHT_ADJUST 仅非 DRIVER 管理端可见。
       parameters:
         - {name: ownerType, in: query, required: false, schema: {type: string, maxLength: 64}}
         - {name: ownerId, in: query, required: false, schema: {type: integer, format: int64}}
@@ -1285,7 +1285,7 @@ paths:
     get:
       tags: [Attachments]
       summary: 读取附件原始文件
-      description: 必须认证；后端根据附件 owner_type、owner_id、purpose 做权限和业务归属检查，禁止猜测 ID 读取无关附件。
+      description: 必须认证；后端根据附件 owner_type、owner_id、purpose 做权限和业务归属检查，禁止猜测 ID 读取无关附件。司机可按线路参与范围读取原始卸货磅单，但不可读取 WEIGHT_ADJUST 纠错附件。
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses:
         '200':
@@ -1460,7 +1460,7 @@ components:
       enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]
     AttachmentPurpose:
       type: string
-      enum: [TIRE_OCR, WEIGHT_ADJUST, APPROVAL_APPLICATION, APPROVAL_ACTION, IMPORT_FILE]
+      enum: [TIRE_OCR, WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, APPROVAL_APPLICATION, APPROVAL_ACTION, IMPORT_FILE]
     Attachment:
       type: object
       required: [id, ownerType, ownerId, purpose, storageKey, originalFilename, fileSize, fileHash, uploadedBy, uploadedAt]
@@ -2049,10 +2049,36 @@ components:
         acknowledgeBusinessImpact: {type: boolean, description: 作废时必须为 true；取消接口不需要}
     UnloadRequest:
       type: object
-      required: [grossWeight, tareWeight]
+      required: [grossWeight, tareWeight, evidenceAttachmentIds]
       properties:
         grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
         tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        evidenceAttachmentIds: {type: array, minItems: 1, uniqueItems: true, items: {type: integer, format: int64}}
+    DriverRoute:
+      type: object
+      description: 仅供 DRIVER 角色使用；列表、详情、发车及卸货统一返回该 DTO，不含单价、工资、利润或达标信息。
+      properties:
+        id: {type: integer, format: int64}
+        routeNo: {type: string}
+        externalRouteNo: {type: [string, 'null']}
+        tripSequence: {type: [string, 'null']}
+        businessDate: {type: string, format: date}
+        customerId: {type: integer, format: int64}
+        productId: {type: integer, format: int64}
+        direction: {type: string}
+        loadingPlace: {type: string}
+        unloadingPlace: {type: string}
+        assignedDriverId: {type: [integer, 'null'], format: int64}
+        status: {$ref: '#/components/schemas/RouteStatus'}
+        departureDriverId: {type: [integer, 'null'], format: int64}
+        departureVehicleId: {type: [integer, 'null'], format: int64}
+        departureTrailerId: {type: [integer, 'null'], format: int64}
+        departureTime: {type: [string, 'null'], format: date-time}
+        unloadTime: {type: [string, 'null'], format: date-time}
+        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        netWeight: {$ref: '#/components/schemas/DecimalWeight'}
+        currentPlateNo: {type: [string, 'null'], description: 当前 INTERNAL 公司车牌或 OUTSOURCED 当前参与外协车牌}
     WeightAdjustmentRequest:
       type: object
       required: [grossWeight, tareWeight, reason]
@@ -2071,7 +2097,7 @@ components:
         tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
         netWeight: {$ref: '#/components/schemas/DecimalWeight'}
         loadStandardThreshold: {$ref: '#/components/schemas/DecimalWeight'}
-        loadStandardMet: {type: boolean}
+        loadStandardMet: {type: [boolean, 'null'], description: INTERNAL 为达标/未达标；OUTSOURCED 为 null（不适用）}
         sourceType: {type: string, enum: [UNLOAD, ADJUSTMENT]}
         operatorId: {type: integer, format: int64}
         operationTime: {type: string, format: date-time}

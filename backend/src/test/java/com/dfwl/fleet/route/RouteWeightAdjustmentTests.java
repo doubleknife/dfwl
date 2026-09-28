@@ -3,6 +3,7 @@ package com.dfwl.fleet.route;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -55,11 +57,87 @@ class RouteWeightAdjustmentTests {
     private String financeToken;
     private String driverToken;
 
+    @Test
+    void unloadEvidenceIsRequiredScopedAndImmutableAfterCorrection() throws Exception {
+        mockMvc.perform(post("/api/v1/routes/2/unload")
+                        .header("Authorization", "Bearer " + driverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"grossWeight\":30,\"tareWeight\":10}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_004"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_weight_version WHERE route_id = 2", Integer.class)).isZero();
+
+        long otherRoute = RouteTicketFixture.ticket(jdbcTemplate, 3, 101);
+        long otherUser = RouteTicketFixture.ticket(jdbcTemplate, 2, 999);
+        for (long invalid : List.of(otherRoute, otherUser, 1L)) {
+            mockMvc.perform(post("/api/v1/routes/2/unload")
+                            .header("Authorization", "Bearer " + driverToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"grossWeight\":30,\"tareWeight\":10,\"evidenceAttachmentIds\":[" + invalid + "]}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("ATTACHMENT_004"));
+        }
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_unload_evidence", Integer.class)).isZero();
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 2, 101);
+        mockMvc.perform(post("/api/v1/routes/2/unload")
+                        .header("Authorization", "Bearer " + driverToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"grossWeight\":30,\"tareWeight\":10,\"evidenceAttachmentIds\":[" + ticket + "]}"))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_unload_evidence WHERE route_id = 2 AND attachment_id = ?", Integer.class, ticket)).isEqualTo(1);
+        mockMvc.perform(post("/api/v1/routes/2/weight-adjustments")
+                        .header("Authorization", "Bearer " + financeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"grossWeight\":32,\"tareWeight\":10,\"reason\":\"复核\"}"))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT attachment_ids FROM route_weight_version WHERE route_id = 2 AND version_no = 1", String.class))
+                .contains(String.valueOf(ticket));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_unload_evidence WHERE attachment_id = ?", Integer.class, ticket)).isEqualTo(1);
+    }
+
+    @Test
+    void onlyCurrentDriverCanUploadAndUnrelatedDriverCannotDownloadTicket() throws Exception {
+        mockMvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "ticket.jpg", "image/jpeg", new byte[]{1, 2, 3}))
+                        .header("Authorization", "Bearer " + financeToken)
+                        .param("ownerType", "ROUTE").param("ownerId", "2")
+                        .param("purpose", "ROUTE_UNLOAD_WEIGHT_TICKET"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "ticket.jpg", "image/jpeg", new byte[]{1, 2, 3}))
+                        .header("Authorization", "Bearer " + driverToken)
+                        .param("ownerType", "ROUTE").param("ownerId", "1")
+                        .param("purpose", "ROUTE_UNLOAD_WEIGHT_TICKET"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "ticket.jpg", "image/jpeg", new byte[]{1, 2, 3}))
+                        .header("Authorization", "Bearer " + driverToken)
+                        .param("ownerType", "ROUTE").param("ownerId", "2")
+                        .param("purpose", "ROUTE_UNLOAD_WEIGHT_TICKET"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.purpose").value("ROUTE_UNLOAD_WEIGHT_TICKET"));
+        long id = jdbcTemplate.queryForObject("SELECT MAX(id) FROM file_attachment", Long.class);
+        String outsider = tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                999L, "other", 2L, "DRIVER", "其他司机", Set.of("route:list", "route:unload")));
+        mockMvc.perform(get("/api/v1/attachments/" + id).header("Authorization", "Bearer " + outsider))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/attachments/1").header("Authorization", "Bearer " + driverToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/attachments?ownerType=ROUTE&ownerId=1&purpose=WEIGHT_ADJUST")
+                        .header("Authorization", "Bearer " + driverToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+        mockMvc.perform(get("/api/v1/attachments?ownerType=ROUTE&ownerId=1&purpose=WEIGHT_ADJUST")
+                        .header("Authorization", "Bearer " + financeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1));
+    }
+
     @BeforeEach
     void setUp() {
         List.of(
                 "settlement_diff", "settlement_detail", "settlement_version", "settlement_month",
-                "file_attachment", "expense_entry", "route_weight_version", "route_status_history", "route_task",
+                "route_unload_evidence", "file_attachment", "expense_entry", "route_weight_version", "route_status_history", "route_task",
                 "vehicle_trailer_current", "driver_vehicle_current", "vehicle", "driver", "product", "customer"
         ).forEach(table -> jdbcTemplate.update("DELETE FROM " + table));
 
@@ -122,37 +200,43 @@ class RouteWeightAdjustmentTests {
 
     @Test
     void unqualifiedWeightStillCompletesRoute() throws Exception {
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 2, 101);
         mockMvc.perform(post("/api/v1/routes/2/unload")
                         .header("Authorization", "Bearer " + driverToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"grossWeight\":30.000,\"tareWeight\":10.000}"))
+                        .content("{\"grossWeight\":30.000,\"tareWeight\":10.000,\"evidenceAttachmentIds\":[" + ticket + "]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.netWeight").value(20.000))
-                .andExpect(jsonPath("$.data.loadStandardThreshold").value(27.000))
-                .andExpect(jsonPath("$.data.loadStandardMet").value(false));
+                .andExpect(jsonPath("$.data.loadStandardThreshold").doesNotExist())
+                .andExpect(jsonPath("$.data.loadStandardMet").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT load_standard_met FROM route_weight_version WHERE route_id = 2", Integer.class)).isZero();
     }
 
     @Test
     void percentLoadStandardIsCalculated() throws Exception {
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 4, 101);
         mockMvc.perform(post("/api/v1/routes/4/unload")
                         .header("Authorization", "Bearer " + driverToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"grossWeight\":40.000,\"tareWeight\":10.000}"))
+                        .content("{\"grossWeight\":40.000,\"tareWeight\":10.000,\"evidenceAttachmentIds\":[" + ticket + "]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.loadStandardThreshold").value(27.000))
-                .andExpect(jsonPath("$.data.loadStandardMet").value(true));
+                .andExpect(jsonPath("$.data.loadStandardThreshold").doesNotExist())
+                .andExpect(jsonPath("$.data.loadStandardMet").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT load_standard_met FROM route_weight_version WHERE route_id = 4", Integer.class)).isEqualTo(1);
     }
 
     @Test
     void fixedLoadStandardIsCalculated() throws Exception {
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 3, 101);
         mockMvc.perform(post("/api/v1/routes/3/unload")
                         .header("Authorization", "Bearer " + driverToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"grossWeight\":25.000,\"tareWeight\":10.000}"))
+                        .content("{\"grossWeight\":25.000,\"tareWeight\":10.000,\"evidenceAttachmentIds\":[" + ticket + "]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.loadStandardThreshold").value(15.000))
-                .andExpect(jsonPath("$.data.loadStandardMet").value(true));
+                .andExpect(jsonPath("$.data.loadStandardThreshold").doesNotExist())
+                .andExpect(jsonPath("$.data.loadStandardMet").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT load_standard_met FROM route_weight_version WHERE route_id = 3", Integer.class)).isEqualTo(1);
     }
 
     @Test

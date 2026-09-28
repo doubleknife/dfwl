@@ -43,6 +43,18 @@ public class RouteParticipantRepository {
                 """, this::map, routeId).stream().findFirst();
     }
 
+    public String currentPlateNo(long routeId) {
+        return jdbc.query("""
+                SELECT CASE WHEN p.driver_type_snapshot = 'OUTSOURCED'
+                            THEN p.outsourced_plate_no ELSE v.plate_no END AS plate_no
+                FROM route_task r
+                JOIN route_participant p ON p.id = r.current_participant_id
+                LEFT JOIN vehicle v ON v.id = p.company_vehicle_id
+                WHERE r.id = ? AND r.deleted_at IS NULL
+                """, (rs, row) -> rs.getString("plate_no"), routeId).stream()
+                .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+    }
+
     public List<ParticipantDetail> details(long routeId, boolean includeSalary) {
         return jdbc.query("""
                 SELECT p.*, r.current_participant_id, d.name AS driver_name

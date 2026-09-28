@@ -553,6 +553,16 @@ CREATE TABLE file_attachment (
   uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE route_unload_evidence (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  route_id BIGINT NOT NULL,
+  participant_id BIGINT NOT NULL,
+  weight_version_id BIGINT NOT NULL,
+  attachment_id BIGINT NOT NULL UNIQUE,
+  uploaded_by BIGINT NOT NULL,
+  bound_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE approval_submission_attachment (
   submission_version_id BIGINT NOT NULL,
   attachment_id BIGINT NOT NULL,

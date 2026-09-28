@@ -11,6 +11,11 @@
 .mp-weight-error { margin-bottom: 20rpx; color: var(--mp-danger); font-size: 27rpx; }
 .mp-weight-result { display: flex; justify-content: space-between; align-items: baseline; gap: 14rpx; padding-top: 24rpx; border-top: 1rpx solid var(--mp-border); font-size: 29rpx; }
 .mp-weight-net { color: var(--mp-primary); font-size: 39rpx; font-weight: 700; }
-.mp-weight-standard { margin-top: 15rpx; color: var(--mp-muted); font-size: 27rpx; }
+.mp-weight-add { min-height: 88rpx; color: var(--mp-primary); background: var(--mp-surface-soft); border: 1rpx solid var(--mp-border); font-size: 30rpx; }
+.mp-weight-count { margin: 20rpx 0 12rpx; font-size: 28rpx; font-weight: 600; }
+.mp-weight-images { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.mp-weight-image { width: 180rpx; }
+.mp-weight-image image { width: 180rpx; height: 180rpx; border-radius: var(--mp-radius-control); }
+.mp-weight-image button { margin-top: 8rpx; font-size: 26rpx; }
 .mp-weight-bottom { position: fixed; left: 0; right: 0; bottom: 0; padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom)); border-top: 1rpx solid var(--mp-border); background: var(--mp-surface); }
 .mp-weight-primary { display: flex; min-height: 96rpx; align-items: center; justify-content: center; border-radius: var(--mp-radius-control); color: #fff; background: var(--mp-primary); font-size: 32rpx; font-weight: 700; }

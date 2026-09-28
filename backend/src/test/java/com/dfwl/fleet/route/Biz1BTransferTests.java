@@ -41,7 +41,7 @@ class Biz1BTransferTests {
 
     @BeforeEach
     void setup() {
-        for (String table : List.of("audit_log", "route_participant_salary_history", "route_participant",
+        for (String table : List.of("route_unload_evidence", "file_attachment", "audit_log", "route_participant_salary_history", "route_participant",
                 "route_weight_version", "route_status_history", "route_task", "driver_salary_history",
                 "driver_salary_entry", "driver_vehicle_history", "driver_vehicle_current", "vehicle",
                 "driver", "product", "customer", "sys_role_permission", "sys_permission", "sys_user", "sys_role"))
@@ -76,7 +76,8 @@ class Biz1BTransferTests {
         assertThat(p.salaryAmount()).isEqualByComparingTo("0.00");
         routes.depart(externalRoute, 1);
         assertThat(routes.find(externalRoute).departureVehicleId()).isNull();
-        routes.unload(externalRoute, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10")), 1);
+        routes.unload(externalRoute, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10"),
+                List.of(RouteTicketFixture.ticket(jdbc, externalRoute, 1))), 1);
         assertThat(routes.find(externalRoute).loadStandardMet()).isNull();
     }
 
@@ -182,7 +183,8 @@ class Biz1BTransferTests {
         long route = route(driver);
         routes.publish(route, new RoutePublishRequest(BigDecimal.ZERO, null), 1);
         routes.depart(route, 1);
-        routes.unload(route, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10")), 1);
+        routes.unload(route, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10"),
+                List.of(RouteTicketFixture.ticket(jdbc, route, 1))), 1);
         var before = participants.current(route).orElseThrow();
         routes.adjustParticipantSalary(route, before.id(), new ParticipantSalaryAdjustmentRequest(
                 new BigDecimal("25.00"), before.version(), "月末核定"), 1);

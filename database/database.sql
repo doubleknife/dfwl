@@ -571,6 +571,21 @@ CREATE TABLE file_attachment (
   KEY idx_file_hash (file_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- BIZ-1D: immutable association from an original unload weight version to each ticket.
+-- A temporary ROUTE attachment has no row here until the unload transaction succeeds.
+CREATE TABLE route_unload_evidence (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  route_id BIGINT UNSIGNED NOT NULL,
+  participant_id BIGINT UNSIGNED NOT NULL,
+  weight_version_id BIGINT UNSIGNED NOT NULL,
+  attachment_id BIGINT UNSIGNED NOT NULL,
+  uploaded_by BIGINT UNSIGNED NOT NULL,
+  bound_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_route_unload_attachment (attachment_id),
+  KEY idx_route_unload_route (route_id, weight_version_id),
+  KEY idx_route_unload_participant (participant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE approval_submission_attachment (
   submission_version_id BIGINT UNSIGNED NOT NULL,
   attachment_id BIGINT UNSIGNED NOT NULL,

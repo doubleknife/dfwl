@@ -60,6 +60,29 @@ public class FileAttachmentRepository {
                 """.formatted(placeholders), this::mapAttachment, ids.toArray());
     }
 
+    public boolean canCurrentDriverUploadUnloadTicket(long routeId, long userId, String phone) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM route_task r
+                JOIN route_participant p ON p.id = r.current_participant_id AND p.route_id = r.id
+                JOIN driver d ON d.id = p.driver_id
+                WHERE r.id = ? AND r.deleted_at IS NULL AND r.status = 'IN_TRANSIT'
+                  AND p.status = 'IN_TRANSIT' AND d.deleted_at IS NULL AND d.status = 1
+                  AND (d.user_id = ? OR (d.user_id IS NULL AND d.phone = ?))
+                """, Integer.class, routeId, userId, phone);
+        return count != null && count == 1;
+    }
+
+    public boolean canDriverReadUnloadTicket(long routeId, long userId, String phone) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM route_participant p
+                JOIN driver d ON d.id = p.driver_id
+                JOIN route_task r ON r.id = p.route_id
+                WHERE r.id = ? AND r.deleted_at IS NULL AND d.deleted_at IS NULL
+                  AND (d.user_id = ? OR (d.user_id IS NULL AND d.phone = ?))
+                """, Integer.class, routeId, userId, phone);
+        return count != null && count > 0;
+    }
+
     public long create(String ownerType, long ownerId, String purpose, String storageKey,
                        String originalFilename, String contentType, long fileSize, String fileHash,
                        long uploadedBy) {

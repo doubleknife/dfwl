@@ -145,19 +145,22 @@ public class RouteController {
 
     @PostMapping("/{id}/depart")
     @PreAuthorize("hasAuthority('route:depart')")
-    public ApiResponse<RouteResponse> depart(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+    public ApiResponse<?> depart(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         routeAccessPolicy.ensureDriverCanDepart(user, id);
-        return ApiResponse.success(routeService.depart(id, user.id()), RequestIdHolder.get());
+        RouteResponse route = routeService.depart(id, user.id());
+        return ApiResponse.success(currentUserService.isDriverUser(user)
+                ? routeService.driverResponse(route) : route, RequestIdHolder.get());
     }
 
     @PostMapping("/{id}/unload")
     @PreAuthorize("hasAuthority('route:unload')")
-    public ApiResponse<RouteResponse> unload(
+    public ApiResponse<?> unload(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
             @Valid @RequestBody UnloadRequest request) {
         routeAccessPolicy.ensureDriverCanUnload(user, id);
-        return ApiResponse.success(routeService.unload(id, request, user.id()), RequestIdHolder.get());
+        RouteResponse route = routeService.unload(id, request, user);
+        return ApiResponse.success(routeService.driverResponse(route), RequestIdHolder.get());
     }
 
     @PostMapping("/{id}/cancel")
@@ -199,7 +202,9 @@ public class RouteController {
 
     @GetMapping("/{id}/weight-versions")
     @PreAuthorize("hasAuthority('route:list')")
-    public ApiResponse<List<RouteWeightVersionResponse>> weightVersions(@PathVariable long id) {
+    public ApiResponse<List<RouteWeightVersionResponse>> weightVersions(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        currentUserService.denyAllDrivers(user);
         return ApiResponse.success(routeService.weightVersions(id), RequestIdHolder.get());
     }
 }

@@ -110,6 +110,7 @@ export const approvalTemplateApi = {
 };
 
 export const attachmentApi = {
+  list: (ownerType, ownerId, purpose) => apiClient.get(`/attachments?${new URLSearchParams({ ownerType, ownerId: String(ownerId), purpose })}`),
   upload: (formData) => apiClient.upload('/attachments', formData),
   download: (id) => apiClient.download(`/attachments/${id}`)
 };

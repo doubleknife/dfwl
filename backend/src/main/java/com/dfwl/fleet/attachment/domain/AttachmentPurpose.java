@@ -6,6 +6,7 @@ import java.util.Optional;
 public enum AttachmentPurpose {
     TIRE_OCR,
     WEIGHT_ADJUST,
+    ROUTE_UNLOAD_WEIGHT_TICKET,
     APPROVAL_APPLICATION,
     APPROVAL_ACTION,
     IMPORT_FILE;

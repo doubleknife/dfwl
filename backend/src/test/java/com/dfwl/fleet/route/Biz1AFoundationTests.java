@@ -43,7 +43,7 @@ class Biz1AFoundationTests {
 
     @BeforeEach
     void setup() {
-        for (String table : List.of("audit_log", "route_participant_salary_history", "route_participant",
+        for (String table : List.of("route_unload_evidence", "file_attachment", "audit_log", "route_participant_salary_history", "route_participant",
                 "route_weight_version", "route_status_history", "route_task", "driver_salary_history",
                 "driver_salary_entry", "driver_vehicle_history", "driver_vehicle_current", "vehicle",
                 "driver", "product", "customer", "sys_role_permission", "sys_permission", "sys_user", "sys_role")) {
@@ -105,7 +105,8 @@ class Biz1AFoundationTests {
         assertThat(participants.current(route).orElseThrow().status()).isEqualTo("IN_TRANSIT");
         assertThatThrownBy(() -> routes.voidRoute(route, new RouteReasonRequest("原因"), 1))
                 .isInstanceOf(BusinessException.class);
-        routes.unload(route, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10")), 1);
+        routes.unload(route, new UnloadRequest(new BigDecimal("30"), new BigDecimal("10"),
+                java.util.List.of(RouteTicketFixture.ticket(jdbc, route, 1))), 1);
         assertThat(participants.current(route).orElseThrow().status()).isEqualTo("COMPLETED");
         assertThatThrownBy(() -> routes.voidRoute(route, new RouteReasonRequest("  "), 1))
                 .isInstanceOf(BusinessException.class);
@@ -116,7 +117,7 @@ class Biz1AFoundationTests {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM route_status_history WHERE route_id = ?", Integer.class, route))
                 .isEqualTo(5);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE business_id = ?", Integer.class, route))
-                .isEqualTo(2);
+                .isEqualTo(3);
     }
 
     @Test

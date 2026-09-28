@@ -25,11 +25,9 @@ public record DriverRouteResponse(
         BigDecimal grossWeight,
         BigDecimal tareWeight,
         BigDecimal netWeight,
-        BigDecimal loadStandardThreshold,
-        Boolean loadStandardMet,
-        String currentOutsourcedPlateNo
+        String currentPlateNo
 ) {
-    public static DriverRouteResponse from(RouteResponse route) {
+    public static DriverRouteResponse from(RouteResponse route, String currentPlateNo) {
         return new DriverRouteResponse(
                 route.id(),
                 route.routeNo(),
@@ -51,8 +49,6 @@ public record DriverRouteResponse(
                 route.grossWeight(),
                 route.tareWeight(),
                 route.netWeight(),
-                route.loadStandardThreshold(),
-                route.loadStandardMet(),
-                route.currentOutsourcedPlateNo());
+                currentPlateNo);
     }
 }

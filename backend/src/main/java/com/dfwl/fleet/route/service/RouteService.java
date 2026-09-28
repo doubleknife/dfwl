@@ -19,6 +19,7 @@ import com.dfwl.fleet.route.dto.request.UnloadRequest;
 import com.dfwl.fleet.route.dto.request.WeightAdjustmentRequest;
 import com.dfwl.fleet.route.repository.RouteRepository;
 import com.dfwl.fleet.route.repository.RouteParticipantRepository;
+import com.dfwl.fleet.route.repository.RouteUnloadEvidenceRepository;
 import com.dfwl.fleet.route.repository.RouteRepository.LoadStandardConfig;
 import com.dfwl.fleet.route.repository.RouteRepository.RouteBindingSnapshot;
 import com.dfwl.fleet.route.policy.RouteAccessPolicy;
@@ -47,15 +48,17 @@ public class RouteService {
 
     private final RouteRepository repository;
     private final RouteParticipantRepository participants;
+    private final RouteUnloadEvidenceRepository unloadEvidence;
     private final CurrentUserService currentUserService;
     private final RouteAccessPolicy routeAccessPolicy;
     private final AuditWriteService audit;
     private final NotificationService notifications;
     private final ReportService reports;
 
-    public RouteService(RouteRepository repository, RouteParticipantRepository participants, CurrentUserService currentUserService, AuditWriteService audit, RouteAccessPolicy routeAccessPolicy, NotificationService notifications, ReportService reports) {
+    public RouteService(RouteRepository repository, RouteParticipantRepository participants, RouteUnloadEvidenceRepository unloadEvidence, CurrentUserService currentUserService, AuditWriteService audit, RouteAccessPolicy routeAccessPolicy, NotificationService notifications, ReportService reports) {
         this.repository = repository;
         this.participants = participants;
+        this.unloadEvidence = unloadEvidence;
         this.currentUserService = currentUserService;
         this.routeAccessPolicy = routeAccessPolicy;
         this.audit = audit;
@@ -80,7 +83,7 @@ public class RouteService {
                 routes.pageNo(),
                 routes.pageSize(),
                 routes.total(),
-                routes.records().stream().map(DriverRouteResponse::from).toList());
+                routes.records().stream().map(this::driverResponse).toList());
     }
 
     public RouteResponse find(long id) {
@@ -101,7 +104,11 @@ public class RouteService {
 
     public DriverRouteResponse findForDriver(AuthenticatedUser user, long id) {
         routeAccessPolicy.ensureDriverCanViewRoute(user, id);
-        return DriverRouteResponse.from(find(id));
+        return driverResponse(find(id));
+    }
+
+    public DriverRouteResponse driverResponse(RouteResponse route) {
+        return DriverRouteResponse.from(route, participants.currentPlateNo(route.id()));
     }
 
     public List<RouteWeightVersionResponse> weightVersions(long id) {
@@ -302,18 +309,41 @@ public class RouteService {
 
     @Transactional
     public RouteResponse unload(long id, UnloadRequest request, long operatorId) {
+        return unloadLocked(id, request, operatorId, null);
+    }
+
+    @Transactional
+    public RouteResponse unload(long id, UnloadRequest request, AuthenticatedUser user) {
+        long driverId = currentUserService.requireDriver(user).driverId();
+        return unloadLocked(id, request, user.id(), driverId);
+    }
+
+    private RouteResponse unloadLocked(long id, UnloadRequest request, long operatorId, Long driverId) {
         repository.lockRoute(id);
         RouteResponse route = find(id);
         if (!RouteStatus.IN_TRANSIT.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        RouteParticipantRepository.Participant current = participants.current(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ROUTE_003));
+        if (!"IN_TRANSIT".equals(current.status())
+                || driverId != null && current.driverId() != driverId) {
+            throw new BusinessException(ErrorCode.ROUTE_003);
+        }
+        if (request == null) throw new BusinessException(ErrorCode.SYS_002);
         BigDecimal netWeight = calculateNetWeight(request.grossWeight(), request.tareWeight());
-        LoadStandardResult loadStandard = calculateLoadStandard(route.departureVehicleId(), netWeight);
+        List<Long> ticketIds = request.evidenceAttachmentIds();
+        if (ticketIds == null || ticketIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.ATTACHMENT_004);
+        }
+        LoadStandardResult loadStandard = "OUTSOURCED".equals(current.driverTypeSnapshot())
+                ? new LoadStandardResult(null, null)
+                : calculateLoadStandard(current.companyVehicleId(), netWeight);
         long weightVersionId;
         try {
             weightVersionId = repository.insertWeightVersion(
                     id, 1, request.grossWeight(), request.tareWeight(), netWeight,
-                    loadStandard.threshold(), loadStandard.met(), "UNLOAD", operatorId, null, List.of());
+                    loadStandard.threshold(), loadStandard.met(), "UNLOAD", operatorId, null, ticketIds);
         } catch (DataIntegrityViolationException ex) {
             RouteResponse refreshed = find(id);
             if (RouteStatus.COMPLETED.name().equals(refreshed.status())) {
@@ -321,10 +351,15 @@ public class RouteService {
             }
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        unloadEvidence.bind(id, current.id(), weightVersionId, operatorId, ticketIds);
         if (!repository.unload(id, route.status(), weightVersionId, operatorId, LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
         participants.completed(id, operatorId, LocalDateTime.now());
+        audit.write("ROUTE", "ROUTE_TASK", id, "UNLOAD", Map.of("status", "IN_TRANSIT"),
+                Map.of("status", "COMPLETED", "participantId", current.id(),
+                        "grossWeight", request.grossWeight(), "tareWeight", request.tareWeight(),
+                        "netWeight", netWeight, "evidenceAttachmentIds", ticketIds), operatorId, null);
         return find(id);
     }
 
@@ -339,7 +374,11 @@ public class RouteService {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
         BigDecimal netWeight = calculateNetWeight(request.grossWeight(), request.tareWeight());
-        LoadStandardResult loadStandard = calculateLoadStandard(route.departureVehicleId(), netWeight);
+        RouteParticipantRepository.Participant current = participants.current(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ROUTE_003));
+        LoadStandardResult loadStandard = "OUTSOURCED".equals(current.driverTypeSnapshot())
+                ? new LoadStandardResult(null, null)
+                : calculateLoadStandard(current.companyVehicleId(), netWeight);
         long weightVersionId = repository.insertWeightVersion(
                 id,
                 repository.nextWeightVersionNo(id),

@@ -1,7 +1,7 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
-import { masterApi, routeApi } from '../api/modules.js';
-import { can } from '../stores/auth.js';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { masterApi, routeApi, attachmentApi, systemApi } from '../api/modules.js';
+import { authStore, can } from '../stores/auth.js';
 import { navigate } from '../router/routes.js';
 import PageHeader from '../components/PageHeader.vue';
 import FilterBar from '../components/FilterBar.vue';
@@ -12,6 +12,9 @@ import DetailDrawer from '../components/DetailDrawer.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ErrorState from '../components/ErrorState.vue';
 import PaginationBar from '../components/PaginationBar.vue';
+import ApprovalEvidence from '../components/ApprovalEvidence.vue';
+import { adjustedNetWeight, canAdjustWeight, operatorIdentity, weightAdjustmentBody, weightEntries, weightText } from './routeWeightEvidence.js';
+import RouteWeightImageUpload from '../components/RouteWeightImageUpload.vue';
 
 const rows = ref([]);
 const customers = ref([]);
@@ -27,6 +30,12 @@ const error = ref('');
 const filters = reactive({ date: '', status: '', customerId: '', driverId: '', keyword: '' });
 const selected = ref(null);
 const weights = ref([]);
+const unloadTickets = ref([]);
+const adjustmentEvidence = ref([]);
+const operatorUsers = ref([]);
+const weightRecords = computed(() => weightEntries(weights.value));
+const originalWeight = computed(() => weightRecords.value.find((item) => item.sourceType === 'UNLOAD'));
+const adjustments = computed(() => weightRecords.value.filter((item) => item.sourceType === 'ADJUSTMENT'));
 const participants = ref([]);
 const publishing = ref(null);
 const publishForm = reactive({ initialSalary: '', outsourcedPlateNo: '' });
@@ -40,10 +49,15 @@ const editing = ref(false);
 const confirming = ref(null);
 const voiding = ref(null);
 const voidForm = reactive({ reason: '', acknowledged: false });
-const operation = ref('');
 const form = reactive({ businessDate: '', customerId: '', productId: '', direction: 'OUTBOUND', loadingPlace: '', unloadingPlace: '', taxUnitPrice: '', assignedDriverId: '', externalRouteNo: '', tripSequence: '' });
-const unloadForm = reactive({ grossWeight: '', tareWeight: '' });
-const adjustForm = reactive({ grossWeight: '', tareWeight: '', reason: '', attachmentIds: '' });
+const adjusting = ref(false);
+const adjustUploading = ref(false);
+const adjustError = ref('');
+const adjustImages = ref([]);
+const adjustDraftRouteId = ref(null);
+const adjustForm = reactive({ grossWeight: '', tareWeight: '', reason: '' });
+const adjustNetWeight = computed(() => adjustedNetWeight(adjustForm.grossWeight, adjustForm.tareWeight));
+const mayAdjustWeight = computed(() => canAdjustWeight(selected.value, can('route:weight:adjust')));
 const columns = [{ key: 'routeNo', label: '线路号' }, { key: 'businessDate', label: '日期' }, { key: 'customerId', label: '客户' }, { key: 'assignedDriverId', label: '司机' }, { key: 'departureVehicleId', label: '车辆' }, { key: 'status', label: '状态' }, { key: 'netWeight', label: '净重', numeric: true }, { key: 'actions', label: '操作' }];
 const customerName = (id) => customers.value.find((item) => item.id === id)?.customerName || (id ? `客户 #${id}` : '—');
 const driverName = (id) => drivers.value.find((item) => item.id === id)?.name || (id ? `司机 #${id}` : '未分配');
@@ -93,15 +107,37 @@ async function save() {
   } catch (cause) { error.value = cause.message || '线路保存失败'; }
   finally { saving.value = false; }
 }
-async function detail(row) {
-  error.value = ''; detailTab.value = 'overview';
+async function detail(row, preserveTab = false) {
+  error.value = '';
+  if (!preserveTab) detailTab.value = 'overview';
+  operatorUsers.value = [];
   try {
     selected.value = await routeApi.detail(row.id);
     const versions = await routeApi.weightVersions(row.id);
     weights.value = versions.records || versions || [];
+    const original = weights.value.find((item) => item.sourceType === 'UNLOAD');
+    const adjustmentIds = new Set(weights.value
+      .filter((item) => item.sourceType === 'ADJUSTMENT')
+      .flatMap((item) => item.attachmentIds || []));
+    const [originalAttachments, adjustmentAttachments] = selected.value.status === 'COMPLETED'
+      ? await Promise.all([
+        attachmentApi.list('ROUTE', row.id, 'ROUTE_UNLOAD_WEIGHT_TICKET'),
+        adjustmentIds.size ? attachmentApi.list('ROUTE', row.id, 'WEIGHT_ADJUST') : Promise.resolve([])
+      ]) : [[], []];
+    unloadTickets.value = originalAttachments.filter((item) => original?.attachmentIds?.includes(item.id));
+    adjustmentEvidence.value = adjustmentAttachments.filter((item) => adjustmentIds.has(item.id));
     participants.value = await routeApi.participants(row.id);
+    if (can('user:manage') && weights.value.length) {
+      try {
+        const page = await systemApi.users(1, 100);
+        operatorUsers.value = page.records || [];
+      } catch { /* Attachment viewing remains available when the optional user directory is unavailable. */ }
+    }
   } catch (cause) { error.value = cause.message || '详情加载失败'; }
 }
+function operatorPerson(id) { return operatorIdentity(id, operatorUsers.value, drivers.value, authStore.user); }
+function evidenceFor(version) { return adjustmentEvidence.value.filter((file) => version.attachmentIds?.includes(file.id)); }
+function displayTime(value) { return value ? String(value).replace('T', ' ') : '时间未知'; }
 function openPublish(row) {
   publishing.value = row;
   Object.assign(publishForm, { initialSalary: '', outsourcedPlateNo: '' });
@@ -199,16 +235,34 @@ async function confirmAction() {
   } catch (cause) { error.value = cause.message || '操作失败'; }
   finally { saving.value = false; }
 }
-async function submitOperation() {
-  if (!selected.value) return;
+function openWeightAdjustment() {
+  if (!mayAdjustWeight.value || saving.value) return;
+  if (adjustDraftRouteId.value !== selected.value.id) {
+    adjustDraftRouteId.value = selected.value.id;
+    Object.assign(adjustForm, { grossWeight: String(selected.value.grossWeight ?? ''), tareWeight: String(selected.value.tareWeight ?? ''), reason: '' });
+    adjustImages.value = [];
+  }
+  adjustError.value = '';
+  adjusting.value = true;
+}
+function closeWeightAdjustment() {
+  if (saving.value || adjustUploading.value) return;
+  adjusting.value = false;
+}
+async function submitWeightAdjustment() {
+  if (!selected.value || !mayAdjustWeight.value || !adjusting.value || saving.value || adjustUploading.value
+      || !adjustNetWeight.value || !adjustForm.reason.trim()) return;
+  const route = selected.value;
   saving.value = true; error.value = '';
+  adjustError.value = '';
   try {
-    if (operation.value === 'unload') await routeApi.unload(selected.value.id, { ...unloadForm });
-    else await routeApi.adjustWeight(selected.value.id, { grossWeight: adjustForm.grossWeight, tareWeight: adjustForm.tareWeight, reason: adjustForm.reason, attachmentIds: adjustForm.attachmentIds ? adjustForm.attachmentIds.split(',').map((id) => Number(id.trim())) : [] });
-    operation.value = '';
-    await detail(selected.value);
+    await routeApi.adjustWeight(route.id, weightAdjustmentBody(adjustForm, adjustImages.value));
+    adjusting.value = false;
+    adjustDraftRouteId.value = null;
+    adjustImages.value = [];
+    await detail(route, true);
     await load();
-  } catch (cause) { error.value = cause.message || '操作失败'; }
+  } catch (cause) { adjustError.value = cause.message || '重量纠错失败，已上传图片保留，请检查后重试'; }
   finally { saving.value = false; }
 }
 onMounted(async () => { await Promise.all([load(), loadReferences()]); });
@@ -274,7 +328,7 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
         <label class="ui-form-field">调整原因<input v-model.trim="salaryForm.reason" required maxlength="500" /></label>
       </div><div class="ui-dialog-actions"><button type="button" @click="salaryTarget = null">取消</button><button class="primary" :disabled="saving">确认调整</button></div></form>
     </FormDialog>
-    <DetailDrawer :open="!!selected && !editing" title="线路详情" @close="selected = null; operation = ''">
+    <DetailDrawer :open="!!selected && !editing" title="线路详情" @close="selected = null">
       <template #subtitle>{{ selected?.routeNo }}</template>
       <div class="ui-subtabs"><button :class="{active: detailTab === 'overview'}" @click="detailTab = 'overview'">概况</button><button :class="{active: detailTab === 'participants'}" @click="detailTab = 'participants'">参与历史</button><button :class="{active: detailTab === 'weights'}" @click="detailTab = 'weights'">重量版本</button><button :class="{active: detailTab === 'actions'}" @click="detailTab = 'actions'">线路操作</button></div>
       <template v-if="selected && detailTab === 'overview'"><dl class="ui-detail-list"><div><dt>状态</dt><dd><StatusTag :value="selected.status" /></dd></div><div><dt>业务日期</dt><dd>{{ selected.businessDate }}</dd></div><div><dt>客户</dt><dd>{{ customerName(selected.customerId) }}</dd></div><div><dt>产品</dt><dd>{{ products.find((item) => item.id === selected.productId)?.productName || `产品 #${selected.productId}` }}</dd></div><div><dt>司机</dt><dd>{{ driverName(selected.assignedDriverId) }}</dd></div><div><dt>发车车辆</dt><dd>{{ vehicleName(selected.departureVehicleId) }}</dd></div><div><dt>起讫地点</dt><dd>{{ selected.loadingPlace }} → {{ selected.unloadingPlace }}</dd></div><div><dt>净重</dt><dd>{{ selected.netWeight ?? '未称重' }}</dd></div><div><dt>发车时间</dt><dd>{{ selected.departureTime || '—' }}</dd></div><div><dt>卸货时间</dt><dd>{{ selected.unloadTime || '—' }}</dd></div></dl></template>
@@ -288,18 +342,53 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
           <template #actions="{ row }"><button v-if="can('route:salary:adjust') && !['CANCELLED', 'LEGACY_ENDED'].includes(row.status)" type="button" @click="openSalary(selected, row)">调整工资</button></template>
         </DataTable>
       </div>
-      <DataTable v-if="detailTab === 'weights'" :columns="[{key:'versionNo',label:'版本'},{key:'grossWeight',label:'毛重',numeric:true},{key:'tareWeight',label:'皮重',numeric:true},{key:'netWeight',label:'净重',numeric:true},{key:'loadStandardMet',label:'达标'},{key:'reason',label:'原因'}]" :rows="weights" empty-text="尚无重量版本"><template #loadStandardMet="{value}">{{ value === true ? '达标' : value === false ? '未达标' : '—' }}</template></DataTable>
+      <div v-if="detailTab === 'weights'" class="route-weight-history">
+        <section class="route-weight-section">
+          <div class="route-weight-heading"><h3>重量记录</h3><button v-if="mayAdjustWeight" type="button" @click="openWeightAdjustment">重量纠错</button></div>
+          <p class="muted">原始卸货重量与后续每次调整分别保留；调整不会覆盖原始磅单。</p>
+          <DataTable :columns="[{key:'businessLabel',label:'业务记录'},{key:'grossWeight',label:'毛重',numeric:true},{key:'tareWeight',label:'皮重',numeric:true},{key:'netWeight',label:'净重',numeric:true},{key:'loadStandardMet',label:'达标'}]" :rows="weightRecords" empty-text="暂无重量记录">
+            <template #grossWeight="{value}">{{ weightText(value) }}</template>
+            <template #tareWeight="{value}">{{ weightText(value) }}</template>
+            <template #netWeight="{value}">{{ weightText(value) }}</template>
+            <template #loadStandardMet="{value}">{{ value === true ? '达标' : value === false ? '未达标' : '不适用' }}</template>
+          </DataTable>
+        </section>
+        <section v-if="originalWeight" class="route-evidence-card route-evidence-card--original">
+          <h3>原始卸货凭证</h3>
+          <p class="muted">司机卸货时提交的原始磅单，后续调整不会替换此处图片。</p>
+          <div class="route-evidence-facts"><span>卸货司机 <strong>{{ operatorPerson(originalWeight.operatorId).name }}</strong><small v-if="operatorPerson(originalWeight.operatorId).phone">{{ operatorPerson(originalWeight.operatorId).phone }}</small></span><span>卸货时间 <strong>{{ displayTime(originalWeight.operationTime) }}</strong></span></div>
+          <ApprovalEvidence title="原始磅单图片" :attachments="unloadTickets" />
+          <p v-for="ticket in unloadTickets" :key="ticket.id" class="route-evidence-source">上传人 {{ operatorPerson(ticket.uploadedBy).name }}<span v-if="operatorPerson(ticket.uploadedBy).phone"> · {{ operatorPerson(ticket.uploadedBy).phone }}</span> · {{ displayTime(ticket.uploadedAt) }}</p>
+        </section>
+        <section v-for="version in adjustments" :key="version.id" class="route-evidence-card route-evidence-card--adjustment">
+          <h3>{{ version.businessLabel }}</h3>
+          <div class="route-evidence-facts"><span>调整人 <strong>{{ operatorPerson(version.operatorId).name }}</strong><small v-if="operatorPerson(version.operatorId).phone">{{ operatorPerson(version.operatorId).phone }}</small></span><span>调整时间 <strong>{{ displayTime(version.operationTime) }}</strong></span></div>
+          <p class="route-evidence-reason"><span>调整原因</span><strong>{{ version.reason || '未记录调整原因' }}</strong></p>
+          <ApprovalEvidence v-if="evidenceFor(version).length" title="本次调整证据" :attachments="evidenceFor(version)" />
+          <p v-else class="muted">本次调整未上传图片（调整证据为选填）。</p>
+        </section>
+      </div>
       <div v-if="selected && detailTab === 'actions'" class="ui-operation-panel"><p>操作历史：当前接口只提供重量版本与线路当前状态，暂无独立状态变更历史接口。</p></div>
-      <form v-if="operation" id="route-operation-form" class="ui-operation-form" @submit.prevent="submitOperation"><h3>{{ operation === 'unload' ? '录入卸货重量' : '重量纠错' }}</h3><template v-if="operation === 'unload'"><label>毛重<input v-model="unloadForm.grossWeight" type="number" min="0" step="0.001" required /></label><label>皮重<input v-model="unloadForm.tareWeight" type="number" min="0" step="0.001" required /></label></template><template v-else><label>毛重<input v-model="adjustForm.grossWeight" type="number" min="0" step="0.001" required /></label><label>皮重<input v-model="adjustForm.tareWeight" type="number" min="0" step="0.001" required /></label><label>纠错原因<input v-model.trim="adjustForm.reason" required /></label><label>证据附件 ID（用逗号分隔）<input v-model.trim="adjustForm.attachmentIds" /></label></template></form>
       <template #footer>
-        <button v-if="operation" type="button" @click="operation = ''">取消操作</button>
-        <button v-if="operation" class="primary" type="submit" form="route-operation-form" :disabled="saving">{{ saving ? '正在提交…' : '确认提交' }}</button>
-        <button v-if="!operation && selected && ['UNPUBLISHED', 'PUBLISHED'].includes(selected.status) && can('route:edit')" type="button" @click="resetForm(selected)">编辑线路</button>
-        <button v-if="!operation && selected?.status === 'IN_TRANSIT' && can('route:unload')" type="button" @click="detailTab = 'actions'; operation = 'unload'">录入卸货重量</button>
-        <button v-if="!operation && selected && ['IN_TRANSIT', 'TRANSFER_PENDING'].includes(selected.status) && can('route:transfer')" type="button" @click="openTransfer(selected)">转派线路</button>
-        <button v-if="!operation && selected && can('route:weight:adjust')" type="button" @click="detailTab = 'actions'; operation = 'adjust'">重量纠错</button>
+        <button v-if="selected && ['UNPUBLISHED', 'PUBLISHED'].includes(selected.status) && can('route:edit')" type="button" @click="resetForm(selected)">编辑线路</button>
+        <span v-if="selected?.status === 'IN_TRANSIT'" class="muted">请当前司机上传磅单并在小程序完成卸货</span>
+        <button v-if="selected && ['IN_TRANSIT', 'TRANSFER_PENDING'].includes(selected.status) && can('route:transfer')" type="button" @click="openTransfer(selected)">转派线路</button>
       </template>
     </DetailDrawer>
+    <FormDialog :open="adjusting" title="重量纠错" :busy="saving || adjustUploading" @close="closeWeightAdjustment">
+      <form v-if="selected" class="route-adjust-form" @submit.prevent="submitWeightAdjustment">
+        <div class="route-adjust-current"><strong>当前有效重量</strong><span>毛重 {{ weightText(selected.grossWeight) }}</span><span>皮重 {{ weightText(selected.tareWeight) }}</span><span>净重 {{ weightText(selected.netWeight) }}</span></div>
+        <div class="ui-form-grid">
+          <label class="ui-form-field">新毛重（吨）<input v-model="adjustForm.grossWeight" type="number" min="0.001" step="0.001" required :disabled="saving || adjustUploading" /></label>
+          <label class="ui-form-field">新皮重（吨）<input v-model="adjustForm.tareWeight" type="number" min="0.001" step="0.001" required :disabled="saving || adjustUploading" /></label>
+        </div>
+        <p class="route-adjust-net">新净重 <strong>{{ adjustNetWeight ? weightText(adjustNetWeight) : '请填写大于皮重的毛重' }}</strong></p>
+        <label class="ui-form-field">纠错原因<textarea v-model.trim="adjustForm.reason" rows="3" required maxlength="500" :disabled="saving || adjustUploading" placeholder="请说明为什么需要调整重量" /></label>
+        <RouteWeightImageUpload v-model="adjustImages" :route-id="selected.id" :disabled="saving" @uploading="adjustUploading = $event" />
+        <p v-if="adjustError" class="error" role="alert">{{ adjustError }}</p>
+        <div class="ui-dialog-actions"><button type="button" :disabled="saving || adjustUploading" @click="closeWeightAdjustment">取消</button><button class="primary" type="submit" :disabled="saving || adjustUploading || !adjustNetWeight || !adjustForm.reason.trim()">{{ saving ? '正在提交…' : '确认纠错' }}</button></div>
+      </form>
+    </FormDialog>
     <ConfirmDialog :open="!!confirming" :title="`${confirming?.label || ''}线路`" :message="`确认${confirming?.label || ''}线路 ${confirming?.row?.routeNo || ''}？${confirming?.danger ? '此操作可能影响后续运输与结算。' : ''}`" :danger="confirming?.danger" :busy="saving" @confirm="confirmAction" @cancel="confirming = null" />
     <FormDialog :open="!!voiding" title="确认作废已完成线路" :busy="saving" @close="voiding = null">
       <form @submit.prevent="confirmVoid">
@@ -311,3 +400,27 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
     </FormDialog>
   </div>
 </template>
+
+<style scoped>
+.route-weight-history { display: grid; gap: 20px; }
+.route-weight-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.route-weight-heading h3 { margin: 0; }
+.route-weight-section h3, .route-evidence-card h3 { margin: 0 0 8px; font-size: 16px; }
+.route-weight-section > p { margin: 0 0 14px; }
+.route-evidence-card { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-card); background: var(--ui-surface); }
+.route-evidence-card--original { border-left: 3px solid var(--ui-primary); }
+.route-evidence-card--adjustment { border-left: 3px solid var(--ui-info); }
+.route-evidence-card > p { margin: 0; }
+.route-evidence-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; color: var(--ui-text-secondary); }
+.route-evidence-facts span { display: grid; gap: 3px; }
+.route-evidence-facts strong, .route-evidence-reason strong { color: var(--ui-text); font-weight: 600; }
+.route-evidence-facts small { font-size: 12px; }
+.route-evidence-reason { display: grid; gap: 4px; color: var(--ui-text-secondary); }
+.route-evidence-source { font-size: 13px; color: var(--ui-text-secondary); }
+.route-adjust-form { display: grid; gap: 16px; }
+.route-adjust-current { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 12px; background: var(--ui-surface-subtle); border-radius: var(--ui-radius-card); }
+.route-adjust-current strong { width: 100%; }
+.route-adjust-net { margin: 0; }
+.route-adjust-net strong { color: var(--ui-primary); }
+@media (max-width: 560px) { .route-evidence-facts { grid-template-columns: 1fr; } }
+</style>

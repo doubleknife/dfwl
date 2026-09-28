@@ -1,13 +1,13 @@
-const { request } = require('../../utils/request');
-const { loadStandardMet, netWeight, validateWeights, sanitizeRoute } = require('../../utils/business');
+const { request, uploadFile, downloadAttachment } = require('../../utils/request');
+const { netWeight, validateWeights, sanitizeRoute } = require('../../utils/business');
 const { hasPermission } = require('../../utils/permissions');
 const { routePresentation } = require('../../utils/homePresentation');
 
 Page({
   data: {
     id: null, route: null, grossWeight: '', tareWeight: '', netWeight: '',
-    standardText: '填写重量后计算', loading: false, confirming: false, busy: false,
-    canUnload: false, fieldError: '', error: '', resultUnknown: false
+    tickets: [], uploading: false, uploadProgress: null, loading: false, confirming: false, busy: false,
+    canUnload: false, fieldError: '', mediaError: '', error: '', resultUnknown: false
   },
   onLoad(query) {
     this.setData({ id: query.id });
@@ -23,13 +23,20 @@ Page({
       const safe = routePresentation(sanitizeRoute(route));
       this.setData({
         route: safe,
-        canUnload: hasPermission(user, 'route:unload'),
+        canUnload: hasPermission(user, 'route:unload') && user.driverId === safe.assignedDriverId,
         grossWeight: this._hasInput ? this.data.grossWeight : (safe.grossWeight || ''),
         tareWeight: this._hasInput ? this.data.tareWeight : (safe.tareWeight || ''),
         resultUnknown: false,
         fieldError: ''
       });
       this.recalculate();
+      if (safe.status === 'COMPLETED') {
+        const evidence = await request({ url: `/attachments?ownerType=ROUTE&ownerId=${this.data.id}&purpose=ROUTE_UNLOAD_WEIGHT_TICKET` });
+        const tickets = await Promise.all((evidence || []).map(async (item) => ({
+          id: item.id, path: await downloadAttachment(item.id), uploadedAt: item.uploadedAt
+        })));
+        this.setData({ tickets });
+      }
     } catch (error) {
       this.setData({ error: error.statusCode === 403
         ? '当前账号不能查看或卸货这条线路，请联系调度'
@@ -49,38 +56,74 @@ Page({
   recalculate() {
     const validation = validateWeights(this.data.grossWeight, this.data.tareWeight);
     if (!validation.ok) {
-      this.setData({ netWeight: '', standardText: '填写有效重量后计算' });
+      this.setData({ netWeight: '' });
       return;
     }
     const net = netWeight(this.data.grossWeight, this.data.tareWeight);
-    const met = loadStandardMet(this.data.grossWeight, this.data.tareWeight, this.data.route?.loadStandardThreshold);
-    this.setData({ netWeight: net,
-      standardText: met === null ? '装载标准将在卸货后确认' : (met ? '已达标' : '未达标，仍可卸货') });
+    this.setData({ netWeight: net });
+  },
+  chooseTickets() {
+    if (this.data.busy || this.data.uploading || this.data.route?.status !== 'IN_TRANSIT') return;
+    const remaining = 10 - this.data.tickets.length;
+    if (remaining <= 0) { this.setData({ mediaError: '最多上传10张磅单' }); return; }
+    wx.chooseMedia({
+      count: Math.min(remaining, 9), mediaType: ['image'], sourceType: ['camera', 'album'],
+      success: async (res) => {
+        for (const file of res.tempFiles || []) {
+          const path = file.tempFilePath;
+          this.setData({ uploading: true, uploadProgress: 0, mediaError: '' });
+          try {
+            const attachment = await uploadFile({
+              url: '/attachments', filePath: path,
+              formData: { ownerType: 'ROUTE', ownerId: this.data.id, purpose: 'ROUTE_UNLOAD_WEIGHT_TICKET' },
+              onProgress: (percent) => this.setData({ uploadProgress: percent })
+            });
+            this.setData({ tickets: this.data.tickets.concat({ id: attachment.id, path }) });
+          } catch (error) {
+            this.setData({ mediaError: '有图片上传失败。已成功的图片仍保留，请重新选择失败图片。' });
+          } finally { this.setData({ uploading: false, uploadProgress: null }); }
+        }
+      },
+      fail: (error) => {
+        if (!String(error?.errMsg || '').includes('cancel')) this.setData({ mediaError: '选择图片失败，请重试' });
+      }
+    });
+  },
+  removeTicket(e) {
+    if (this.data.busy || this.data.uploading || this.data.route?.status !== 'IN_TRANSIT') return;
+    const index = Number(e.currentTarget.dataset.index);
+    this.setData({ tickets: this.data.tickets.filter((_, i) => i !== index), mediaError: '' });
+  },
+  previewTicket(e) {
+    const paths = this.data.tickets.map((item) => item.path).filter(Boolean);
+    const selected = this.data.tickets[Number(e.currentTarget.dataset.index)];
+    if (selected?.path) wx.previewImage({ current: selected.path, urls: paths });
   },
   submit() {
-    if (this.data.busy || this.data.confirming || this.data.loading || this.data.resultUnknown
+    if (this.data.busy || this.data.uploading || this.data.confirming || this.data.loading || this.data.resultUnknown
         || this.data.error || !this.data.canUnload || this.data.route?.status !== 'IN_TRANSIT') return;
     const validation = validateWeights(this.data.grossWeight, this.data.tareWeight);
     if (!validation.ok) {
       this.setData({ fieldError: validation.message });
       return;
     }
-    const { grossWeight, tareWeight, netWeight, standardText } = this.data;
+    if (!this.data.tickets.length) { this.setData({ mediaError: '请先拍照或选择至少一张磅单' }); return; }
+    const { grossWeight, tareWeight, netWeight } = this.data;
+    const evidenceAttachmentIds = this.data.tickets.map((item) => item.id);
     this.setData({ confirming: true, fieldError: '' });
     wx.showModal({
       title: '确认重量并卸货',
-      content: `毛重 ${Number(grossWeight).toFixed(3)} 吨，皮重 ${Number(tareWeight).toFixed(3)} 吨，实际载重 ${netWeight} 吨。${standardText}。卸货后司机不能自行修改重量，如需纠正请联系有权限的管理人员。`,
+      content: `毛重 ${Number(grossWeight).toFixed(3)} 吨，皮重 ${Number(tareWeight).toFixed(3)} 吨，实际载重 ${netWeight} 吨，磅单 ${evidenceAttachmentIds.length} 张。提交后司机不能修改重量或磅单。`,
       success: async (res) => {
         if (!res.confirm) { this.setData({ confirming: false }); return; }
         this.setData({ busy: true, error: '' });
         try {
           const completed = await request({
             url: `/routes/${this.data.id}/unload`, method: 'POST',
-            data: { grossWeight, tareWeight }
+            data: { grossWeight, tareWeight, evidenceAttachmentIds }
           });
           this.setData({ route: routePresentation(sanitizeRoute(completed)) });
           wx.showToast({ title: '卸货已完成' });
-          wx.navigateBack();
         } catch (error) {
           this.setData({ resultUnknown: true,
             error: '卸货结果未确认。请先重新加载线路状态，确认尚未完成后再提交，勿重复点击。' });

@@ -11,6 +11,7 @@ import com.dfwl.fleet.imports.service.ImportService;
 import com.dfwl.fleet.master.service.MasterDataService;
 import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
 import com.dfwl.fleet.route.dto.request.UnloadRequest;
+import com.dfwl.fleet.route.RouteTicketFixture;
 import com.dfwl.fleet.route.service.RouteService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.settlement.service.SettlementService;
@@ -63,7 +64,7 @@ class CriticalConcurrencyTests {
                 "tire_claim", "tire_request_item", "tire_request", "approval_action", "approval_task",
                 "approval_submission_version", "approval_instance", "approval_flow_node",
                 "approval_flow_initiator_role", "approval_flow_expense_config", "approval_flow", "approval_template",
-                "route_weight_version", "route_status_history", "route_task", "file_attachment",
+                "route_unload_evidence", "route_weight_version", "route_status_history", "route_task", "file_attachment",
                 "driver_vehicle_history", "driver_vehicle_current", "vehicle_trailer_history",
                 "vehicle_trailer_current", "tire", "trailer", "vehicle", "driver", "customer", "product")) {
             jdbcTemplate.update("DELETE FROM " + table);
@@ -120,7 +121,8 @@ class CriticalConcurrencyTests {
         insertPublishedRoute(1, 1);
         routeService.depart(1, 1);
 
-        Results results = runConcurrently(2, () -> routeService.unload(1, new UnloadRequest(new BigDecimal("30.000"), new BigDecimal("10.000")), 1));
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, 1, 1);
+        Results results = runConcurrently(2, () -> routeService.unload(1, new UnloadRequest(new BigDecimal("30.000"), new BigDecimal("10.000"), List.of(ticket)), 1));
 
         assertThat(results.success()).isGreaterThanOrEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_weight_version WHERE route_id = 1 AND version_no = 1", Integer.class)).isEqualTo(1);
@@ -209,7 +211,8 @@ class CriticalConcurrencyTests {
     void concurrentVoidCreatesOneRouteAndEnergyAttributionHistory() throws Exception {
         insertPublishedRoute(1, 1);
         routeService.depart(1, 1);
-        routeService.unload(1, new UnloadRequest(new BigDecimal("30.000"), new BigDecimal("10.000")), 1);
+        routeService.unload(1, new UnloadRequest(new BigDecimal("30.000"), new BigDecimal("10.000"),
+                List.of(RouteTicketFixture.ticket(jdbcTemplate, 1, 1))), 1);
         jdbcTemplate.update("DELETE FROM expense_attribution_history");
         jdbcTemplate.update("""
                 INSERT INTO expense_entry (id, expense_no, expense_type, business_date, vehicle_id,

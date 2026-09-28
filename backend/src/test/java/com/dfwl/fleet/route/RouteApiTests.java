@@ -41,8 +41,20 @@ class RouteApiTests {
 
     private String token;
 
+    private String driverToken() {
+        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_role WHERE id = 801", Integer.class) == 0)
+            jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER', '司机', 1)");
+        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user WHERE id = 801", Integer.class) == 0)
+            jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
+        jdbcTemplate.update("UPDATE driver SET user_id = 801 WHERE id = 1");
+        return tokenAuthenticationService.issueToken(new AuthenticatedUser(
+                801L, "1381", 801L, "DRIVER", "司机", Set.of("route:list", "route:unload")));
+    }
+
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM route_unload_evidence");
+        jdbcTemplate.update("DELETE FROM file_attachment");
         jdbcTemplate.update("DELETE FROM in_app_notification");
         jdbcTemplate.update("DELETE FROM sys_user WHERE id = 801");
         jdbcTemplate.update("DELETE FROM sys_role WHERE id = 801");
@@ -105,7 +117,7 @@ class RouteApiTests {
 
     @Test
     void routeCanPublishDepartAndUnloadWithFrozenSnapshot() throws Exception {
-        jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER_TEST', '测试司机', 1)");
+        jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER', '测试司机', 1)");
         jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
         long routeId = createRoute();
 
@@ -125,12 +137,13 @@ class RouteApiTests {
                 .andExpect(jsonPath("$.data.departureVehicleId").value(1))
                 .andExpect(jsonPath("$.data.departureTrailerId").value(1));
 
+        long ticket = RouteTicketFixture.ticket(jdbcTemplate, routeId, 801);
         mockMvc.perform(post("/api/v1/routes/%d/unload".formatted(routeId))
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + driverToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"grossWeight":30.500,"tareWeight":10.250}
-                                """))
+                                {"grossWeight":30.500,"tareWeight":10.250,"evidenceAttachmentIds":[%d]}
+                                """.formatted(ticket)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.netWeight").value(20.250));
@@ -151,7 +164,7 @@ class RouteApiTests {
                 .andExpect(jsonPath("$.code").value("ROUTE_002"));
 
         mockMvc.perform(post("/api/v1/routes/%d/unload".formatted(routeId))
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + driverToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"grossWeight":10.000,"tareWeight":10.250}

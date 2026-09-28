@@ -17,10 +17,13 @@ Page({
       if (version !== this._loadVersion) return;
       const safe = routePresentation(sanitizeRoute(route));
       const sameDriver = user.driverId && user.driverId === safe.assignedDriverId;
-      const sameVehicle = user.currentVehicleId && user.currentVehicleId === safe.departureVehicleId;
-      this.setData({ route: safe, user,
+      this.setData({ route: {
+          ...safe,
+          nextAction: !sameDriver && safe.status === 'TRANSFER_PENDING'
+            ? '等待接手司机发车' : safe.nextAction
+        }, user,
         driverLabel: sameDriver ? (user.driverName || '本人') : (safe.assignedDriverId ? `司机 #${safe.assignedDriverId}` : '暂未分配'),
-        vehicleLabel: safe.currentOutsourcedPlateNo || (sameVehicle && user.currentPlateNo ? user.currentPlateNo : (safe.departureVehicleId ? `车辆 #${safe.departureVehicleId}` : (user.currentPlateNo || '暂未绑定'))),
+        vehicleLabel: safe.currentPlateNo || user.currentPlateNo || '暂未绑定',
         canDepart: !!sameDriver && hasPermission(user, 'route:depart'),
         canUnload: !!sameDriver && hasPermission(user, 'route:unload') });
     } catch (error) {
@@ -49,6 +52,10 @@ Page({
   },
   weight() {
     if (!this.data.canUnload || this.data.busy || this.data.loading || this.data.error || this.data.route?.status !== 'IN_TRANSIT') return;
+    wx.navigateTo({ url: `/pages/weight/index?id=${this.data.id}` });
+  },
+  viewTicket() {
+    if (this.data.loading || this.data.error || this.data.route?.status !== 'COMPLETED') return;
     wx.navigateTo({ url: `/pages/weight/index?id=${this.data.id}` });
   }
 });

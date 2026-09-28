@@ -7,11 +7,13 @@ const { currentTask } = require('../utils/homePresentation');
 async function pageScenario(relativePath, request, run, overrides = {}) {
   const requestModule = require('../utils/request');
   const oldRequest = requestModule.request;
+  const oldUpload = requestModule.uploadFile;
   const oldPage = global.Page;
   const oldWx = global.wx;
   const pagePath = require.resolve(`../pages/${relativePath}/index.js`);
   let definition;
   requestModule.request = request;
+  if (overrides.uploadFile) requestModule.uploadFile = overrides.uploadFile;
   global.Page = (value) => { definition = value; };
   global.wx = { stopPullDownRefresh() {}, showToast() {}, navigateTo() {}, navigateBack() {}, ...overrides };
   try {
@@ -22,6 +24,7 @@ async function pageScenario(relativePath, request, run, overrides = {}) {
     await run(page);
   } finally {
     requestModule.request = oldRequest;
+    requestModule.uploadFile = oldUpload;
     global.Page = oldPage;
     global.wx = oldWx;
     delete require.cache[pagePath];
@@ -30,7 +33,7 @@ async function pageScenario(relativePath, request, run, overrides = {}) {
 
 function route(id, status = 'PUBLISHED') {
   return { id, status, routeNo: `R${id}`, loadingPlace: '昆明', unloadingPlace: '曲靖',
-    businessDate: '2026-09-27', loadStandardThreshold: '20.000', assignedDriverId: 1 };
+    businessDate: '2026-09-27', assignedDriverId: 1 };
 }
 
 module.exports = [
@@ -143,6 +146,20 @@ module.exports = [
       assert.equal(posts, 0);
     }, { showModal(options) { modal = options; } });
   }],
+  ['BIZ1D completed route opens original ticket as read only without an unload action', async () => {
+    const opened = [];
+    await pageScenario('route-detail', ({ url }) => {
+      if (url === '/me') return { driverId: 1, permissions: ['route:list'] };
+      return route(4, 'COMPLETED');
+    }, async (page) => {
+      page.data.id = 4;
+      await page.load();
+      page.viewTicket();
+      page.weight();
+      assert.deepEqual(opened, ['/pages/weight/index?id=4']);
+      assert.equal(page.data.canUnload, false);
+    }, { navigateTo(options) { opened.push(options.url); } });
+  }],
   ['BIZ1B only current transfer driver may depart while waiting for handoff', async () => {
     await pageScenario('route-detail', ({ url }) => {
       if (url === '/me') return { driverId: 1, permissions: ['route:list', 'route:depart'] };
@@ -151,14 +168,16 @@ module.exports = [
       page.data.id = 8;
       await page.load();
       assert.equal(page.data.canDepart, false);
+      assert.equal(page.data.route.nextAction, '等待接手司机发车');
     });
     await pageScenario('route-detail', ({ url }) => {
       if (url === '/me') return { driverId: 2, permissions: ['route:list', 'route:depart'] };
-      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2, currentOutsourcedPlateNo: '外协B002' };
+      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2, currentPlateNo: '外协B002' };
     }, async (page) => {
       page.data.id = 8;
       await page.load();
       assert.equal(page.data.canDepart, true);
+      assert.equal(page.data.route.nextAction, '确认发车');
       assert.equal(page.data.vehicleLabel, '外协B002');
     });
   }],
@@ -169,13 +188,46 @@ module.exports = [
     assert.equal(validateWeights('10', '10').ok, false);
     assert.equal(validateWeights('30.123', '10.100').ok, true);
   }],
+  ['BIZ1D weight page requires a ticket before opening confirmation', async () => {
+    let modalCalls = 0;
+    await pageScenario('weight', ({ url }) => url === '/me'
+      ? { driverId: 1, permissions: ['route:unload'] } : route(9, 'IN_TRANSIT'), async (page) => {
+      page.data.id = 9;
+      await page.load();
+      page.onGross({ detail: { value: '30' } });
+      page.onTare({ detail: { value: '10' } });
+      page.submit();
+      assert.match(page.data.mediaError, /至少一张磅单/);
+      assert.equal(modalCalls, 0);
+    }, { showModal() { modalCalls += 1; } });
+  }],
+  ['BIZ1D partial upload keeps successful image and allows another selection', async () => {
+    let selected;
+    let uploadCount = 0;
+    await pageScenario('weight', ({ url }) => url === '/me'
+      ? { driverId: 1, permissions: ['route:unload'] } : route(10, 'IN_TRANSIT'), async (page) => {
+      page.data.id = 10;
+      await page.load();
+      page.chooseTickets();
+      await selected;
+      assert.equal(page.data.tickets.length, 1);
+      assert.match(page.data.mediaError, /上传失败/);
+      assert.equal(page.data.uploading, false);
+      assert.equal(page.data.tickets[0].id, 51);
+      page.removeTicket({ currentTarget: { dataset: { index: 0 } } });
+      assert.equal(page.data.tickets.length, 0);
+    }, {
+      chooseMedia(options) { selected = options.success({ tempFiles: [{ tempFilePath: '/tmp/a.jpg' }, { tempFilePath: '/tmp/b.jpg' }] }); },
+      async uploadFile() { uploadCount += 1; if (uploadCount === 2) throw new Error('offline'); return { id: 50 + uploadCount }; }
+    });
+  }],
   ['UI3 weight page keeps confirm lock until submit completes and sends once', async () => {
     let modal;
     let finishPost;
     let posts = 0;
     let backs = 0;
     await pageScenario('weight', ({ url }) => {
-      if (url === '/me') return Promise.resolve({ permissions: ['route:unload'] });
+      if (url === '/me') return Promise.resolve({ driverId: 1, permissions: ['route:unload'] });
       if (url.endsWith('/unload')) { posts += 1; return new Promise((resolve) => { finishPost = resolve; }); }
       return Promise.resolve(route(5, 'IN_TRANSIT'));
     }, async (page) => {
@@ -183,6 +235,7 @@ module.exports = [
       await page.load();
       page.onGross({ detail: { value: '30.000' } });
       page.onTare({ detail: { value: '10.000' } });
+      page.setData({ tickets: [{ id: 12, path: '/tmp/ticket.jpg' }] });
       assert.equal(page.data.netWeight, '20.000');
       page.submit();
       page.submit();
@@ -195,7 +248,7 @@ module.exports = [
       await pending;
       assert.equal(page.data.busy, false);
       assert.equal(page.data.route.status, 'COMPLETED');
-      assert.equal(backs, 1);
+      assert.equal(backs, 0);
     }, { showModal(options) { modal = options; }, navigateBack() { backs += 1; } });
   }],
   ['UI3 canceled unload never posts and weak-network failure keeps input locked for refresh', async () => {
@@ -203,7 +256,7 @@ module.exports = [
     let fail = false;
     let posts = 0;
     await pageScenario('weight', async ({ url }) => {
-      if (url === '/me') return { permissions: ['route:unload'] };
+      if (url === '/me') return { driverId: 1, permissions: ['route:unload'] };
       if (url.endsWith('/unload')) { posts += 1; throw new Error('网络不可用'); }
       return route(7, 'IN_TRANSIT');
     }, async (page) => {
@@ -211,6 +264,7 @@ module.exports = [
       await page.load();
       page.onGross({ detail: { value: '25' } });
       page.onTare({ detail: { value: '10' } });
+      page.setData({ tickets: [{ id: 13, path: '/tmp/ticket.jpg' }] });
       page.submit();
       await modal.success({ confirm: false });
       assert.equal(posts, 0);

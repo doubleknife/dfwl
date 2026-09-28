@@ -222,6 +222,12 @@ public class AttachmentService {
         if (!repository.ownerExists(ownerType, ownerId)) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
+        if (purpose == AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET
+                && (!"ROUTE".equals(ownerType)
+                    || !"DRIVER".equalsIgnoreCase(user.roleCode())
+                    || !repository.canCurrentDriverUploadUnloadTicket(ownerId, user.id(), user.phone()))) {
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
         if ("APPROVAL_UPLOAD".equals(ownerType) && ownerId != user.id()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
@@ -235,6 +241,7 @@ public class AttachmentService {
         boolean allowed = switch (purpose) {
             case TIRE_OCR -> has(user, "tire:request");
             case WEIGHT_ADJUST -> has(user, "route:weight:adjust");
+            case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "route:unload");
             case APPROVAL_APPLICATION -> has(user, "approval:create");
             case APPROVAL_ACTION -> hasAny(user, "approval:process", "approval:return");
             case IMPORT_FILE -> hasAny(user, "import:preview", "import:history");
@@ -276,8 +283,17 @@ public class AttachmentService {
                     && repository.canViewApprovalAction(attachment.ownerId(), user.id(), history)) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
+        if (purpose == AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET) {
+            if ("ROUTE".equals(attachment.ownerType())
+                    && repository.ownerExists("ROUTE", attachment.ownerId())
+                    && (has(user, "route:list") && !"DRIVER".equalsIgnoreCase(user.roleCode())
+                        || has(user, "route:list") && repository.canDriverReadUnloadTicket(
+                                attachment.ownerId(), user.id(), user.phone()))) return;
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
         boolean allowed = switch (purpose) {
-            case WEIGHT_ADJUST -> hasAny(user, "route:list", "route:weight:adjust");
+            case WEIGHT_ADJUST -> !"DRIVER".equalsIgnoreCase(user.roleCode())
+                    && hasAny(user, "route:list", "route:weight:adjust");
             case IMPORT_FILE -> has(user, "import:history");
             default -> false;
         };
@@ -295,7 +311,7 @@ public class AttachmentService {
 
     private Set<String> allowedTypes(AttachmentPurpose purpose) {
         return switch (purpose) {
-            case TIRE_OCR, WEIGHT_ADJUST -> IMAGE_TYPES;
+            case TIRE_OCR, WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET -> IMAGE_TYPES;
             case APPROVAL_APPLICATION, APPROVAL_ACTION -> APPROVAL_TYPES;
             case IMPORT_FILE -> IMPORT_TYPES;
         };
@@ -307,7 +323,7 @@ public class AttachmentService {
         }
         return switch (purpose) {
             case TIRE_OCR, APPROVAL_APPLICATION, IMPORT_FILE -> true;
-            case WEIGHT_ADJUST, APPROVAL_ACTION -> false;
+            case WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, APPROVAL_ACTION -> false;
         };
     }
 
