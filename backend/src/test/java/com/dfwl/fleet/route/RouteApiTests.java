@@ -110,7 +110,9 @@ class RouteApiTests {
         long routeId = createRoute();
 
         mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId))
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"initialSalary\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 801 AND type = 'ROUTE_ASSIGNED' AND business_id = ?", Integer.class, routeId)).isEqualTo(1);
@@ -137,7 +139,8 @@ class RouteApiTests {
     @Test
     void inTransitRouteCannotBeCancelledAndBadWeightFails() throws Exception {
         long routeId = createRoute();
-        mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId)).header("Authorization", "Bearer " + token))
+        mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId)).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialSalary\":0}"))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/routes/%d/depart".formatted(routeId)).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
@@ -155,6 +158,63 @@ class RouteApiTests {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ROUTE_004"));
+    }
+
+    @Test
+    void transferAndSalaryEndpointsEnforceIndependentPermissionsAndCurrentVersion() throws Exception {
+        jdbcTemplate.update("INSERT INTO driver (id, driver_type, name, phone, status) VALUES (2, 'OUTSOURCED', '外协司机', '1382', 1)");
+        long routeId = createRoute();
+        mockMvc.perform(post("/api/v1/routes/{id}/publish", routeId).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialSalary\":\"12.00\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/routes/{id}/depart", routeId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        long current = jdbcTemplate.queryForObject("SELECT current_participant_id FROM route_task WHERE id = ?", Long.class, routeId);
+        int version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = ?", Integer.class, routeId);
+        String body = """
+                {"expectedCurrentParticipantId":%d,"expectedRouteVersion":%d,"newDriverId":2,
+                 "outsourcedPlateNo":"外协B002","newSalary":"0.00","reason":"车辆调整",
+                 "salaries":[{"participantId":%d,"amount":"0.00"}]}
+                """.formatted(current, version, current);
+        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        String transferToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L,
+                "admin", "管理员", Set.of("route:list", "route:transfer")));
+        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId)
+                        .header("Authorization", "Bearer " + transferToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("TRANSFER_PENDING"));
+        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId)
+                        .header("Authorization", "Bearer " + transferToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/v1/routes/{id}/participants", routeId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].salaryAmount").doesNotExist());
+        mockMvc.perform(get("/api/v1/routes/{id}/participants", routeId)
+                        .header("Authorization", "Bearer " + transferToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].salaryAmount").value(0.00));
+        long next = jdbcTemplate.queryForObject("SELECT current_participant_id FROM route_task WHERE id = ?", Long.class, routeId);
+        int participantVersion = jdbcTemplate.queryForObject("SELECT version FROM route_participant WHERE id = ?", Integer.class, next);
+        String adjust = """
+                {"amount":"5.00","expectedParticipantVersion":%d,"reason":"补正"}
+                """.formatted(participantVersion);
+        mockMvc.perform(post("/api/v1/routes/{id}/participants/{participantId}/salary-adjustments", routeId, next)
+                        .header("Authorization", "Bearer " + transferToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(adjust))
+                .andExpect(status().isForbidden());
+        String adjustToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L,
+                "admin", "管理员", Set.of("route:list", "route:salary:adjust")));
+        mockMvc.perform(post("/api/v1/routes/{id}/participants/{participantId}/salary-adjustments", routeId, next)
+                        .header("Authorization", "Bearer " + adjustToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(adjust))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = ?", java.math.BigDecimal.class, routeId))
+                .isEqualByComparingTo("5.00");
     }
 
     private long createRoute() throws Exception {

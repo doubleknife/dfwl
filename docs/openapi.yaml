@@ -240,8 +240,9 @@ paths:
       responses: {'200': {description: OK}}
     post:
       tags: [Drivers]
-      summary: 新增司机
+      summary: 新增司机并原子创建或关联合法 DRIVER 账号；新账号需 initialPassword，已存在账号不改密码
       x-permission: driver:add
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
       responses: {'200': {description: OK}}
   /drivers/binding-candidates:
     get:
@@ -407,16 +408,44 @@ paths:
   /routes/{id}/participants:
     get:
       tags: [Routes]
-      summary: 管理端按 sequenceNo 查询已存在的线路参与记录；本阶段不提供转派或参与工资调整写入
-      x-permissions: [route:list, salary:view]
+      summary: 管理端按 sequenceNo 查询参与历史；route:list 仅可见非工资事实，工资另需 salary:view 或 route:transfer 或 route:salary:adjust
+      x-permission: route:list
       parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /routes/{id}/participants/{participantId}/salary-history:
+    get:
+      tags: [Routes]
+      summary: 查询指定参与工资调整历史
+      x-permissions: [route:list, salary:view]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
       responses: {'200': {description: OK}}
   /routes/{id}/publish:
     post:
       tags: [Routes]
-      summary: 发布线路并强校验司机车辆
+      summary: 发布线路并创建 INITIAL 参与；显式提交初始工资，外协必填真实车牌且不要求公司车
       x-permission: route:publish
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoutePublishRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/transfer:
+    post:
+      tags: [Routes]
+      summary: 按当前参与与线路版本原子转派，完整重核所有正式参与工资并进入等待接手
+      x-permission: route:transfer
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTransferRequest'}}}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /routes/{id}/participants/{participantId}/salary-adjustments:
+    post:
+      tags: [Routes]
+      summary: 非转派场景调整指定正式参与工资；完成线路允许调整
+      x-permission: route:salary:adjust
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ParticipantSalaryAdjustmentRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /routes/{id}/depart:
     post:
@@ -1909,6 +1938,51 @@ components:
         taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
         externalRouteNo: {type: [string, 'null']}
         tripSequence: {type: [string, 'null']}
+    DriverCreateRequest:
+      type: object
+      required: [driverType, name, phone, status]
+      properties:
+        driverType: {type: string, enum: [INTERNAL, OUTSOURCED]}
+        name: {type: string}
+        phone: {type: string}
+        status: {type: integer, enum: [0, 1]}
+        initialPassword: {type: [string, 'null'], writeOnly: true, description: 仅新建 DRIVER User 时必填；已有合法账号时不改原密码}
+        vehicleLicenseNo: {type: [string, 'null']}
+        drivingLicenseNo: {type: [string, 'null']}
+        idCardNo: {type: [string, 'null']}
+        birthDate: {type: [string, 'null'], format: date}
+    RoutePublishRequest:
+      type: object
+      required: [initialSalary]
+      properties:
+        initialSalary: {$ref: '#/components/schemas/DecimalMoney'}
+        outsourcedPlateNo: {type: [string, 'null'], description: OUTSOURCED 必填完整真实外协车牌；INTERNAL 不使用}
+    RouteTransferRequest:
+      type: object
+      required: [expectedCurrentParticipantId, expectedRouteVersion, newDriverId, newSalary, reason, salaries]
+      properties:
+        expectedCurrentParticipantId: {type: integer, format: int64}
+        expectedRouteVersion: {type: integer, minimum: 0}
+        newDriverId: {type: integer, format: int64}
+        outsourcedPlateNo: {type: [string, 'null'], description: 新司机为 OUTSOURCED 时必填真实车牌}
+        newSalary: {$ref: '#/components/schemas/DecimalMoney'}
+        reason: {type: string, minLength: 1}
+        salaries:
+          type: array
+          description: 所有既有有效 Participant 必须各出现一次，不可遗漏、重复或跨线路
+          items:
+            type: object
+            required: [participantId, amount]
+            properties:
+              participantId: {type: integer, format: int64}
+              amount: {$ref: '#/components/schemas/DecimalMoney'}
+    ParticipantSalaryAdjustmentRequest:
+      type: object
+      required: [amount, expectedParticipantVersion, reason]
+      properties:
+        amount: {$ref: '#/components/schemas/DecimalMoney'}
+        expectedParticipantVersion: {type: integer, minimum: 0}
+        reason: {type: string, minLength: 1}
     RouteReasonRequest:
       type: object
       required: [reason]

@@ -97,10 +97,10 @@ class Biz1AFoundationTests {
                 "OUTBOUND", "A", "B", driver, new BigDecimal("10.00"), null, null), 1).id();
         assertThatThrownBy(() -> routes.voidRoute(route, new RouteReasonRequest("原因"), 1))
                 .isInstanceOf(BusinessException.class);
-        routes.publish(route, 1);
+        routes.publish(route, new com.dfwl.fleet.route.dto.request.RoutePublishRequest(java.math.BigDecimal.ZERO, null), 1);
         assertThat(participants.list(route)).hasSize(1);
         assertThat(participants.current(route).orElseThrow().status()).isEqualTo("ASSIGNED");
-        assertThatThrownBy(() -> routes.publish(route, 1)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> routes.publish(route, new com.dfwl.fleet.route.dto.request.RoutePublishRequest(java.math.BigDecimal.ZERO, null), 1)).isInstanceOf(BusinessException.class);
         routes.depart(route, 1);
         assertThat(participants.current(route).orElseThrow().status()).isEqualTo("IN_TRANSIT");
         assertThatThrownBy(() -> routes.voidRoute(route, new RouteReasonRequest("原因"), 1))
@@ -137,7 +137,7 @@ class Biz1AFoundationTests {
         masters.bindDriverVehicle(driver, 1, 1);
         long route = routes.create(new RouteRequest(LocalDate.of(2026, 9, 28), 1L, 1L,
                 "OUTBOUND", "A", "B", driver, new BigDecimal("10.00"), null, null), 1).id();
-        routes.publish(route, 1);
+        routes.publish(route, new com.dfwl.fleet.route.dto.request.RoutePublishRequest(java.math.BigDecimal.ZERO, null), 1);
         jdbc.update("UPDATE route_participant SET status = 'TRANSFERRED' WHERE route_id = ?", route);
         for (int sequence = 2; sequence <= 3; sequence++) {
             jdbc.update("""
@@ -164,7 +164,7 @@ class Biz1AFoundationTests {
         masters.bindDriverVehicle(driver, 1, 1);
         long route = routes.create(new RouteRequest(LocalDate.of(2026, 9, 28), 1L, 1L,
                 "OUTBOUND", "A", "B", driver, new BigDecimal("10.00"), null, null), 1).id();
-        routes.publish(route, 1);
+        routes.publish(route, new com.dfwl.fleet.route.dto.request.RoutePublishRequest(new BigDecimal("10.00"), null), 1);
         participants.updateInitialSalary(route, BigDecimal.ZERO, 1);
         assertThat(participants.current(route).orElseThrow().salaryAmount()).isEqualByComparingTo("0");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM route_participant_salary_history", Integer.class))

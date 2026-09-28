@@ -31,7 +31,7 @@ Page({
       this.setData({ user, driver, vehicle, displayName, initial: displayName.charAt(0), roleLabel,
         actions: visibleHomeActions(user, driver, Array.isArray(templates) ? templates : templates.records || [])
           .map((action) => action.key === 'approvals' && Number(todoPage.total || 0) > 0 ? { ...action, badge: Number(todoPage.total) } : action),
-        currentTask: currentTask(routePage.records || []), todoCount: Number(todoPage.total || 0),
+        currentTask: currentTask(routePage.records || [], user.driverId), todoCount: Number(todoPage.total || 0),
         unreadCount: Number(unread.unreadCount || 0), error: '' });
     } catch (error) {
       this.setData({ error: error.message || '工作台加载失败，请重试' });

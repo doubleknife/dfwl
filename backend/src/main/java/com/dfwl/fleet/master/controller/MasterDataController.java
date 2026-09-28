@@ -154,7 +154,7 @@ public class MasterDataController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody DriverRequest request) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.createDriver(request), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.createDriverWithAccount(request, user.id()), RequestIdHolder.get());
     }
 
     @GetMapping("/drivers/{id}")

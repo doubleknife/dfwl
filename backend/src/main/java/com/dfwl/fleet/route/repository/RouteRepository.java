@@ -47,8 +47,8 @@ public class RouteRepository {
                 FROM route_task r
                 JOIN route_participant p ON p.id = r.current_participant_id AND p.route_id = r.id
                 WHERE r.id = ? AND r.deleted_at IS NULL
-                  AND r.status = ? AND p.status = 'ASSIGNED' AND p.driver_id = ?
-                """, Integer.class, routeId, RouteStatus.PUBLISHED.name(), driverId);
+                  AND r.status IN ('PUBLISHED', 'TRANSFER_PENDING') AND p.status = 'ASSIGNED' AND p.driver_id = ?
+                """, Integer.class, routeId, driverId);
         return count != null && count > 0;
     }
 
@@ -66,7 +66,8 @@ public class RouteRepository {
     public void updateRouteSalary(long routeId, BigDecimal amount, String sourceType, long operatorId) {
         jdbcTemplate.update("""
                 UPDATE route_task
-                SET driver_salary = ?, salary_source = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET driver_salary = ?, salary_source = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP,
+                    version = version + 1
                 WHERE id = ? AND deleted_at IS NULL
                 """, amount, sourceType, operatorId, routeId);
     }
@@ -105,9 +106,11 @@ public class RouteRepository {
         Object[] args = parameters.toArray();
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_task r WHERE r.deleted_at IS NULL" + filter, Long.class, args);
         List<RouteResponse> records = jdbcTemplate.query("""
-                SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,
+                SELECT r.*, p.outsourced_plate_no AS current_outsourced_plate_no,
+                       w.gross_weight, w.tare_weight, w.net_weight,
                        w.load_standard_threshold, w.load_standard_met
                 FROM route_task r
+                LEFT JOIN route_participant p ON p.id = r.current_participant_id
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.deleted_at IS NULL
                 %s
@@ -131,9 +134,11 @@ public class RouteRepository {
                 %s
                 """.formatted(filter), Long.class, scopedArgs);
         List<RouteResponse> records = jdbcTemplate.query("""
-                SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,
+                SELECT r.*, p.outsourced_plate_no AS current_outsourced_plate_no,
+                       w.gross_weight, w.tare_weight, w.net_weight,
                        w.load_standard_threshold, w.load_standard_met
                 FROM route_task r
+                LEFT JOIN route_participant p ON p.id = r.current_participant_id
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.deleted_at IS NULL
                   AND EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id AND p.driver_id = ?)
@@ -153,9 +158,11 @@ public class RouteRepository {
 
     public Optional<RouteResponse> find(long id) {
         return jdbcTemplate.query("""
-                SELECT r.*, w.gross_weight, w.tare_weight, w.net_weight,
+                SELECT r.*, p.outsourced_plate_no AS current_outsourced_plate_no,
+                       w.gross_weight, w.tare_weight, w.net_weight,
                        w.load_standard_threshold, w.load_standard_met
                 FROM route_task r
+                LEFT JOIN route_participant p ON p.id = r.current_participant_id
                 LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.id = ? AND r.deleted_at IS NULL
                 """, this::mapRoute, id).stream().findFirst();
@@ -251,8 +258,36 @@ public class RouteRepository {
         jdbcTemplate.queryForList("SELECT id FROM vehicle WHERE id = ? FOR UPDATE", Long.class, vehicleId);
     }
 
+    public boolean vehicleBusyOnAnotherRoute(long vehicleId, long routeId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM route_task r
+                JOIN route_participant p ON p.id = r.current_participant_id
+                WHERE r.id <> ? AND r.deleted_at IS NULL
+                  AND r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
+                  AND p.status IN ('ASSIGNED', 'IN_TRANSIT')
+                  AND p.company_vehicle_id = ?
+                """, Integer.class, routeId, vehicleId);
+        return count != null && count > 0;
+    }
+
     public void lockRoute(long routeId) {
         jdbcTemplate.queryForList("SELECT id FROM route_task WHERE id = ? FOR UPDATE", Long.class, routeId);
+    }
+
+    public boolean transfer(long id, int expectedVersion, long oldParticipantId, long newParticipantId,
+                            long newDriverId, String fromStatus, long operatorId, String reason) {
+        int updated = jdbcTemplate.update("""
+                UPDATE route_task SET status = 'TRANSFER_PENDING', current_participant_id = ?,
+                    assigned_driver_id = ?, departure_driver_id = NULL, departure_vehicle_id = NULL,
+                    departure_trailer_id = NULL,
+                    updated_by = ?, version = version + 1
+                WHERE id = ? AND deleted_at IS NULL AND status = ? AND version = ?
+                  AND current_participant_id = ?
+                """, newParticipantId, newDriverId, operatorId, id, fromStatus,
+                expectedVersion, oldParticipantId);
+        if (updated != 1) return false;
+        insertStatusHistory(id, fromStatus, "TRANSFER_PENDING", "TRANSFER", operatorId, reason);
+        return true;
     }
 
     public boolean updateStatus(long id, String fromStatus, String toStatus, String operationType, long operatorId, String reason) {
@@ -276,9 +311,10 @@ public class RouteRepository {
         int updated = jdbcTemplate.update("""
                 UPDATE route_task
                 SET status = 'IN_TRANSIT', departure_driver_id = ?, departure_vehicle_id = ?,
-                    departure_trailer_id = ?, departure_time = ?, updated_by = ?, version = version + 1
+                    departure_trailer_id = ?, departure_time = COALESCE(departure_time, ?),
+                    updated_by = ?, version = version + 1
                 WHERE id = ?
-                  AND status = 'PUBLISHED'
+                  AND status = ?
                   AND deleted_at IS NULL
                   AND NOT EXISTS (
                     SELECT 1 FROM (
@@ -290,7 +326,7 @@ public class RouteRepository {
                     ) busy_vehicle
                   )
                 """, snapshot.driverId(), snapshot.vehicleId(), snapshot.trailerId(), Timestamp.valueOf(now),
-                operatorId, id, id, snapshot.vehicleId());
+                operatorId, id, fromStatus, id, snapshot.vehicleId());
         if (updated != 1) {
             return false;
         }
@@ -300,7 +336,7 @@ public class RouteRepository {
 
     public long insertWeightVersion(long routeId, int versionNo, BigDecimal grossWeight,
                                     BigDecimal tareWeight, BigDecimal netWeight,
-                                    BigDecimal loadStandardThreshold, boolean loadStandardMet,
+                                    BigDecimal loadStandardThreshold, Boolean loadStandardMet,
                                     String sourceType, long operatorId, String reason, List<Long> attachmentIds) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
@@ -316,7 +352,7 @@ public class RouteRepository {
             ps.setBigDecimal(4, tareWeight);
             ps.setBigDecimal(5, netWeight);
             ps.setBigDecimal(6, loadStandardThreshold);
-            ps.setInt(7, loadStandardMet ? 1 : 0);
+            ps.setObject(7, loadStandardMet == null ? null : (loadStandardMet ? 1 : 0));
             ps.setString(8, sourceType);
             ps.setLong(9, operatorId);
             ps.setString(10, reason);
@@ -448,7 +484,9 @@ public class RouteRepository {
                 rs.getBigDecimal("tare_weight"),
                 rs.getBigDecimal("net_weight"),
                 rs.getBigDecimal("load_standard_threshold"),
-                readBoolean(rs, "load_standard_met"));
+                readBoolean(rs, "load_standard_met"),
+                readLong(rs, "current_participant_id"), rs.getInt("version"),
+                rs.getString("current_outsourced_plate_no"));
     }
 
     private Long readLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {

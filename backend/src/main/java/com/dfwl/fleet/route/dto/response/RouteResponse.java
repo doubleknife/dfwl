@@ -27,6 +27,9 @@ public record RouteResponse(
         BigDecimal tareWeight,
         BigDecimal netWeight,
         BigDecimal loadStandardThreshold,
-        Boolean loadStandardMet
+        Boolean loadStandardMet,
+        Long currentParticipantId,
+        int version,
+        String currentOutsourcedPlateNo
 ) {
 }

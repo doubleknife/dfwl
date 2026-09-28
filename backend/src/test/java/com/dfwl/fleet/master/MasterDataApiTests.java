@@ -50,6 +50,9 @@ class MasterDataApiTests {
         jdbcTemplate.update("DELETE FROM trailer");
         jdbcTemplate.update("DELETE FROM vehicle");
         jdbcTemplate.update("DELETE FROM driver");
+        jdbcTemplate.update("DELETE FROM sys_user");
+        jdbcTemplate.update("DELETE FROM sys_role");
+        jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (2, 'DRIVER', '司机', 1)");
 
         AuthenticatedUser user = new AuthenticatedUser(1L, "13800000000", 1L, "admin", "管理员", Set.of(
                 "driver:list", "driver:add", "driver:bindVehicle", "driver:unbindVehicle",
@@ -175,7 +178,8 @@ class MasterDataApiTests {
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"driverType":"INTERNAL","name":"%s","phone":"%s","status":1}
+                                {"driverType":"INTERNAL","name":"%s","phone":"%s","status":1,
+                                 "initialPassword":"local-test-only"}
                                 """.formatted(name, phone)))
                 .andExpect(status().isOk());
         return jdbcTemplate.queryForObject("SELECT id FROM driver WHERE phone = ?", Long.class, phone);

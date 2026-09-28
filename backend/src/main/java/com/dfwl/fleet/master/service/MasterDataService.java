@@ -36,12 +36,14 @@ public class MasterDataService {
     private final CurrentUserService currentUserService;
     private final VehicleAccessPolicy vehicleAccessPolicy;
     private final AuditWriteService audit;
+    private final DriverAccountService driverAccounts;
 
-    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy, AuditWriteService audit) {
+    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy, AuditWriteService audit, DriverAccountService driverAccounts) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.vehicleAccessPolicy = vehicleAccessPolicy;
         this.audit = audit;
+        this.driverAccounts = driverAccounts;
     }
 
     public PageResponse<CustomerResponse> listCustomers(int pageNo, int pageSize) {
@@ -145,6 +147,13 @@ public class MasterDataService {
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException(ErrorCode.DATA_002);
         }
+    }
+
+    @Transactional
+    public DriverResponse createDriverWithAccount(DriverRequest request, long operatorId) {
+        DriverResponse driver = createDriver(request);
+        driverAccounts.createOrLink(driver.id(), request.initialPassword(), operatorId);
+        return findDriver(driver.id());
     }
 
     @Transactional

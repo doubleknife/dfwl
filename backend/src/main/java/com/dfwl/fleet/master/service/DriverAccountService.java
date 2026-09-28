@@ -27,10 +27,7 @@ public class DriverAccountService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    /**
-     * This backend foundation is not exposed as an API until the initial-password UX is frozen.
-     * An existing DRIVER user can be linked without a password; a new user needs an explicit one.
-     */
+    /** An existing DRIVER user is linked without changing its password; a new user needs an explicit password. */
     @Transactional
     public long createOrLink(long driverId, String initialPassword, long operatorId) {
         drivers.lockDriver(driverId);

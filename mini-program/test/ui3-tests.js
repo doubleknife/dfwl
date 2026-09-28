@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { validateWeights } = require('../utils/business');
+const { currentTask } = require('../utils/homePresentation');
 
 async function pageScenario(relativePath, request, run, overrides = {}) {
   const requestModule = require('../utils/request');
@@ -29,10 +30,14 @@ async function pageScenario(relativePath, request, run, overrides = {}) {
 
 function route(id, status = 'PUBLISHED') {
   return { id, status, routeNo: `R${id}`, loadingPlace: '昆明', unloadingPlace: '曲靖',
-    businessDate: '2026-09-27', loadStandardThreshold: '20.000' };
+    businessDate: '2026-09-27', loadStandardThreshold: '20.000', assignedDriverId: 1 };
 }
 
 module.exports = [
+  ['BIZ1B home ignores historical participant and presents current transfer', () => {
+    assert.equal(currentTask([{ ...route(1, 'IN_TRANSIT'), assignedDriverId: 2 }], 1), null);
+    assert.equal(currentTask([route(2, 'TRANSFER_PENDING')], 1).nextAction, '确认发车');
+  }],
   ['UI3 route list uses exact server filter and real total beyond first 50', async () => {
     const urls = [];
     await pageScenario('routes', async ({ url }) => {
@@ -121,7 +126,7 @@ module.exports = [
     let modal;
     let posts = 0;
     await pageScenario('route-detail', async ({ url }) => {
-      if (url === '/me') return { permissions: ['route:list', 'route:depart'] };
+      if (url === '/me') return { driverId: 1, permissions: ['route:list', 'route:depart'] };
       if (url.endsWith('/depart')) posts += 1;
       return route(1);
     }, async (page) => {
@@ -137,6 +142,25 @@ module.exports = [
       page.depart();
       assert.equal(posts, 0);
     }, { showModal(options) { modal = options; } });
+  }],
+  ['BIZ1B only current transfer driver may depart while waiting for handoff', async () => {
+    await pageScenario('route-detail', ({ url }) => {
+      if (url === '/me') return { driverId: 1, permissions: ['route:list', 'route:depart'] };
+      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2 };
+    }, async (page) => {
+      page.data.id = 8;
+      await page.load();
+      assert.equal(page.data.canDepart, false);
+    });
+    await pageScenario('route-detail', ({ url }) => {
+      if (url === '/me') return { driverId: 2, permissions: ['route:list', 'route:depart'] };
+      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2, currentOutsourcedPlateNo: '外协B002' };
+    }, async (page) => {
+      page.data.id = 8;
+      await page.load();
+      assert.equal(page.data.canDepart, true);
+      assert.equal(page.data.vehicleLabel, '外协B002');
+    });
   }],
   ['UI3 weights enforce positive order and three decimal places', () => {
     assert.equal(validateWeights('30.1234', '10').ok, false);

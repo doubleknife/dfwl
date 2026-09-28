@@ -16,18 +16,19 @@ Page({
       const [route, user] = await Promise.all([request({ url: `/routes/${this.data.id}` }), request({ url: '/me' })]);
       if (version !== this._loadVersion) return;
       const safe = routePresentation(sanitizeRoute(route));
-      const sameDriver = user.driverId && (user.driverId === safe.assignedDriverId || user.driverId === safe.departureDriverId);
+      const sameDriver = user.driverId && user.driverId === safe.assignedDriverId;
       const sameVehicle = user.currentVehicleId && user.currentVehicleId === safe.departureVehicleId;
       this.setData({ route: safe, user,
         driverLabel: sameDriver ? (user.driverName || '本人') : (safe.assignedDriverId ? `司机 #${safe.assignedDriverId}` : '暂未分配'),
-        vehicleLabel: sameVehicle && user.currentPlateNo ? user.currentPlateNo : (safe.departureVehicleId ? `车辆 #${safe.departureVehicleId}` : (user.currentPlateNo || '暂未绑定')),
-        canDepart: hasPermission(user, 'route:depart'), canUnload: hasPermission(user, 'route:unload') });
+        vehicleLabel: safe.currentOutsourcedPlateNo || (sameVehicle && user.currentPlateNo ? user.currentPlateNo : (safe.departureVehicleId ? `车辆 #${safe.departureVehicleId}` : (user.currentPlateNo || '暂未绑定'))),
+        canDepart: !!sameDriver && hasPermission(user, 'route:depart'),
+        canUnload: !!sameDriver && hasPermission(user, 'route:unload') });
     } catch (error) {
       if (version === this._loadVersion) this.setData({ error: error.statusCode === 403 ? '当前账号不能查看这条线路，请联系调度' : (error.message || '线路详情加载失败，请重试') });
     } finally { if (version === this._loadVersion) this.setData({ loading: false }); }
   },
   depart() {
-    if (this.data.busy || this.data.confirming || this.data.loading || this.data.error || !this.data.canDepart || this.data.route?.status !== 'PUBLISHED') return;
+    if (this.data.busy || this.data.confirming || this.data.loading || this.data.error || !this.data.canDepart || !['PUBLISHED', 'TRANSFER_PENDING'].includes(this.data.route?.status)) return;
     this.setData({ confirming: true });
     wx.showModal({
       title: '确认发车',

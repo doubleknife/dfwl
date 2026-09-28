@@ -7,7 +7,7 @@
   </scroll-view>
   <feedback-state wx:if="{{loading && !initialized}}" kind="loading" message="正在加载线路…" />
   <feedback-state wx:elif="{{error}}" kind="error" message="{{error}}" bind:retry="refresh" />
-  <feedback-state wx:elif="{{initialized && records.length === 0}}" kind="empty" message="{{activeStatus === 'PUBLISHED' ? '当前没有待发车线路' : activeStatus === 'IN_TRANSIT' ? '当前没有运输中线路' : activeStatus === 'COMPLETED' ? '暂无已完成线路' : '暂无线路'}}" />
+  <feedback-state wx:elif="{{initialized && records.length === 0}}" kind="empty" message="{{activeStatus === 'PUBLISHED' ? '当前没有待发车线路' : activeStatus === 'TRANSFER_PENDING' ? '当前没有等待接手的线路' : activeStatus === 'IN_TRANSIT' ? '当前没有运输中线路' : activeStatus === 'COMPLETED' ? '暂无已完成线路' : '暂无线路'}}" />
   <block wx:else>
     <view wx:for="{{records}}" wx:key="id" class="mp-route-item" bindtap="open" data-id="{{item.id}}">
       <view class="mp-route-item-top"><text class="mp-route-item-date">{{item.businessDate}}</text><status-tag label="{{item.statusLabel}}" tone="{{item.tone}}" /></view>

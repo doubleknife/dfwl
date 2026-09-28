@@ -43,6 +43,95 @@ public class RouteParticipantRepository {
                 """, this::map, routeId).stream().findFirst();
     }
 
+    public List<ParticipantDetail> details(long routeId, boolean includeSalary) {
+        return jdbc.query("""
+                SELECT p.*, r.current_participant_id, d.name AS driver_name
+                FROM route_participant p
+                JOIN route_task r ON r.id = p.route_id
+                LEFT JOIN driver d ON d.id = p.driver_id
+                WHERE p.route_id = ? AND r.deleted_at IS NULL
+                ORDER BY p.sequence_no
+                """, (rs, row) -> new ParticipantDetail(
+                rs.getLong("id"), rs.getInt("sequence_no"), rs.getLong("driver_id"),
+                rs.getString("driver_name"), rs.getString("driver_type_snapshot"),
+                nullableLong(rs, "company_vehicle_id"), rs.getString("outsourced_plate_no"),
+                rs.getString("source_type"), rs.getString("status"),
+                rs.getTimestamp("assigned_at") == null ? null : rs.getTimestamp("assigned_at").toLocalDateTime(),
+                rs.getTimestamp("departed_at") == null ? null : rs.getTimestamp("departed_at").toLocalDateTime(),
+                rs.getTimestamp("ended_at") == null ? null : rs.getTimestamp("ended_at").toLocalDateTime(),
+                rs.getString("end_reason"), rs.getString("transfer_reason"),
+                rs.getLong("current_participant_id") == rs.getLong("id"),
+                includeSalary ? rs.getBigDecimal("salary_amount") : null,
+                rs.getInt("version")), routeId);
+    }
+
+    public List<SalaryHistory> salaryHistory(long participantId) {
+        return jdbc.query("""
+                SELECT before_amount, after_amount, reason, operator_id, operation_time
+                FROM route_participant_salary_history WHERE participant_id = ? ORDER BY id
+                """, (rs, row) -> new SalaryHistory(rs.getBigDecimal("before_amount"),
+                rs.getBigDecimal("after_amount"), rs.getString("reason"),
+                rs.getLong("operator_id"), rs.getTimestamp("operation_time").toLocalDateTime()), participantId);
+    }
+
+    public BigDecimal effectiveSalary(long routeId) {
+        List<Participant> all = list(routeId);
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Participant p : all) {
+            if ("CANCELLED".equals(p.status()) || "LEGACY_ENDED".equals(p.status())) continue;
+            if (p.salaryAmount() == null) throw new BusinessException(ErrorCode.ROUTE_002);
+            sum = sum.add(p.salaryAmount());
+        }
+        return sum;
+    }
+
+    public void adjustSalary(Participant p, BigDecimal amount, String reason, long operatorId) {
+        if (amount == null || amount.signum() < 0 || reason == null || reason.isBlank())
+            throw new BusinessException(ErrorCode.SYS_002);
+        if (p.salaryAmount() != null && p.salaryAmount().compareTo(amount) == 0) return;
+        if (jdbc.update("""
+                UPDATE route_participant SET salary_amount = ?, updated_by = ?, version = version + 1
+                WHERE id = ? AND version = ?
+                """, amount, operatorId, p.id(), p.version()) != 1)
+            throw new BusinessException(ErrorCode.ROUTE_002);
+        jdbc.update("""
+                INSERT INTO route_participant_salary_history
+                    (participant_id, before_amount, after_amount, reason, operator_id)
+                VALUES (?, ?, ?, ?, ?)
+                """, p.id(), p.salaryAmount(), amount, reason.trim(), operatorId);
+    }
+
+    public long transfer(long routeId, Participant previous, long driverId, String driverType,
+                         Long vehicleId, String plate, BigDecimal salary, String reason, long operatorId) {
+        if (jdbc.update("""
+                UPDATE route_participant SET status = 'TRANSFERRED', ended_at = CURRENT_TIMESTAMP(3),
+                    end_reason = ?, transfer_reason = ?, updated_by = ?, version = version + 1
+                WHERE id = ? AND route_id = ? AND version = ? AND status IN ('ASSIGNED', 'IN_TRANSIT')
+                """, reason, reason, operatorId, previous.id(), routeId, previous.version()) != 1)
+            throw new BusinessException(ErrorCode.ROUTE_002);
+        KeyHolder key = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement("""
+                    INSERT INTO route_participant
+                    (route_id, sequence_no, driver_id, driver_type_snapshot, company_vehicle_id,
+                     outsourced_plate_no, source_type, status, assigned_at, transfer_reason,
+                     salary_amount, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, 'TRANSFER', 'ASSIGNED', CURRENT_TIMESTAMP(3), ?, ?, ?)
+                    """, new String[]{"id"});
+            ps.setLong(1, routeId);
+            ps.setInt(2, previous.sequenceNo() + 1);
+            ps.setLong(3, driverId);
+            ps.setString(4, driverType);
+            ps.setObject(5, vehicleId);
+            ps.setString(6, plate);
+            ps.setString(7, reason);
+            ps.setBigDecimal(8, salary);
+            ps.setLong(9, operatorId);
+            return ps;
+        }, key);
+        return key.getKey().longValue();
+    }
+
     public long createInitial(long routeId, long driverId, String driverType, Long vehicleId,
                               String outsourcedPlate, BigDecimal salaryAmount, long operatorId) {
         if (salaryAmount != null && salaryAmount.signum() < 0) throw new BusinessException(ErrorCode.SYS_002);
@@ -101,7 +190,7 @@ public class RouteParticipantRepository {
         Optional<Participant> current = current(routeId);
         if (current.isEmpty()) return;
         Participant p = current.get();
-        if (p.sequenceNo() != 1 || !"ASSIGNED".equals(p.status())) {
+        if (p.sequenceNo() != 1 || !"INITIAL".equals(p.sourceType()) || !"ASSIGNED".equals(p.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
         if (jdbc.update("""
@@ -153,4 +242,14 @@ public class RouteParticipantRepository {
                               String driverTypeSnapshot, Long companyVehicleId, String outsourcedPlateNo,
                               String sourceType, String status, BigDecimal salaryAmount,
                               boolean historicalDataComplete, int version) {}
+
+    public record ParticipantDetail(long id, int sequenceNo, long driverId, String driverName,
+                                    String driverType, Long companyVehicleId, String outsourcedPlateNo,
+                                    String source, String status, LocalDateTime assignedAt,
+                                    LocalDateTime departedAt, LocalDateTime endedAt,
+                                    String endReason, String transferReason, boolean current,
+                                    BigDecimal salaryAmount, int version) {}
+
+    public record SalaryHistory(BigDecimal beforeAmount, BigDecimal afterAmount, String reason,
+                                long operatorId, LocalDateTime operationTime) {}
 }

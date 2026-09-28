@@ -617,10 +617,11 @@ public class MasterDataRepository {
                 FROM route_task r
                 WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
                   AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?
-                       OR r.import_vehicle_id = ? OR r.departure_vehicle_id = ?
+                       OR r.departure_vehicle_id = ?
                        OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
+                                  AND p.status IN ('ASSIGNED', 'IN_TRANSIT')
                                   AND (p.driver_id = ? OR p.company_vehicle_id = ?)))
-                """, Integer.class, driverId, driverId, vehicleId, vehicleId, driverId, vehicleId);
+                """, Integer.class, driverId, driverId, vehicleId, driverId, vehicleId);
         return count != null && count > 0;
     }
 
@@ -629,10 +630,11 @@ public class MasterDataRepository {
                 SELECT COUNT(*)
                 FROM route_task r
                 WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
-                  AND (r.import_vehicle_id = ? OR r.departure_vehicle_id = ? OR r.departure_trailer_id = ?
+                  AND (r.departure_vehicle_id = ? OR r.departure_trailer_id = ?
                        OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
+                                  AND p.status IN ('ASSIGNED', 'IN_TRANSIT')
                                   AND p.company_vehicle_id = ?))
-                """, Integer.class, vehicleId, vehicleId, trailerId, vehicleId);
+                """, Integer.class, vehicleId, trailerId, vehicleId);
         return count != null && count > 0;
     }
 

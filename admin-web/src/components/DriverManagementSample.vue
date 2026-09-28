@@ -13,7 +13,7 @@ import ErrorState from './ErrorState.vue';
 const props = defineProps({ drivers: { type: Array, default: () => [] }, vehicles: { type: Array, default: () => [] }, loading: Boolean });
 const emit = defineEmits(['refresh']);
 const filters = reactive({ keyword: '', type: '', status: '' });
-const form = reactive({ name: '', phone: '', driverType: 'INTERNAL' });
+const form = reactive({ name: '', phone: '', driverType: 'INTERNAL', status: 1, initialPassword: '' });
 const openCreate = ref(false);
 const selected = ref(null);
 const saving = ref(false);
@@ -30,7 +30,7 @@ async function create() {
   error.value = '';
   try {
     await masterApi.createDriver({ ...form });
-    Object.assign(form, { name: '', phone: '', driverType: 'INTERNAL' });
+    Object.assign(form, { name: '', phone: '', driverType: 'INTERNAL', status: 1, initialPassword: '' });
     openCreate.value = false;
     emit('refresh');
   } catch (cause) { error.value = cause.message || '新增司机失败'; }
@@ -60,6 +60,7 @@ async function create() {
         <label class="ui-form-field">姓名<input v-model.trim="form.name" required maxlength="50" placeholder="请输入司机姓名" /></label>
         <label class="ui-form-field">手机号<input v-model.trim="form.phone" required inputmode="tel" placeholder="请输入手机号" /></label>
         <label class="ui-form-field">司机类型<select v-model="form.driverType"><option value="INTERNAL">自有司机</option><option value="OUTSOURCED">外协司机</option></select></label>
+        <label class="ui-form-field">初始密码<input v-model="form.initialPassword" type="password" autocomplete="new-password" placeholder="新账号必填；已有合法司机账号可留空" /></label>
       </div><div class="ui-dialog-actions"><button type="button" :disabled="saving" @click="openCreate = false">取消</button><button class="primary" :disabled="saving">{{ saving ? '正在保存…' : '保存司机' }}</button></div></form>
     </FormDialog>
     <DetailDrawer :open="!!selected" :title="selected?.name || '司机详情'" @close="selected = null">

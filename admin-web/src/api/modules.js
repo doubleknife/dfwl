@@ -43,6 +43,10 @@ export const routeApi = {
     return apiClient.get(`/routes?${params}`);
   },
   detail: (id) => apiClient.get(`/routes/${id}`),
+  participants: (id) => apiClient.get(`/routes/${id}/participants`),
+  participantSalaryHistory: (id, participantId) => apiClient.get(`/routes/${id}/participants/${participantId}/salary-history`),
+  transfer: (id, body) => apiClient.post(`/routes/${id}/transfer`, body),
+  adjustParticipantSalary: (id, participantId, body) => apiClient.post(`/routes/${id}/participants/${participantId}/salary-adjustments`, body),
   create: (body) => apiClient.post('/routes', body),
   update: (id, body) => apiClient.put(`/routes/${id}`, body),
   delete: (id) => apiClient.delete(`/routes/${id}`),

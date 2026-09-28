@@ -5,6 +5,7 @@ const { routePresentation } = require('../../utils/homePresentation');
 const PAGE_SIZE = 20;
 const TABS = [
   { key: 'PUBLISHED', label: '待发车' },
+  { key: 'TRANSFER_PENDING', label: '等待接手' },
   { key: 'IN_TRANSIT', label: '运输中' },
   { key: 'COMPLETED', label: '已完成' },
   { key: '', label: '全部' }

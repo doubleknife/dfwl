@@ -40,7 +40,7 @@ globalThis.fetch = async (url, options = {}) => {
   };
 };
 
-const { masterApi, approvalTemplateApi, systemApi, tireApi } = await import('../src/api/modules.js');
+const { masterApi, routeApi, approvalTemplateApi, systemApi, tireApi } = await import('../src/api/modules.js');
 const { authStore, clearSession } = await import('../src/stores/auth.js');
 
 function configuredForm(category = 'EXPENSE') {
@@ -108,6 +108,20 @@ const tests = [
     assert.equal(requests[1].options.method, 'POST');
     assert.match(requests[2].url, /\/products\/7$/);
     assert.equal(requests[2].options.method, 'PUT');
+  }],
+  ['BIZ1B route actions send explicit salary, current version and participant paths', async () => {
+    requests.length = 0;
+    await routeApi.action(7, 'publish', { initialSalary: '0.00', outsourcedPlateNo: '外协A001' });
+    await routeApi.participants(7);
+    await routeApi.transfer(7, { expectedCurrentParticipantId: 11, expectedRouteVersion: 3,
+      newDriverId: 9, newSalary: '0.00', reason: '转派', salaries: [{ participantId: 11, amount: '0.00' }] });
+    await routeApi.adjustParticipantSalary(7, 11, { amount: '5.00', expectedParticipantVersion: 2, reason: '核定' });
+    assert.match(requests[0].url, /\/routes\/7\/publish$/);
+    assert.equal(JSON.parse(requests[0].options.body).initialSalary, '0.00');
+    assert.match(requests[1].url, /\/routes\/7\/participants$/);
+    assert.match(requests[2].url, /\/routes\/7\/transfer$/);
+    assert.equal(JSON.parse(requests[2].options.body).expectedRouteVersion, 3);
+    assert.match(requests[3].url, /\/routes\/7\/participants\/11\/salary-adjustments$/);
   }],
   ['approval template API keeps templateId separate from flowId', async () => {
     requests.length = 0;

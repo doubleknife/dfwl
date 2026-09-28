@@ -2,6 +2,9 @@ package com.dfwl.fleet.route.controller;
 
 import com.dfwl.fleet.route.dto.request.RouteReasonRequest;
 import com.dfwl.fleet.route.dto.request.RouteRequest;
+import com.dfwl.fleet.route.dto.request.RoutePublishRequest;
+import com.dfwl.fleet.route.dto.request.RouteTransferRequest;
+import com.dfwl.fleet.route.dto.request.ParticipantSalaryAdjustmentRequest;
 import com.dfwl.fleet.route.dto.response.RouteResponse;
 import com.dfwl.fleet.route.dto.response.RouteWeightVersionResponse;
 import com.dfwl.fleet.route.dto.request.UnloadRequest;
@@ -80,10 +83,21 @@ public class RouteController {
     }
 
     @GetMapping("/{id}/participants")
-    @PreAuthorize("hasAuthority('route:list') and hasAuthority('salary:view')")
+    @PreAuthorize("hasAuthority('route:list')")
     public ApiResponse<?> participants(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(routeService.participants(id), RequestIdHolder.get());
+        boolean salaryAllowed = user.permissions().contains("salary:view")
+                || user.permissions().contains("route:transfer")
+                || user.permissions().contains("route:salary:adjust");
+        return ApiResponse.success(routeService.participants(id, salaryAllowed), RequestIdHolder.get());
+    }
+
+    @GetMapping("/{id}/participants/{participantId}/salary-history")
+    @PreAuthorize("hasAuthority('route:list') and hasAuthority('salary:view')")
+    public ApiResponse<?> participantSalaryHistory(@AuthenticationPrincipal AuthenticatedUser user,
+                                                     @PathVariable long id, @PathVariable long participantId) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(routeService.participantSalaryHistory(id, participantId), RequestIdHolder.get());
     }
 
     @PutMapping("/{id}")
@@ -106,9 +120,27 @@ public class RouteController {
 
     @PostMapping("/{id}/publish")
     @PreAuthorize("hasAuthority('route:publish')")
-    public ApiResponse<RouteResponse> publish(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+    public ApiResponse<RouteResponse> publish(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
+                                               @Valid @RequestBody RoutePublishRequest request) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(routeService.publish(id, user.id()), RequestIdHolder.get());
+        return ApiResponse.success(routeService.publish(id, request, user.id()), RequestIdHolder.get());
+    }
+
+    @PostMapping("/{id}/transfer")
+    @PreAuthorize("hasAuthority('route:transfer')")
+    public ApiResponse<RouteResponse> transfer(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
+                                                @Valid @RequestBody RouteTransferRequest request) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(routeService.transfer(id, request, user.id()), RequestIdHolder.get());
+    }
+
+    @PostMapping("/{id}/participants/{participantId}/salary-adjustments")
+    @PreAuthorize("hasAuthority('route:salary:adjust')")
+    public ApiResponse<RouteResponse> adjustParticipantSalary(@AuthenticationPrincipal AuthenticatedUser user,
+                                                                @PathVariable long id, @PathVariable long participantId,
+                                                                @Valid @RequestBody ParticipantSalaryAdjustmentRequest request) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(routeService.adjustParticipantSalary(id, participantId, request, user.id()), RequestIdHolder.get());
     }
 
     @PostMapping("/{id}/depart")

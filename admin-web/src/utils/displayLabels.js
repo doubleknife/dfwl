@@ -11,7 +11,9 @@ export const expenseTypeLabels = {
 };
 
 export const statusLabels = {
-  UNPUBLISHED: '未发布', PUBLISHED: '已发布', IN_TRANSIT: '运输中', COMPLETED: '已完成',
+  UNPUBLISHED: '未发布', PUBLISHED: '已发布', TRANSFER_PENDING: '等待接手',
+  ASSIGNED: '待发车', TRANSFERRED: '已转派', LEGACY_ENDED: '历史结束',
+  IN_TRANSIT: '运输中', COMPLETED: '已完成',
   VOIDED: '已作废', CANCELLED: '已取消',
   IN_STOCK: '库存中', APPROVAL_RESERVED: '审批预留', CLAIMED: '已申领',
   ACTIVE: '有效', PENDING_ATTRIBUTION: '待确认归属', REVERSED: '已冲销', REVERSAL: '冲销记录',

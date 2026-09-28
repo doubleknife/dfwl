@@ -12,6 +12,11 @@ public record DriverRequest(
         String drivingLicenseNo,
         String idCardNo,
         LocalDate birthDate,
-        @NotNull Integer status
+        @NotNull Integer status,
+        String initialPassword
 ) {
+    public DriverRequest(String driverType, String name, String phone, String vehicleLicenseNo,
+                         String drivingLicenseNo, String idCardNo, LocalDate birthDate, Integer status) {
+        this(driverType, name, phone, vehicleLicenseNo, drivingLicenseNo, idCardNo, birthDate, status, null);
+    }
 }
