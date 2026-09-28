@@ -27,7 +27,7 @@ class ExpenseImportMigrationTests {
     @Autowired ObjectMapper mapper;
 
     @BeforeEach void setup() {
-        for (String table : List.of("expense_attribution_history", "expense_energy_detail", "expense_penalty_detail", "expense_repair_detail", "expense_toll_detail", "expense_entry", "import_row", "import_task", "route_status_history", "route_task", "vehicle", "customer", "product")) jdbc.update("DELETE FROM " + table);
+        for (String table : List.of("expense_attribution_history", "expense_energy_detail", "expense_penalty_detail", "expense_repair_detail", "expense_toll_detail", "expense_entry", "import_row", "import_task", "route_status_history", "route_participant", "route_task", "vehicle", "customer", "product")) jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO vehicle (id, plate_no, insurance_complete, energy_type, max_load, load_standard_type, load_standard_percent, status) VALUES (1, 'E-1', 1, 'ELECTRIC', 30, 'PERCENT', 0.9, 1)");
         jdbc.update("""
             INSERT INTO route_task (id, route_no, business_unique_key, business_date, customer_id, product_id,
@@ -35,6 +35,11 @@ class ExpenseImportMigrationTests {
                 departure_time, unload_time, created_by)
             VALUES (1, 'R1', 'R1', '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 10, 'IN_TRANSIT', 1,
                 TIMESTAMP '2026-09-10 08:00:00', TIMESTAMP '2026-09-10 12:00:00', 7)
+            """);
+        jdbc.update("""
+            INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                           company_vehicle_id, source_type, status, salary_amount)
+            VALUES (1, 1, 1, 'INTERNAL', 1, 'INITIAL', 'IN_TRANSIT', 0)
             """);
     }
 
@@ -120,13 +125,13 @@ class ExpenseImportMigrationTests {
         var raw=raw(scenario.equals("ordinaryRoute")?"OTHER":"ELECTRIC");raw.put("attributionType","ROUTE");
         boolean unmatched=Set.of("unmatched","voided","nullUnload").contains(scenario);
         if(scenario.equals("manual")||scenario.equals("ordinaryRoute"))raw.put("routeId",1);
-        if(scenario.equals("unmatched"))jdbc.update("UPDATE route_task SET departure_vehicle_id=2");
+        if(scenario.equals("unmatched"))jdbc.update("UPDATE route_participant SET company_vehicle_id=2");
         if(scenario.equals("voided"))jdbc.update("UPDATE route_task SET status='VOIDED'");
         if(scenario.equals("nullUnload"))jdbc.update("UPDATE route_task SET unload_time=NULL");
         if(scenario.equals("completed"))jdbc.update("UPDATE route_task SET status='COMPLETED'");
         if(scenario.startsWith("boundary")) { @SuppressWarnings("unchecked") var detail=(Map<String,Object>)raw.get("energyDetail"); detail.put("startTime",scenario.equals("boundaryStart")?"2026-09-10T08:00:00":"2026-09-10T12:00:00"); }
         long task=prepare(raw,null);var result=imports.commit(task,7);assertThat(result.successCount()).isEqualTo(1);
-        assertThat(jdbc.queryForMap("SELECT * FROM expense_entry")).containsEntry("route_id",unmatched?null:1L).containsEntry("status","ACTIVE").containsEntry("attribution_type","ROUTE");
+        assertThat(jdbc.queryForMap("SELECT * FROM expense_entry")).containsEntry("route_id",unmatched?null:1L).containsEntry("status",unmatched?"PENDING_ATTRIBUTION":"ACTIVE").containsEntry("attribution_type","ROUTE");
         if(!scenario.equals("ordinaryRoute"))assertThat(jdbc.queryForMap("SELECT * FROM expense_energy_detail")).containsEntry("match_status",unmatched?"UNMATCHED":scenario.equals("manual")?"MANUAL":"AUTO_MATCHED").containsEntry("auto_matched_route_id",unmatched?null:1L);
     }
 
@@ -203,7 +208,7 @@ class ExpenseImportMigrationTests {
         jdbc.update("INSERT INTO product (id,product_name,status) VALUES (1,'P',1)");
         long task=prepare(raw("ELECTRIC"),null);long id=imports.commit(task,7).rows().get(0).businessId();
         jdbc.update("UPDATE route_task SET status = 'COMPLETED' WHERE id = 1");
-        routes.voidRoute(1,new com.dfwl.fleet.route.dto.request.RouteReasonRequest("void"),7);
+        routes.voidRoute(1,new com.dfwl.fleet.route.dto.request.RouteReasonRequest("void", true),7);
         assertThat(jdbc.queryForMap("SELECT * FROM expense_entry WHERE id=?",id)).containsEntry("status","ACTIVE").containsEntry("route_id",1L);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id=?",Integer.class,id)).isZero();
     }

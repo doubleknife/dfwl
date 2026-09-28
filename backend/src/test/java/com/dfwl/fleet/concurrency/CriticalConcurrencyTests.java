@@ -222,7 +222,7 @@ class CriticalConcurrencyTests {
                 VALUES (1, 'ELECTRIC', 'VOID-CONCURRENT', CURRENT_TIMESTAMP, 10.000, 1, 'AUTO_MATCHED')
                 """);
 
-        Results results = runConcurrently(2, () -> routeService.voidRoute(1, new RouteReasonRequest("并发作废"), 1));
+        Results results = runConcurrently(2, () -> routeService.voidRoute(1, new RouteReasonRequest("并发作废", true), 1));
 
         assertThat(results.success()).isEqualTo(1);
         assertThat(results.failure()).isEqualTo(1);

@@ -63,16 +63,19 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
         for (JsonNode item : items) {
             String itemNo = legacy ? "1" : text(item, "itemNo", true);
             if (!expected.add(itemNo)) throw new BusinessException(ErrorCode.SYS_002);
-            ExpenseRequest request = buildRequest(approval.approvalInstanceId(), snapshot, item);
+            ExpenseRequest submitted = buildRequest(approval.approvalInstanceId(), snapshot, item);
+            ExpenseRequest request = resolveApprovedRequest(submitted);
             validate(request);
             var row = existing.get(itemNo);
             if (row != null) {
                 ensureSame(row, request, item);
                 continue;
             }
-            long expenseId = repository.create(nextExpenseNo(), request, ExpenseStatus.ACTIVE.name(),
+            long expenseId = repository.create(nextExpenseNo(), request,
+                    "ROUTE".equals(request.attributionType()) && request.routeId() == null
+                            ? ExpenseStatus.PENDING_ATTRIBUTION.name() : ExpenseStatus.ACTIVE.name(),
                     request.routeId(), operatorId, itemNo);
-            insertDetail(expenseId, request, item);
+            insertDetail(expenseId, request, item, submitted.routeId() == null && request.routeId() != null);
         }
         if (!expected.containsAll(existing.keySet())) {
             throw new BusinessException(ErrorCode.SYS_003.name(), "审批费用明细与提交快照不一致");
@@ -111,6 +114,17 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
                 energyDetail(item));
     }
 
+    private ExpenseRequest resolveApprovedRequest(ExpenseRequest request) {
+        if (!"ROUTE".equals(request.attributionType()) || request.routeId() != null
+                || request.energyDetail() == null) return request;
+        var match = repository.matchRoute(request.vehicleId(), request.energyDetail().startTime());
+        if (match.isEmpty()) return request;
+        return new ExpenseRequest(request.expenseType(), request.businessDate(), request.vehicleId(),
+                request.driverId(), request.attributionType(), match.get(), request.amount(),
+                request.sourceType(), request.approvalInstanceId(), request.importRowId(),
+                request.remark(), request.energyDetail());
+    }
+
     private ExpenseRequest.EnergyDetailRequest energyDetail(JsonNode snapshot) {
         JsonNode detail = snapshot.get("energyDetail");
         if (detail == null || detail.isNull()) {
@@ -137,11 +151,15 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
             throw new BusinessException(ErrorCode.DATA_001);
         }
         if ("ROUTE".equals(request.attributionType())) {
-            if (request.routeId() == null) {
+            if (request.routeId() == null && !isEnergy(request.expenseType())) {
                 throw new BusinessException(ErrorCode.EXPENSE_003);
             }
-            if (!repository.routeExists(request.routeId())) {
+            if (request.routeId() != null && !repository.routeExists(request.routeId())) {
                 throw new BusinessException(ErrorCode.ROUTE_001);
+            }
+            if (request.routeId() != null) repository.lockRoute(request.routeId());
+            if (request.routeId() != null && !repository.eligibleRouteVehicle(request.routeId(), request.vehicleId())) {
+                throw new BusinessException(ErrorCode.EXPENSE_003);
             }
         } else if ("DAILY".equals(request.attributionType())) {
             if (request.routeId() != null) {
@@ -155,9 +173,10 @@ public class ExpenseApprovalBusinessHandler implements ApprovalBusinessHandler {
         }
     }
 
-    private void insertDetail(long expenseId, ExpenseRequest request, JsonNode snapshot) {
+    private void insertDetail(long expenseId, ExpenseRequest request, JsonNode snapshot, boolean autoMatched) {
         if (request.energyDetail() != null) {
-            repository.insertEnergyDetail(expenseId, request.energyDetail(), request.routeId(), "MANUAL");
+            repository.insertEnergyDetail(expenseId, request.energyDetail(), request.routeId(),
+                    autoMatched ? "AUTO_MATCHED" : request.routeId() == null ? "UNMATCHED" : "MANUAL");
         }
         JsonNode penalty = snapshot.get("penaltyDetail");
         if (penalty != null && !penalty.isNull()) {

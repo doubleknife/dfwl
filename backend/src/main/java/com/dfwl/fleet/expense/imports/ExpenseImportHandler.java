@@ -16,7 +16,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -80,9 +79,9 @@ public class ExpenseImportHandler implements ImportBusinessHandler {
                 matchedRoute = expense.routeId();
                 matchStatus = "MANUAL";
             } else {
-                Optional<Long> routeId = repository.matchRoute(expense.vehicleId(), parsed.energyDetail().startTime());
-                if (routeId.isPresent()) {
-                    matchedRoute = routeId.get();
+                var candidates = repository.matchRoutes(expense.vehicleId(), parsed.energyDetail().startTime());
+                if (candidates.size() == 1) {
+                    matchedRoute = candidates.get(0);
                     matchStatus = "AUTO_MATCHED";
                     expense = new ImportedExpense(
                             expense.expenseNo(),
@@ -95,7 +94,18 @@ public class ExpenseImportHandler implements ImportBusinessHandler {
                             expense.amount(),
                             expense.importRowId(),
                             expense.remark());
+                } else {
+                    matchStatus = candidates.isEmpty() ? "UNMATCHED" : "AMBIGUOUS";
+                    expense = new ImportedExpense(expense.expenseNo(), expense.expenseType(), expense.businessDate(),
+                            expense.vehicleId(), expense.driverId(), "ROUTE", null, expense.amount(),
+                            expense.importRowId(), expense.remark());
                 }
+            }
+        }
+        if (expense.routeId() != null) {
+            repository.lockRoute(expense.routeId());
+            if (!repository.eligibleRouteVehicle(expense.routeId(), expense.vehicleId())) {
+                throw new ExpenseValidationException(null, "EXPENSE_003", "车辆不是该线路的合格参与车辆");
             }
         }
         long id = repository.insertImportedExpense(expense, context.operatorId());
@@ -147,6 +157,9 @@ public class ExpenseImportHandler implements ImportBusinessHandler {
         }
         if (routeId != null && !repository.routeExists(routeId)) {
             throw new ExpenseValidationException(null, "ROUTE_001", "线路不存在");
+        }
+        if (routeId != null && !repository.eligibleRouteVehicle(routeId, vehicleId)) {
+            throw new ExpenseValidationException(null, "EXPENSE_003", "车辆不是该线路的合格参与车辆");
         }
         EnergyDetail energyDetail = null;
         if (isEnergy(expenseType)) {

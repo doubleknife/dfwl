@@ -28,11 +28,13 @@ export const attributionLabels = { ROUTE: '线路费用', DAILY: '日常费用' 
 export const driverTypeLabels = { INTERNAL: '自有司机', OUTSOURCED: '外协司机' };
 export const directionLabels = { OUTBOUND: '去程', RETURN: '返程' };
 export const energyTypeLabels = { ELECTRIC: '电', GAS: '气', TEMP_ELECTRIC: '临时电' };
-export const sourceTypeLabels = { MANUAL: '人工录入', IMPORT: '导入', APPROVAL: '审批' };
+export const sourceTypeLabels = { MANUAL: '人工录入', IMPORT: '导入', APPROVAL: '审批', SYSTEM: '系统生成' };
 export const permissionTypeLabels = { MENU: '菜单', BUTTON: '按钮', API: '接口', MINI_PROGRAM: '小程序' };
 export const changeTypeLabels = {
   ADD: '新增', MODIFY: '修改', DELETE: '删除', WEIGHT_ADJUST: '重量调整',
-  SALARY_ADJUST: '工资调整', REASSIGN: '重新归属', REVERSAL: '冲销'
+  SALARY_ADJUST: '工资调整', REASSIGN: '重新归属', REVERSAL: '冲销',
+  EXPENSE_ATTRIBUTION_ADJUST: '费用归属调整', ROUTE_VOID: '线路作废',
+  ROUTE_REACTIVATE: '线路恢复', ROUTE_TRANSFER: '线路转派'
 };
 
 export function displayValue(key, value, row = {}) {

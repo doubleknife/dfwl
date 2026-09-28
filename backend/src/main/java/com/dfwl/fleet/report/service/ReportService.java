@@ -1,5 +1,6 @@
 package com.dfwl.fleet.report.service;
 
+import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.report.repository.ReportRepository;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,14 @@ public class ReportService {
 
     public List<Map<String, Object>> profit() {
         return repository.profit();
+    }
+
+    public PageResponse<Map<String, Object>> completedRoutes(int pageNo, int pageSize, String status) {
+        return repository.completedRoutes(pageNo, pageSize, status);
+    }
+
+    public Map<String, Object> routeArchive(long routeId, int expensePageNo, int expensePageSize) {
+        return repository.routeArchive(routeId, expensePageNo, expensePageSize);
     }
 
     public List<Map<String, Object>> vehicleExpense() {

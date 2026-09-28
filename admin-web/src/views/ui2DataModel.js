@@ -1,7 +1,14 @@
-import { displayValue } from '../utils/displayLabels.js';
+import { displayValue, expenseTypeLabels } from '../utils/displayLabels.js';
 
 export function money(value) {
   return `¥ ${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function settlementBusinessSummary(summary) {
+  if (!summary) return '';
+  const companyCategories = { ROUTE: '线路费用', DAILY: '日常费用', UNASSIGNED: '未归属公司费用' };
+  return summary.split(' · ').map(part =>
+    companyCategories[part] || expenseTypeLabels[part] || part).join(' · ');
 }
 
 export function settlementFactSummary(factType, snapshotJson) {

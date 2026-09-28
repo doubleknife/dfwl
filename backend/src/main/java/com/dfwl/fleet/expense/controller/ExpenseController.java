@@ -43,9 +43,27 @@ public class ExpenseController {
     public ApiResponse<PageResponse<ExpenseResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) Long routeId,
+            @RequestParam(required = false)
+            @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+            java.time.LocalDate businessDate,
+            @RequestParam(required = false) String expenseType,
+            @RequestParam(required = false) String attributionType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long vehicleId,
+            @RequestParam(required = false) String keyword) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(expenseService.list(pageNo, pageSize), RequestIdHolder.get());
+        return ApiResponse.success(expenseService.list(pageNo, pageSize, routeId,
+                businessDate, expenseType, attributionType, status, vehicleId, keyword), RequestIdHolder.get());
+    }
+
+    @GetMapping("/eligible-route-vehicles")
+    @PreAuthorize("hasAuthority('expense:list')")
+    public ApiResponse<List<java.util.Map<String, Object>>> eligibleRouteVehicles(
+            @AuthenticationPrincipal AuthenticatedUser user, @RequestParam long routeId) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(expenseService.eligibleRouteVehicles(routeId), RequestIdHolder.get());
     }
 
     @PostMapping

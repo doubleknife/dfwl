@@ -38,6 +38,8 @@ const salaryForm = reactive({ amount: '', reason: '' });
 const detailTab = ref('overview');
 const editing = ref(false);
 const confirming = ref(null);
+const voiding = ref(null);
+const voidForm = reactive({ reason: '', acknowledged: false });
 const operation = ref('');
 const form = reactive({ businessDate: '', customerId: '', productId: '', direction: 'OUTBOUND', loadingPlace: '', unloadingPlace: '', taxUnitPrice: '', assignedDriverId: '', externalRouteNo: '', tripSequence: '' });
 const unloadForm = reactive({ grossWeight: '', tareWeight: '' });
@@ -167,6 +169,23 @@ async function submitSalary() {
 function ask(row, action, label, danger = false, body = {}) {
   confirming.value = { row, action, label, danger, body };
 }
+function openVoid(row) {
+  voiding.value = row;
+  Object.assign(voidForm, { reason: '', acknowledged: false });
+}
+async function confirmVoid() {
+  if (!voiding.value || !voidForm.acknowledged || !voidForm.reason.trim() || saving.value) return;
+  saving.value = true; error.value = '';
+  try {
+    await routeApi.action(voiding.value.id, 'void', {
+      reason: voidForm.reason.trim(), acknowledgeBusinessImpact: true
+    });
+    if (selected.value?.id === voiding.value.id) selected.value = null;
+    voiding.value = null;
+    await load();
+  } catch (cause) { error.value = cause.message || '作废失败'; }
+  finally { saving.value = false; }
+}
 async function confirmAction() {
   if (!confirming.value) return;
   saving.value = true; error.value = '';
@@ -211,7 +230,7 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
     <DataTable :columns="columns" :rows="rows" :loading="loading" empty-text="当前条件下没有线路">
       <template #customerId="{ value }">{{ customerName(value) }}</template><template #assignedDriverId="{ value }">{{ driverName(value) }}</template><template #departureVehicleId="{ value }">{{ vehicleName(value) }}</template>
       <template #status="{ value }"><StatusTag :value="value" /></template><template #netWeight="{ value }">{{ value == null ? '—' : `${value} 吨` }}</template>
-      <template #actions="{ row }"><div class="ui-inline-actions"><button type="button" @click="detail(row)">详情</button><button v-if="row.status === 'UNPUBLISHED' && can('route:publish')" type="button" @click="openPublish(row)">发布</button><button v-if="['PUBLISHED', 'TRANSFER_PENDING'].includes(row.status) && can('route:depart')" type="button" @click="ask(row, 'depart', '发车')">发车</button><button v-if="['IN_TRANSIT', 'TRANSFER_PENDING'].includes(row.status) && can('route:transfer')" type="button" @click="openTransfer(row)">转派</button><details class="ui-more-menu"><summary>更多</summary><div><button v-if="row.status === 'PUBLISHED' && can('route:cancel')" type="button" @click="ask(row, 'cancel', '取消', true, { reason: '管理端取消' })">取消线路</button><button v-if="row.status === 'COMPLETED' && can('route:void')" type="button" @click="ask(row, 'void', '作废', true, { reason: '管理端作废' })">作废线路</button><button v-if="row.status === 'VOIDED' && can('route:reactivate')" type="button" @click="ask(row, 'reactivate', '重新启用')">重新启用</button><button v-if="can('route:delete') && ['UNPUBLISHED', 'PUBLISHED', 'CANCELLED'].includes(row.status)" type="button" @click="ask(row, 'delete', '删除', true)">删除线路</button></div></details></div></template>
+      <template #actions="{ row }"><div class="ui-inline-actions"><button type="button" @click="detail(row)">详情</button><button v-if="row.status === 'UNPUBLISHED' && can('route:publish')" type="button" @click="openPublish(row)">发布</button><button v-if="['PUBLISHED', 'TRANSFER_PENDING'].includes(row.status) && can('route:depart')" type="button" @click="ask(row, 'depart', '发车')">发车</button><button v-if="['IN_TRANSIT', 'TRANSFER_PENDING'].includes(row.status) && can('route:transfer')" type="button" @click="openTransfer(row)">转派</button><details class="ui-more-menu"><summary>更多</summary><div><button v-if="row.status === 'PUBLISHED' && can('route:cancel')" type="button" @click="ask(row, 'cancel', '取消', true, { reason: '管理端取消' })">取消线路</button><button v-if="row.status === 'COMPLETED' && can('route:void')" type="button" @click="openVoid(row)">作废线路</button><button v-if="row.status === 'VOIDED' && can('route:reactivate')" type="button" @click="ask(row, 'reactivate', '重新启用')">重新启用</button><button v-if="can('route:delete') && ['UNPUBLISHED', 'PUBLISHED', 'CANCELLED'].includes(row.status)" type="button" @click="ask(row, 'delete', '删除', true)">删除线路</button></div></details></div></template>
     </DataTable>
     <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" />
     <FormDialog :open="editing" :title="selected?.id ? '编辑线路' : '新建线路'" :busy="saving" @close="editing = false">
@@ -282,5 +301,13 @@ onMounted(async () => { await Promise.all([load(), loadReferences()]); });
       </template>
     </DetailDrawer>
     <ConfirmDialog :open="!!confirming" :title="`${confirming?.label || ''}线路`" :message="`确认${confirming?.label || ''}线路 ${confirming?.row?.routeNo || ''}？${confirming?.danger ? '此操作可能影响后续运输与结算。' : ''}`" :danger="confirming?.danger" :busy="saving" @confirm="confirmAction" @cancel="confirming = null" />
+    <FormDialog :open="!!voiding" title="确认作废已完成线路" :busy="saving" @close="voiding = null">
+      <form @submit.prevent="confirmVoid">
+        <p>作废后，{{ voiding?.routeNo }} 的收入、所有参与工资、归属费用和利润将退出当前有效线路经营统计。历史事实保留，真实发生的公司费用仍计入公司总支出。</p>
+        <label class="ui-form-field">作废原因<input v-model.trim="voidForm.reason" required maxlength="500" /></label>
+        <label class="ui-form-field"><input v-model="voidForm.acknowledged" type="checkbox" required /> 我已了解上述经营影响</label>
+        <div class="ui-dialog-actions"><button type="button" @click="voiding = null">取消</button><button class="ui-danger-button" :disabled="saving || !voidForm.acknowledged">确认作废</button></div>
+      </form>
+    </FormDialog>
   </div>
 </template>

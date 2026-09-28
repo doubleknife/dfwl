@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { dashboardMetrics, firstAllowedReport, money, pageRows, settlementFactSummary } from '../src/views/ui2DataModel.js';
+import { dashboardMetrics, firstAllowedReport, money, pageRows, settlementBusinessSummary, settlementFactSummary } from '../src/views/ui2DataModel.js';
 
 assert.deepEqual(dashboardMetrics({ month: {
   incomeAmount: 1000, routeExpense: 100, dailyExpense: 50, driverSalary: 200,
@@ -19,6 +19,8 @@ assert.equal(settlementFactSummary('ROUTE', JSON.stringify({
   routeNo: 'R001', businessDate: '2026-09-27', driverId: 1
 })), 'R001 · 2026-09-27');
 assert.equal(settlementFactSummary('DAILY_EXPENSE', 'broken'), '快照可在高级信息中查看');
+assert.equal(settlementBusinessSummary('E001 · REPAIR · ROUTE'), 'E001 · 维修费 · 线路费用');
+assert.equal(settlementBusinessSummary('E002 · GAS · UNASSIGNED'), 'E002 · 气费 · 未归属公司费用');
 
 const reports = [
   { key: 'profit', permission: 'report:profit' },

@@ -11,6 +11,10 @@ import com.dfwl.fleet.expense.dto.request.ExpenseRequest;
 import com.dfwl.fleet.expense.dto.response.ExpenseResponse;
 import com.dfwl.fleet.expense.dto.request.ExpenseReversalRequest;
 import com.dfwl.fleet.expense.repository.ExpenseRepository;
+import com.dfwl.fleet.system.service.AuditWriteService;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -28,13 +32,27 @@ public class ExpenseService {
     private static final String ATTRIBUTION_DAILY = "DAILY";
 
     private final ExpenseRepository repository;
+    private final AuditWriteService audit;
 
-    public ExpenseService(ExpenseRepository repository) {
+    public ExpenseService(ExpenseRepository repository, AuditWriteService audit) {
         this.repository = repository;
+        this.audit = audit;
     }
 
     public PageResponse<ExpenseResponse> list(int pageNo, int pageSize) {
-        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200));
+        return list(pageNo, pageSize, null, null, null, null, null, null, null);
+    }
+
+    public PageResponse<ExpenseResponse> list(int pageNo, int pageSize, Long routeId,
+            java.time.LocalDate businessDate, String expenseType, String attributionType,
+            String status, Long vehicleId, String keyword) {
+        return repository.list(pageNo, Math.min(Math.max(pageSize, 1), 200), routeId,
+                businessDate, expenseType, attributionType, status, vehicleId, keyword);
+    }
+
+    public java.util.List<Map<String, Object>> eligibleRouteVehicles(long routeId) {
+        if (!repository.routeExists(routeId)) throw new BusinessException(ErrorCode.ROUTE_001);
+        return repository.eligibleRouteVehicles(routeId);
     }
 
     public ExpenseResponse find(long id) {
@@ -46,7 +64,8 @@ public class ExpenseService {
         validateRequest(request);
         MatchResult match = resolveRoute(request);
         ExpenseRequest effective = applyAutoMatch(request, match);
-        long id = repository.create(nextExpenseNo("E"), effective, ExpenseStatus.ACTIVE.name(), effective.routeId(), operatorId);
+        validateRequest(effective);
+        long id = repository.create(nextExpenseNo("E"), effective, statusFor(effective.attributionType(), effective.routeId()), effective.routeId(), operatorId);
         if (effective.energyDetail() != null) {
             repository.insertEnergyDetail(id, effective.energyDetail(), match.autoMatchedRouteId(), match.matchStatus());
         }
@@ -55,11 +74,12 @@ public class ExpenseService {
 
     @Transactional
     public ExpenseResponse update(long id, ExpenseRequest request, long operatorId) {
-        ExpenseResponse current = find(id);
+        ExpenseResponse current = repository.lockExpense(id).orElseThrow(() -> new BusinessException(ErrorCode.EXPENSE_001));
         ensureEditable(current);
         validateRequest(request);
         MatchResult match = resolveRoute(request);
         ExpenseRequest effective = applyAutoMatch(request, match);
+        validateRequest(effective);
         repository.update(id, effective, effective.routeId(), operatorId);
         repository.replaceEnergyDetail(id, effective.energyDetail(), match.autoMatchedRouteId(), match.matchStatus());
         return find(id);
@@ -67,24 +87,29 @@ public class ExpenseService {
 
     @Transactional
     public void delete(long id, long operatorId) {
-        ExpenseResponse current = find(id);
+        ExpenseResponse current = repository.lockExpense(id).orElseThrow(() -> new BusinessException(ErrorCode.EXPENSE_001));
         ensureEditable(current);
         repository.delete(id, operatorId);
     }
 
     @Transactional
     public ExpenseResponse adjustAttribution(long id, ExpenseAttributionRequest request, long operatorId) {
-        ExpenseResponse current = find(id);
+        ExpenseResponse current = repository.lockExpense(id).orElseThrow(() -> new BusinessException(ErrorCode.EXPENSE_001));
         if (ExpenseStatus.REVERSED.name().equals(current.status()) || ExpenseStatus.REVERSAL.name().equals(current.status())) {
             throw new BusinessException(ErrorCode.EXPENSE_002);
         }
-        if ("APPROVAL".equals(current.sourceType())
-                && !(ExpenseStatus.PENDING_ATTRIBUTION.name().equals(current.status())
-                && isEnergy(current.expenseType()))) {
-            throw new BusinessException(ErrorCode.EXPENSE_004);
+        validateAttribution(request.attributionType(), request.routeId());
+        if (request.routeId() != null) repository.lockRoute(request.routeId());
+        if (request.routeId() != null && !repository.eligibleRouteVehicle(request.routeId(), current.vehicleId())) {
+            throw new BusinessException(ErrorCode.EXPENSE_003);
         }
-        validateAttribution(request.attributionType(), request.routeId(), false);
-        repository.updateAttribution(id, request.attributionType(), request.routeId(), operatorId);
+        String nextStatus = statusFor(request.attributionType(), request.routeId());
+        if (Objects.equals(current.attributionType(), request.attributionType())
+                && Objects.equals(current.routeId(), request.routeId())
+                && Objects.equals(current.status(), nextStatus)) return current;
+        if (!repository.updateAttribution(id, request.attributionType(), request.routeId(), operatorId)) {
+            throw new BusinessException(ErrorCode.EXPENSE_002);
+        }
         repository.insertAttributionHistory(
                 id,
                 current.attributionType(),
@@ -92,9 +117,12 @@ public class ExpenseService {
                 current.status(),
                 request.attributionType(),
                 request.routeId(),
-                ExpenseStatus.ACTIVE.name(),
+                nextStatus,
                 operatorId,
                 request.reason());
+        audit.write("EXPENSE", "EXPENSE", id, "ATTRIBUTION_ADJUST",
+                attributionSnapshot(current.attributionType(), current.routeId(), current.status()),
+                attributionSnapshot(request.attributionType(), request.routeId(), nextStatus), operatorId, request.reason());
         return find(id);
     }
 
@@ -105,7 +133,7 @@ public class ExpenseService {
 
     @Transactional
     public ExpenseResponse reverse(long id, ExpenseReversalRequest request, long operatorId) {
-        ExpenseResponse original = find(id);
+        ExpenseResponse original = repository.lockExpense(id).orElseThrow(() -> new BusinessException(ErrorCode.EXPENSE_001));
         if (ExpenseStatus.REVERSED.name().equals(original.status())) {
             return repository.findReversalByOriginalId(id)
                     .orElseThrow(() -> new BusinessException(ErrorCode.EXPENSE_005));
@@ -142,7 +170,8 @@ public class ExpenseService {
     }
 
     private void ensureEditable(ExpenseResponse current) {
-        if (!ExpenseStatus.ACTIVE.name().equals(current.status())) {
+        if (!ExpenseStatus.ACTIVE.name().equals(current.status())
+                && !ExpenseStatus.PENDING_ATTRIBUTION.name().equals(current.status())) {
             throw new BusinessException(ErrorCode.EXPENSE_002);
         }
         if ("APPROVAL".equals(current.sourceType()) || current.approvalInstanceId() != null) {
@@ -159,20 +188,22 @@ public class ExpenseService {
         if (!repository.vehicleExists(request.vehicleId())) {
             throw new BusinessException(ErrorCode.DATA_001);
         }
-        validateAttribution(request.attributionType(), request.routeId(), isEnergy(request.expenseType()));
+        validateAttribution(request.attributionType(), request.routeId());
         if (request.routeId() != null && !repository.routeExists(request.routeId())) {
             throw new BusinessException(ErrorCode.ROUTE_001);
+        }
+        if (request.routeId() != null) repository.lockRoute(request.routeId());
+        if (request.routeId() != null && !repository.eligibleRouteVehicle(request.routeId(), request.vehicleId())) {
+            throw new BusinessException(ErrorCode.EXPENSE_003);
         }
         if (isEnergy(request.expenseType()) && request.energyDetail() == null) {
             throw new BusinessException(ErrorCode.SYS_002);
         }
     }
 
-    private void validateAttribution(String attributionType, Long routeId, boolean allowAutoMatch) {
+    private void validateAttribution(String attributionType, Long routeId) {
         if (ATTRIBUTION_ROUTE.equals(attributionType)) {
-            if (routeId == null && !allowAutoMatch) {
-                throw new BusinessException(ErrorCode.EXPENSE_003);
-            }
+            // A route expense without a route is an explicit, company-level pending fact.
         } else if (ATTRIBUTION_DAILY.equals(attributionType)) {
             if (routeId != null) {
                 throw new BusinessException(ErrorCode.EXPENSE_003);
@@ -189,15 +220,15 @@ public class ExpenseService {
         if (ATTRIBUTION_ROUTE.equals(request.attributionType()) && request.routeId() != null) {
             return new MatchResult(request.routeId(), request.routeId(), "MANUAL");
         }
-        Optional<Long> routeId = repository.matchRoute(request.vehicleId(), request.energyDetail().startTime());
-        if (routeId.isPresent()) {
-            return new MatchResult(routeId.get(), routeId.get(), "AUTO_MATCHED");
+        var candidates = repository.matchRoutes(request.vehicleId(), request.energyDetail().startTime());
+        if (candidates.size() == 1) {
+            return new MatchResult(candidates.get(0), candidates.get(0), "AUTO_MATCHED");
         }
-        return new MatchResult(request.routeId(), null, "UNMATCHED");
+        return new MatchResult(request.routeId(), null, candidates.isEmpty() ? "UNMATCHED" : "AMBIGUOUS");
     }
 
     private ExpenseRequest applyAutoMatch(ExpenseRequest request, MatchResult match) {
-        if (match.autoMatchedRouteId() == null) {
+        if (!isEnergy(request.expenseType()) || (ATTRIBUTION_ROUTE.equals(request.attributionType()) && request.routeId() != null)) {
             return request;
         }
         return new ExpenseRequest(
@@ -219,6 +250,19 @@ public class ExpenseService {
         return ExpenseType.ELECTRIC.name().equals(expenseType)
                 || ExpenseType.GAS.name().equals(expenseType)
                 || ExpenseType.TEMP_ELECTRIC.name().equals(expenseType);
+    }
+
+    private String statusFor(String attributionType, Long routeId) {
+        return ATTRIBUTION_ROUTE.equals(attributionType) && routeId == null
+                ? ExpenseStatus.PENDING_ATTRIBUTION.name() : ExpenseStatus.ACTIVE.name();
+    }
+
+    private Map<String, Object> attributionSnapshot(String type, Long routeId, String status) {
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("attributionType", type);
+        snapshot.put("routeId", routeId);
+        snapshot.put("status", status);
+        return snapshot;
     }
 
     private String nextExpenseNo(String prefix) {

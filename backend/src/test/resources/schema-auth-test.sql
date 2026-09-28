@@ -639,6 +639,7 @@ CREATE TABLE settlement_version (
   total_income DECIMAL(18,2) NOT NULL DEFAULT 0,
   route_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
   daily_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
+  unassigned_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
   driver_salary DECIMAL(18,2) NOT NULL DEFAULT 0,
   total_profit DECIMAL(18,2) NOT NULL DEFAULT 0,
   generated_by BIGINT NOT NULL,

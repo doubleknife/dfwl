@@ -1,6 +1,7 @@
 package com.dfwl.fleet.settlement.controller;
 
 import com.dfwl.fleet.common.api.ApiResponse;
+import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.web.RequestIdHolder;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.settlement.service.SettlementService;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -44,9 +46,23 @@ public class SettlementController {
         return ApiResponse.success(settlementService.details(id), RequestIdHolder.get());
     }
 
+    @GetMapping("/versions/{id}/details-page")
+    @PreAuthorize("hasAuthority('settlement:view')")
+    public ApiResponse<PageResponse<Map<String, Object>>> detailsPage(@PathVariable long id,
+            @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
+        return ApiResponse.success(settlementService.detailsPage(id, pageNo, pageSize), RequestIdHolder.get());
+    }
+
     @GetMapping("/versions/{id}/diff")
     @PreAuthorize("hasAuthority('settlement:diff:view')")
     public ApiResponse<List<Map<String, Object>>> diff(@PathVariable long id) {
         return ApiResponse.success(settlementService.diff(id), RequestIdHolder.get());
+    }
+
+    @GetMapping("/versions/{id}/diff-page")
+    @PreAuthorize("hasAuthority('settlement:diff:view')")
+    public ApiResponse<PageResponse<Map<String, Object>>> diffPage(@PathVariable long id,
+            @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
+        return ApiResponse.success(settlementService.diffPage(id, pageNo, pageSize), RequestIdHolder.get());
     }
 }

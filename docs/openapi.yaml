@@ -472,7 +472,7 @@ paths:
   /routes/{id}/void:
     post:
       tags: [Routes]
-      summary: 仅已完成线路可作废，原因必填；经营影响口径将在 BIZ-1C 实施
+      summary: 仅已完成线路可作废；原因及经营影响确认均由后端强校验
       x-permission: route:void
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteReasonRequest'}}}}
@@ -571,8 +571,18 @@ paths:
   /expenses:
     get:
       tags: [Expenses]
-      summary: 费用列表
+      summary: 费用列表；按当前归属线路及业务条件组合筛选并分页，total 为全量匹配数
       x-permission: expense:list
+      parameters:
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
+        - {name: routeId, in: query, schema: {type: integer, format: int64}}
+        - {name: businessDate, in: query, schema: {type: string, format: date}}
+        - {name: expenseType, in: query, schema: {type: string}}
+        - {name: attributionType, in: query, schema: {type: string, enum: [ROUTE, DAILY]}}
+        - {name: status, in: query, schema: {type: string}}
+        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
+        - {name: keyword, in: query, schema: {type: string}}
       responses: {'200': {description: OK}}
     post:
       tags: [Expenses]
@@ -580,6 +590,14 @@ paths:
       x-permission: expense:add
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ExpenseRequest'}}}}
       responses: {'200': {description: OK}}
+  /expenses/eligible-route-vehicles:
+    get:
+      tags: [Expenses]
+      summary: 查询线路正式 INTERNAL 参与车辆候选；提交及最终落账仍重新校验
+      x-permission: expense:list
+      parameters:
+        - {name: routeId, in: query, required: true, schema: {type: integer, format: int64}}
+      responses: {'200': {description: 仅返回 vehicleId 与 plateNo}}
   /expenses/{id}:
     put:
       tags: [Expenses]
@@ -610,7 +628,7 @@ paths:
   /expenses/{id}/attribution:
     put:
       tags: [Expenses]
-      summary: 修改线路或日常归属并留痕
+      summary: 费用在合格线路及未归属间调整，保留归属历史与 Audit，不重复生成金额事实
       x-permission: expense:attribution:edit
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
@@ -1103,7 +1121,7 @@ paths:
     get:
       tags: [Reports]
       summary: 经营看板
-      description: 返回本月/年度收入、线路费用、日常费用、司机工资、线路利润、公司总利润、趟次及按月趋势；PENDING_ATTRIBUTION 不计入当前利润，工资缺失返回成本不完整标记。
+      description: 返回收入、有效线路费用、日常费用、未归属公司费用、参与工资及利润；有效未归属费用降低公司总利润，作废线路归属费用仍为公司真实支出。
       x-permission: report:dashboard
       responses: {'200': {description: OK}}
   /reports/profit:
@@ -1113,6 +1131,26 @@ paths:
       description: 按线路返回客户、产品、司机、车牌、装卸地、实际载重、线路收入、费用分类、司机工资、支出合计和线路利润；日常费用不分摊到线路。
       x-permission: report:profit
       responses: {'200': {description: OK}}
+  /reports/completed-routes:
+    get:
+      tags: [Reports]
+      summary: 已完成及已作废线路经营摘要，服务端分页；route:list 不授予金额查看权
+      x-permission: report:profit
+      parameters:
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: status, in: query, schema: {type: string, enum: [COMPLETED, VOIDED]}}
+      responses: {'200': {description: PageResponse，含净重、参与人数、车辆数、收入、总支出及利润}}
+  /reports/completed-routes/{routeId}:
+    get:
+      tags: [Reports]
+      summary: 单线路经营档案；参与事实及当前归属费用明细分页
+      x-permission: report:profit
+      parameters:
+        - {name: routeId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: expensePageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: expensePageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: 经营摘要、参与人（含公司车牌或外协车牌）及当前归属费用 PageResponse（含来源与归属类型）}}
   /reports/vehicle-expense:
     get:
       tags: [Reports]
@@ -1153,25 +1191,45 @@ paths:
     post:
       tags: [Settlements]
       summary: 生成新的不可变结算版本
-      description: 按业务发生日期生成不可变快照，保存收入、线路费用、日常费用、司机工资、利润，并相对上一版本生成 ADD、DELETE、MODIFY、REASSIGN、WEIGHT_ADJUST、SALARY_ADJUST、REVERSAL 差异。
+      description: 在同一可重复读事务中生成不可变版本；分别保存线路费用、日常费用、未归属公司费用、参与工资及利润，并冻结参与及费用来源事实。
       x-permission: settlement:generate
       parameters: [{$ref: '#/components/parameters/YearMonth'}]
       responses: {'200': {description: OK}}
   /settlements/versions/{id}/details:
     get:
       tags: [Settlements]
-      summary: 结算快照明细
+      summary: 旧版兼容的完整快照明细；新界面使用 details-page
       x-permission: settlement:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /settlements/versions/{id}/diff:
     get:
       tags: [Settlements]
-      summary: 相对上一版本差异
+      summary: 旧版兼容的完整差异；新界面使用 diff-page
       description: 差异包含修改前后快照、收入/支出/利润影响、真实业务操作人、操作时间和原因；与结算版本生成人区分。
       x-permission: settlement:diff:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
+  /settlements/versions/{id}/details-page:
+    get:
+      tags: [Settlements]
+      summary: 服务端分页结算事实，附可读业务摘要；原始 JSON 为高级信息
+      x-permission: settlement:view
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: PageResponse}}
+  /settlements/versions/{id}/diff-page:
+    get:
+      tags: [Settlements]
+      summary: 服务端分页业务差异，附前后业务摘要、金额影响及操作来源
+      x-permission: settlement:diff:view
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: PageResponse}}
 
   /attachments:
     get:
@@ -1988,6 +2046,7 @@ components:
       required: [reason]
       properties:
         reason: {type: string, minLength: 1, description: 作废原因必填且不可只含空白}
+        acknowledgeBusinessImpact: {type: boolean, description: 作废时必须为 true；取消接口不需要}
     UnloadRequest:
       type: object
       required: [grossWeight, tareWeight]
@@ -2031,7 +2090,7 @@ components:
         sourceType: {type: string, enum: [APPROVAL, MANUAL, IMPORT, SYSTEM]}
         energyDetail:
           type: [object, 'null']
-          description: 电费、气费、临时电费明细；存在 startTime 时后端按车辆和订单时间自动匹配 departure_time <= startTime <= unload_time 的线路。
+          description: 电费、气费、临时电费明细；后端仅按正式 INTERNAL 参与公司车及整线首次发车至最终卸货闭区间匹配，唯一候选才自动归属，零/多候选待归属。
           properties:
             energyType: {type: string, enum: [ELECTRIC, GAS, TEMP_ELECTRIC]}
             stationId: {type: [integer, 'null'], format: int64}

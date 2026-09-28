@@ -361,8 +361,8 @@ CREATE TABLE expense_entry (
   KEY idx_expense_approval (approval_instance_id),
   UNIQUE KEY uk_expense_approval_item (approval_instance_id, approval_item_no),
   CONSTRAINT chk_expense_attr CHECK (
-    (status = 'PENDING_ATTRIBUTION')
-    OR (attribution_type = 'ROUTE' AND route_id IS NOT NULL)
+    (attribution_type = 'ROUTE' AND
+      (route_id IS NOT NULL OR status IN ('PENDING_ATTRIBUTION', 'REVERSED', 'REVERSAL')))
     OR (attribution_type = 'DAILY' AND route_id IS NULL)
   )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -718,6 +718,7 @@ CREATE TABLE settlement_version (
   total_income DECIMAL(18,2) NOT NULL DEFAULT 0,
   route_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
   daily_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
+  unassigned_expense DECIMAL(18,2) NOT NULL DEFAULT 0,
   driver_salary DECIMAL(18,2) NOT NULL DEFAULT 0,
   total_profit DECIMAL(18,2) NOT NULL DEFAULT 0,
   generated_by BIGINT UNSIGNED NOT NULL,

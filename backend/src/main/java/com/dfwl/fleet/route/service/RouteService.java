@@ -2,6 +2,7 @@ package com.dfwl.fleet.route.service;
 
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.notification.NotificationService;
+import com.dfwl.fleet.report.service.ReportService;
 import com.dfwl.fleet.route.domain.RouteStatus;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
@@ -50,14 +51,16 @@ public class RouteService {
     private final RouteAccessPolicy routeAccessPolicy;
     private final AuditWriteService audit;
     private final NotificationService notifications;
+    private final ReportService reports;
 
-    public RouteService(RouteRepository repository, RouteParticipantRepository participants, CurrentUserService currentUserService, AuditWriteService audit, RouteAccessPolicy routeAccessPolicy, NotificationService notifications) {
+    public RouteService(RouteRepository repository, RouteParticipantRepository participants, CurrentUserService currentUserService, AuditWriteService audit, RouteAccessPolicy routeAccessPolicy, NotificationService notifications, ReportService reports) {
         this.repository = repository;
         this.participants = participants;
         this.currentUserService = currentUserService;
         this.routeAccessPolicy = routeAccessPolicy;
         this.audit = audit;
         this.notifications = notifications;
+        this.reports = reports;
     }
 
     public PageResponse<RouteResponse> list(int pageNo, int pageSize, String status) {
@@ -376,16 +379,19 @@ public class RouteService {
         if (!RouteStatus.COMPLETED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        if (request == null || request.reason() == null || request.reason().isBlank()) {
+        if (request == null || request.reason() == null || request.reason().isBlank()
+                || !Boolean.TRUE.equals(request.acknowledgeBusinessImpact())) {
             throw new BusinessException(ErrorCode.SYS_002);
         }
+        Map<String, Object> beforeOperating = new LinkedHashMap<>((Map<String, Object>) reports.routeArchive(id, 1, 1).get("summary"));
         if (!repository.updateStatus(id, route.status(), RouteStatus.VOIDED.name(), "VOID", operatorId,
                 request == null ? null : request.reason())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        audit.write("ROUTE", "ROUTE", id, "VOID",
-                java.util.Map.of("status", route.status()),
-                java.util.Map.of("status", RouteStatus.VOIDED.name()), operatorId, request.reason());
+        Map<String, Object> afterOperating = new LinkedHashMap<>((Map<String, Object>) reports.routeArchive(id, 1, 1).get("summary"));
+        beforeOperating.put("businessImpactAcknowledged", true);
+        afterOperating.put("businessImpactAcknowledged", true);
+        audit.write("ROUTE", "ROUTE", id, "VOID", beforeOperating, afterOperating, operatorId, request.reason());
         return find(id);
     }
 
@@ -396,12 +402,12 @@ public class RouteService {
         if (!RouteStatus.VOIDED.name().equals(route.status())) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
+        Map<String, Object> beforeOperating = new LinkedHashMap<>((Map<String, Object>) reports.routeArchive(id, 1, 1).get("summary"));
         if (!repository.updateStatus(id, route.status(), RouteStatus.COMPLETED.name(), "REACTIVATE", operatorId, null)) {
             throw new BusinessException(ErrorCode.ROUTE_002);
         }
-        audit.write("ROUTE", "ROUTE", id, "REACTIVATE",
-                java.util.Map.of("status", route.status()),
-                java.util.Map.of("status", RouteStatus.COMPLETED.name()), operatorId, null);
+        Map<String, Object> afterOperating = new LinkedHashMap<>((Map<String, Object>) reports.routeArchive(id, 1, 1).get("summary"));
+        audit.write("ROUTE", "ROUTE", id, "REACTIVATE", beforeOperating, afterOperating, operatorId, null);
         return find(id);
     }
 

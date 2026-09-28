@@ -65,6 +65,7 @@ class ApprovalBusinessEffectTests {
         jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
         jdbcTemplate.update("DELETE FROM approval_flow");
         jdbcTemplate.update("DELETE FROM approval_template");
+        jdbcTemplate.update("DELETE FROM route_participant");
         jdbcTemplate.update("DELETE FROM route_task");
         jdbcTemplate.update("DELETE FROM tire");
         jdbcTemplate.update("DELETE FROM vehicle");
@@ -83,6 +84,11 @@ class ApprovalBusinessEffectTests {
                 INSERT INTO route_task (id, route_no, business_unique_key, business_date, customer_id, product_id,
                                         direction, loading_place, unloading_place, tax_unit_price, status, created_by)
                 VALUES (1, 'R001', 'K001', DATE '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 1.0000, 'PUBLISHED', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, source_type, status, salary_amount)
+                VALUES (1, 1, 1, 'INTERNAL', 1, 'INITIAL', 'ASSIGNED', 0)
                 """);
         jdbcTemplate.update("INSERT INTO tire (id, tire_no, barcode, status, data_source) VALUES (1, 'TIRE-001', 'BC001', 'IN_STOCK', 'MANUAL')");
         jdbcTemplate.update("INSERT INTO tire (id, tire_no, barcode, status, data_source) VALUES (2, 'TIRE-002', 'BC002', 'IN_STOCK', 'MANUAL')");
@@ -179,8 +185,9 @@ class ApprovalBusinessEffectTests {
                         .header("Authorization", "Bearer " + applicantToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"attributionType\":\"ROUTE\",\"routeId\":1,\"reason\":\"attempted direct edit\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EXPENSE_004"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.routeId").value(1));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_attribution_history WHERE expense_id = ?", Integer.class, expenseId)).isEqualTo(1);
 
         mockMvc.perform(post("/api/v1/expenses/%d/reversal".formatted(expenseId))
                         .header("Authorization", "Bearer " + applicantToken)

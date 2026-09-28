@@ -65,7 +65,12 @@ export const importApi = {
 };
 
 export const expenseApi = {
-  list: (pageNo = 1, pageSize = 100) => apiClient.get(`/expenses?pageNo=${pageNo}&pageSize=${pageSize}`),
+  list: (pageNo = 1, pageSize = 100, filters = {}) => {
+    const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
+    for (const [key, value] of Object.entries(filters)) if (value != null && value !== '') query.set(key, String(value));
+    return apiClient.get(`/expenses?${query}`);
+  },
+  eligibleRouteVehicles: (routeId) => apiClient.get(`/expenses/eligible-route-vehicles?routeId=${routeId}`),
   create: (body) => apiClient.post('/expenses', body),
   update: (id, body) => apiClient.put(`/expenses/${id}`, body),
   delete: (id) => apiClient.delete(`/expenses/${id}`),
@@ -136,6 +141,8 @@ export const salaryApi = {
 
 export const reportApi = {
   profit: () => apiClient.get('/reports/profit'),
+  completedRoutes: (pageNo = 1, pageSize = 20, status = '') => apiClient.get(`/reports/completed-routes?pageNo=${pageNo}&pageSize=${pageSize}${status ? `&status=${status}` : ''}`),
+  routeArchive: (id, expensePageNo = 1, expensePageSize = 20) => apiClient.get(`/reports/completed-routes/${id}?expensePageNo=${expensePageNo}&expensePageSize=${expensePageSize}`),
   vehicle: () => apiClient.get('/reports/vehicle-expense'),
   driver: () => apiClient.get('/reports/driver-expense'),
   attendance: () => apiClient.get('/reports/attendance'),
@@ -146,7 +153,9 @@ export const settlementApi = {
   versions: (month) => apiClient.get(`/settlements/${month}/versions`),
   generate: (month) => apiClient.post(`/settlements/${month}/versions`, {}),
   details: (id) => apiClient.get(`/settlements/versions/${id}/details`),
-  diff: (id) => apiClient.get(`/settlements/versions/${id}/diff`)
+  diff: (id) => apiClient.get(`/settlements/versions/${id}/diff`),
+  detailsPage: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/details-page?pageNo=${pageNo}&pageSize=${pageSize}`),
+  diffPage: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/diff-page?pageNo=${pageNo}&pageSize=${pageSize}`)
 };
 
 export const systemApi = {

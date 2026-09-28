@@ -43,6 +43,7 @@ class ReportApiTests {
         jdbcTemplate.update("DELETE FROM expense_energy_detail");
         jdbcTemplate.update("DELETE FROM expense_entry");
         jdbcTemplate.update("DELETE FROM route_weight_version");
+        jdbcTemplate.update("DELETE FROM route_participant");
         jdbcTemplate.update("DELETE FROM route_task");
         jdbcTemplate.update("DELETE FROM vehicle");
         jdbcTemplate.update("DELETE FROM driver");
@@ -65,6 +66,7 @@ class ReportApiTests {
                         'COMPLETED', 1, 1, TIMESTAMP '2026-09-10 08:00:00', TIMESTAMP '2026-09-10 18:00:00',
                         1, 30.00, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         jdbcTemplate.update("""
                 INSERT INTO route_weight_version (id, route_id, version_no, gross_weight, tare_weight, net_weight,
                                                   source_type, operator_id)
@@ -138,5 +140,19 @@ class ReportApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].quantity").value(12.345))
                 .andExpect(jsonPath("$.data[0].amount").value(20.0));
+    }
+
+    @Test
+    void completedRouteArchiveIncludesReadableVehicleAndExpenseAttribution() throws Exception {
+        mockMvc.perform(get("/api/v1/reports/completed-routes/1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.routeNo").value("R001"))
+                .andExpect(jsonPath("$.data.participants[0].companyVehicleId").value(1))
+                .andExpect(jsonPath("$.data.participants[0].companyPlateNo").value("A10001"))
+                .andExpect(jsonPath("$.data.expenses.total").value(2))
+                .andExpect(jsonPath("$.data.expenses.records[0].plateNo").value("A10001"))
+                .andExpect(jsonPath("$.data.expenses.records[0].sourceType").value("MANUAL"))
+                .andExpect(jsonPath("$.data.expenses.records[0].attributionType").value("ROUTE"));
     }
 }

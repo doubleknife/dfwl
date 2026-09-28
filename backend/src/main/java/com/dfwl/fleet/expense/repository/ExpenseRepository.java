@@ -33,7 +33,7 @@ public class ExpenseRepository {
                     INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
                                                attribution_type, route_id, amount, source_type, status,
                                                import_row_id, remark, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'IMPORT', 'ACTIVE', ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'IMPORT', ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, expense.expenseNo());
             ps.setString(2, expense.expenseType());
@@ -43,9 +43,11 @@ public class ExpenseRepository {
             ps.setString(6, expense.attributionType());
             ps.setObject(7, expense.routeId());
             ps.setBigDecimal(8, expense.amount());
-            ps.setLong(9, expense.importRowId());
-            ps.setString(10, expense.remark());
-            ps.setLong(11, operatorId);
+            ps.setString(9, "ROUTE".equals(expense.attributionType()) && expense.routeId() == null
+                    ? "PENDING_ATTRIBUTION" : "ACTIVE");
+            ps.setLong(10, expense.importRowId());
+            ps.setString(11, expense.remark());
+            ps.setLong(12, operatorId);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -79,17 +81,42 @@ public class ExpenseRepository {
         return count != null && count > 0;
     }
 
-    public PageResponse<ExpenseResponse> list(int pageNo, int pageSize) {
-        Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM expense_entry WHERE deleted_at IS NULL", Long.class);
+    public PageResponse<ExpenseResponse> list(int pageNo, int pageSize, Long routeId,
+            java.time.LocalDate businessDate, String expenseType, String attributionType,
+            String status, Long vehicleId, String keyword) {
+        String search = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
+        Long total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM expense_entry e WHERE e.deleted_at IS NULL
+                  AND (? IS NULL OR (e.route_id = ? AND e.attribution_type = 'ROUTE'
+                    AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')))
+                  AND (? IS NULL OR e.business_date = ?)
+                  AND (? IS NULL OR e.expense_type = ?)
+                  AND (? IS NULL OR e.attribution_type = ?)
+                  AND (? IS NULL OR e.status = ?)
+                  AND (? IS NULL OR e.vehicle_id = ?)
+                  AND (? IS NULL OR e.expense_no LIKE ? OR e.remark LIKE ?)
+                """, Long.class, routeId, routeId, businessDate, businessDate,
+                expenseType, expenseType, attributionType, attributionType, status, status,
+                vehicleId, vehicleId, search, search, search);
         List<ExpenseResponse> records = jdbcTemplate.query("""
                 SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
                        d.auto_matched_route_id, d.match_status
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.deleted_at IS NULL
+                  AND (? IS NULL OR (e.route_id = ? AND e.attribution_type = 'ROUTE'
+                    AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')))
+                  AND (? IS NULL OR e.business_date = ?)
+                  AND (? IS NULL OR e.expense_type = ?)
+                  AND (? IS NULL OR e.attribution_type = ?)
+                  AND (? IS NULL OR e.status = ?)
+                  AND (? IS NULL OR e.vehicle_id = ?)
+                  AND (? IS NULL OR e.expense_no LIKE ? OR e.remark LIKE ?)
                 ORDER BY e.id DESC
                 LIMIT ? OFFSET ?
-                """, this::mapExpense, pageSize, Math.max(pageNo - 1, 0) * pageSize);
+                """, this::mapExpense, routeId, routeId, businessDate, businessDate,
+                expenseType, expenseType, attributionType, attributionType, status, status,
+                vehicleId, vehicleId, search, search, search, pageSize, Math.max(pageNo - 1, 0) * pageSize);
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
@@ -100,6 +127,16 @@ public class ExpenseRepository {
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.id = ? AND e.deleted_at IS NULL
+                """, this::mapExpense, id).stream().findFirst();
+    }
+
+    public Optional<ExpenseResponse> lockExpense(long id) {
+        return jdbcTemplate.query("""
+                SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
+                       d.auto_matched_route_id, d.match_status
+                FROM expense_entry e
+                LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
+                WHERE e.id = ? AND e.deleted_at IS NULL FOR UPDATE
                 """, this::mapExpense, id).stream().findFirst();
     }
 
@@ -176,10 +213,11 @@ public class ExpenseRepository {
         return jdbcTemplate.update("""
                 UPDATE expense_entry
                 SET expense_type = ?, business_date = ?, vehicle_id = ?, driver_id = ?, attribution_type = ?,
-                    route_id = ?, amount = ?, source_type = ?, remark = ?, updated_by = ?
+                    route_id = ?, amount = ?, source_type = ?, status = ?, remark = ?, updated_by = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """, request.expenseType(), request.businessDate(), request.vehicleId(), request.driverId(),
-                request.attributionType(), routeId, request.amount(), request.sourceType(), request.remark(),
+                request.attributionType(), routeId, request.amount(), request.sourceType(),
+                "ROUTE".equals(request.attributionType()) && routeId == null ? "PENDING_ATTRIBUTION" : "ACTIVE", request.remark(),
                 operatorId, id) == 1;
     }
 
@@ -199,12 +237,14 @@ public class ExpenseRepository {
                 """, operatorId, id) == 1;
     }
 
-    public void updateAttribution(long id, String attributionType, Long routeId, long operatorId) {
-        jdbcTemplate.update("""
+    public boolean updateAttribution(long id, String attributionType, Long routeId, long operatorId) {
+        return jdbcTemplate.update("""
                 UPDATE expense_entry
-                SET attribution_type = ?, route_id = ?, status = 'ACTIVE', updated_by = ?
-                WHERE id = ? AND deleted_at IS NULL
-                """, attributionType, routeId, operatorId, id);
+                SET attribution_type = ?, route_id = ?, status = ?, updated_by = ?
+                WHERE id = ? AND deleted_at IS NULL AND status IN ('ACTIVE', 'PENDING_ATTRIBUTION')
+                """, attributionType, routeId,
+                "ROUTE".equals(attributionType) && routeId == null ? "PENDING_ATTRIBUTION" : "ACTIVE",
+                operatorId, id) == 1;
     }
 
     public int markEnergyExpensesPendingForVoidedRoute(long routeId, long operatorId, String reason) {
@@ -277,7 +317,7 @@ public class ExpenseRepository {
         return jdbcTemplate.update("""
                 UPDATE expense_entry
                 SET status = 'REVERSED', updated_by = ?
-                WHERE id = ? AND deleted_at IS NULL AND status = 'ACTIVE'
+                WHERE id = ? AND deleted_at IS NULL AND status IN ('ACTIVE', 'PENDING_ATTRIBUTION')
                 """, operatorId, id) == 1;
     }
 
@@ -349,20 +389,51 @@ public class ExpenseRepository {
     }
 
     public Optional<Long> matchRoute(long vehicleId, LocalDateTime startTime) {
-        return jdbcTemplate.query("""
-                SELECT id
-                FROM route_task
-                WHERE departure_vehicle_id = ?
-                  AND departure_time IS NOT NULL
-                  AND unload_time IS NOT NULL
-                  AND departure_time <= ?
-                  AND unload_time >= ?
-                  AND status IN ('IN_TRANSIT', 'COMPLETED')
-                  AND deleted_at IS NULL
-                ORDER BY departure_time DESC
-                LIMIT 1
+        List<Long> routes = matchRoutes(vehicleId, startTime);
+        return routes.size() == 1 ? Optional.of(routes.get(0)) : Optional.empty();
+    }
+
+    public List<Long> matchRoutes(long vehicleId, LocalDateTime startTime) {
+        List<Long> routes = jdbcTemplate.query("""
+                SELECT DISTINCT r.id
+                FROM route_task r
+                JOIN route_participant p ON p.route_id = r.id
+                  AND p.company_vehicle_id = ? AND p.driver_type_snapshot = 'INTERNAL'
+                  AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
+                WHERE r.departure_time <= ? AND r.unload_time >= ?
+                  AND r.status IN ('IN_TRANSIT', 'COMPLETED') AND r.deleted_at IS NULL
+                LIMIT 2
                 """, (rs, rowNum) -> rs.getLong("id"),
-                vehicleId, Timestamp.valueOf(startTime), Timestamp.valueOf(startTime)).stream().findFirst();
+                vehicleId, Timestamp.valueOf(startTime), Timestamp.valueOf(startTime));
+        return routes;
+    }
+
+    public boolean eligibleRouteVehicle(long routeId, long vehicleId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(DISTINCT p.company_vehicle_id)
+                FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                WHERE r.id = ? AND r.deleted_at IS NULL AND r.status <> 'CANCELLED'
+                  AND p.company_vehicle_id = ? AND p.driver_type_snapshot = 'INTERNAL'
+                  AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
+                """, Integer.class, routeId, vehicleId);
+        return count != null && count > 0;
+    }
+
+    public void lockRoute(long routeId) {
+        jdbcTemplate.query("SELECT id FROM route_task WHERE id = ? AND deleted_at IS NULL FOR UPDATE",
+                (rs, row) -> rs.getLong("id"), routeId);
+    }
+
+    public List<java.util.Map<String, Object>> eligibleRouteVehicles(long routeId) {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT v.id AS vehicleId, v.plate_no AS plateNo
+                FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                JOIN vehicle v ON v.id = p.company_vehicle_id
+                WHERE r.id = ? AND r.deleted_at IS NULL AND r.status <> 'CANCELLED'
+                  AND p.driver_type_snapshot = 'INTERNAL'
+                  AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
+                ORDER BY v.plate_no
+                """, routeId);
     }
 
     public boolean vehicleExists(long vehicleId) {

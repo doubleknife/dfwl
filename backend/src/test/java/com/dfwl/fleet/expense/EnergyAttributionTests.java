@@ -63,7 +63,7 @@ class EnergyAttributionTests {
         List.of(
                 "settlement_diff", "settlement_detail", "settlement_version", "settlement_month",
                 "expense_attribution_history", "expense_energy_detail", "expense_entry",
-                "route_weight_version", "route_status_history", "route_task",
+                "route_weight_version", "route_status_history", "route_participant", "route_task",
                 "driver_vehicle_current", "vehicle", "driver", "product", "customer"
         ).forEach(table -> jdbcTemplate.update("DELETE FROM " + table));
 
@@ -95,10 +95,18 @@ class EnergyAttributionTests {
                 VALUES (2, 2, 1, 30.000, 10.000, 20.000, 'UNLOAD', 1),
                        (3, 3, 1, 30.000, 10.000, 20.000, 'UNLOAD', 1)
                 """);
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, source_type, status, salary_amount)
+                VALUES (1, 1, 1, 'INTERNAL', 1, 'INITIAL', 'IN_TRANSIT', 0),
+                       (2, 1, 1, 'INTERNAL', 1, 'INITIAL', 'COMPLETED', 0),
+                       (3, 1, 1, 'INTERNAL', 1, 'INITIAL', 'COMPLETED', 0)
+                """);
         token = tokenAuthenticationService.issueToken(new AuthenticatedUser(
                 1L, "finance", 1L, "FINANCE", "财务", Set.of(
                 "expense:add", "expense:list", "expense:attribution:edit",
-                "route:void", "route:reactivate", "report:dashboard", "settlement:generate", "settlement:view")));
+                "route:void", "route:reactivate", "report:dashboard", "report:profit",
+                "settlement:generate", "settlement:view", "settlement:diff:view")));
     }
 
     @Test
@@ -194,14 +202,124 @@ class EnergyAttributionTests {
     }
 
     @Test
-    void pendingAttributionExpenseDoesNotEnterRealtimeProfitOrCompanyExpense() throws Exception {
+    void pendingAttributionExpenseReducesCompanyProfitWithoutRouteCost() throws Exception {
         createPendingEnergyExpense();
 
         mockMvc.perform(get("/api/v1/reports/dashboard").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.routeExpense").value(0))
                 .andExpect(jsonPath("$.data.dailyExpense").value(0))
-                .andExpect(jsonPath("$.data.totalProfit").value(400.0));
+                .andExpect(jsonPath("$.data.unassignedExpense").value(50.0))
+                .andExpect(jsonPath("$.data.totalProfit").value(350.0));
+    }
+
+    @Test
+    void completedRouteArchiveIsPagedAndIncludesParticipantSalaryAndExpense() throws Exception {
+        createActiveRouteEnergyExpenseOnCompletedRoute();
+        mockMvc.perform(get("/api/v1/reports/completed-routes?pageNo=1&pageSize=1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.records.length()").value(1));
+        mockMvc.perform(get("/api/v1/reports/completed-routes/2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.incomeAmount").value(200.0))
+                .andExpect(jsonPath("$.data.summary.expenseTotal").value(30.0))
+                .andExpect(jsonPath("$.data.summary.profitAmount").value(170.0))
+                .andExpect(jsonPath("$.data.participants.length()").value(1))
+                .andExpect(jsonPath("$.data.expenses.total").value(1));
+    }
+
+    @Test
+    void routeExpenseVehicleCandidatesArePermissionProtectedAndBasedOnParticipants() throws Exception {
+        mockMvc.perform(get("/api/v1/expenses/eligible-route-vehicles?routeId=2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].vehicleId").value(1));
+    }
+
+    @Test
+    void routeAndBusinessFiltersApplyBeforePaginationAndTotal() throws Exception {
+        createActiveRouteEnergyExpenseOnCompletedRoute();
+        mockMvc.perform(get("/api/v1/expenses?routeId=2&vehicleId=1&expenseType=ELECTRIC&businessDate=2026-09-10&pageSize=1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records.length()").value(1));
+        mockMvc.perform(get("/api/v1/expenses?routeId=2&vehicleId=1&expenseType=REPAIR&pageSize=1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void transferredAndOutsourcedParticipantsHaveDistinctVehicleAndSalaryTreatment() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO driver (id, name, phone, driver_type, status)
+                VALUES (2, 'Internal B', '1382', 'INTERNAL', 1),
+                       (3, 'External C', '1383', 'OUTSOURCED', 1)
+                """);
+        jdbcTemplate.update("UPDATE route_participant SET status = 'TRANSFERRED' WHERE route_id = 2");
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, outsourced_plate_no, source_type, status, salary_amount)
+                VALUES (2, 2, 2, 'INTERNAL', 2, NULL, 'TRANSFER', 'TRANSFERRED', 12.00),
+                       (2, 3, 3, 'OUTSOURCED', NULL, '京A10001', 'TRANSFER', 'COMPLETED', 15.00)
+                """);
+        mockMvc.perform(get("/api/v1/expenses/eligible-route-vehicles?routeId=2")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2));
+        mockMvc.perform(post("/api/v1/expenses").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expenseType\":\"REPAIR\",\"businessDate\":\"2026-09-10\",\"vehicleId\":2,\"attributionType\":\"ROUTE\",\"routeId\":2,\"amount\":7,\"sourceType\":\"MANUAL\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/reports/completed-routes/2").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.vehicleCount").value(2))
+                .andExpect(jsonPath("$.data.summary.participantCount").value(3))
+                .andExpect(jsonPath("$.data.summary.participantSalary").value(27.0))
+                .andExpect(jsonPath("$.data.summary.profitAmount").value(166.0));
+    }
+
+    @Test
+    void ambiguousEnergyWindowLeavesOneCompanyExpenseUnassigned() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO route_task (id, route_no, business_unique_key, business_date, customer_id, product_id,
+                                        direction, loading_place, unloading_place, tax_unit_price, status,
+                                        departure_time, unload_time, created_by)
+                VALUES (4, 'R4', 'r4', '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 10,
+                        'COMPLETED', TIMESTAMP '2026-09-10 13:30:00', TIMESTAMP '2026-09-10 14:30:00', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, source_type, status, salary_amount)
+                VALUES (4, 1, 1, 'INTERNAL', 1, 'INITIAL', 'COMPLETED', 0)
+                """);
+        long id = createEnergyExpense("E-AMBIGUOUS", "ELECTRIC", "2026-09-10T14:00:00");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM expense_entry WHERE id = ?", String.class, id))
+                .isEqualTo("PENDING_ATTRIBUTION");
+        assertThat(jdbcTemplate.queryForObject("SELECT route_id FROM expense_entry WHERE id = ?", Long.class, id))
+                .isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT match_status FROM expense_energy_detail WHERE expense_id = ?", String.class, id))
+                .isEqualTo("AMBIGUOUS");
+        mockMvc.perform(get("/api/v1/reports/dashboard").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.unassignedExpense").value(50.0));
+    }
+
+    @Test
+    void voidRequiresExplicitBusinessImpactAcknowledgement() throws Exception {
+        completeRouteForVoid();
+        mockMvc.perform(post("/api/v1/routes/1/void")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"同意作废\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
+                .isEqualTo("COMPLETED");
     }
 
     @Test
@@ -273,7 +391,7 @@ class EnergyAttributionTests {
         long expenseId = createEnergyExpense("E-OUTER-ROLLBACK", "ELECTRIC", "2026-09-10T09:00:00");
         completeRouteForVoid();
         assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
-            routeService.voidRoute(1, new RouteReasonRequest("外层回滚"), 1);
+            routeService.voidRoute(1, new RouteReasonRequest("外层回滚", true), 1);
             assertThat(jdbcTemplate.queryForObject("SELECT status FROM route_task WHERE id = 1", String.class))
                     .isEqualTo("VOIDED");
             throw new IllegalStateException("fail after route change");
@@ -292,7 +410,7 @@ class EnergyAttributionTests {
         mockMvc.perform(post("/api/v1/routes/1/void")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(request))
+                        .content(request.replace("}", ",\"acknowledgeBusinessImpact\":true}")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("VOIDED"));
     }

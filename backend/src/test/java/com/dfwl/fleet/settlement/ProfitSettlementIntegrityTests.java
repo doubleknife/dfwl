@@ -53,7 +53,7 @@ class ProfitSettlementIntegrityTests {
                 "settlement_diff", "settlement_detail", "settlement_version", "settlement_month",
                 "driver_salary_history", "driver_salary_entry",
                 "expense_attribution_history", "expense_reversal_link", "expense_energy_detail", "expense_entry",
-                "route_weight_version", "route_status_history", "route_task",
+                "route_weight_version", "route_status_history", "route_participant_salary_history", "route_participant", "route_task",
                 "vehicle", "driver", "product", "customer"}) {
             jdbcTemplate.update("DELETE FROM " + table);
         }
@@ -132,7 +132,7 @@ class ProfitSettlementIntegrityTests {
         mockMvc.perform(get("/api/v1/reports/dashboard").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.dailyExpense").value(5.0))
-                .andExpect(jsonPath("$.data.totalProfit").value(208.0));
+                .andExpect(jsonPath("$.data.totalProfit").value(198.0));
         mockMvc.perform(get("/api/v1/reports/profit").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[?(@.routeId==1)].profitAmount").value(contains(30.0)));
@@ -259,7 +259,7 @@ class ProfitSettlementIntegrityTests {
         long v2 = generatedVersionId("2026-09");
         assertThat(jdbcTemplate.queryForObject("SELECT total_profit FROM settlement_version WHERE id = ?", BigDecimal.class, v2))
                 .isEqualByComparingTo(oldProfit);
-        assertThat(diffType(v2, "REASSIGN")).isGreaterThanOrEqualTo(1);
+        assertThat(diffType(v2, "EXPENSE_ATTRIBUTION_ADJUST")).isGreaterThanOrEqualTo(1);
     }
 
     @Test

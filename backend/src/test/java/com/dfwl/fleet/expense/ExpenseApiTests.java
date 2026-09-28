@@ -46,6 +46,7 @@ class ExpenseApiTests {
         jdbcTemplate.update("DELETE FROM expense_reversal_link");
         jdbcTemplate.update("DELETE FROM expense_energy_detail");
         jdbcTemplate.update("DELETE FROM expense_entry");
+        jdbcTemplate.update("DELETE FROM route_participant");
         jdbcTemplate.update("DELETE FROM route_task");
         jdbcTemplate.update("DELETE FROM vehicle");
 
@@ -57,10 +58,11 @@ class ExpenseApiTests {
         jdbcTemplate.update("""
                 INSERT INTO route_task (id, route_no, business_unique_key, business_date, customer_id, product_id,
                                         direction, loading_place, unloading_place, tax_unit_price, status,
-                                        departure_vehicle_id, departure_time, unload_time, created_by)
+                                        departure_driver_id, departure_vehicle_id, departure_time, unload_time, created_by)
                 VALUES (1, 'R001', 'K001', CURRENT_DATE, 1, 1, 'OUTBOUND', 'A', 'B', 1.0000,
-                        'COMPLETED', 1, TIMESTAMP '2026-09-10 08:00:00', TIMESTAMP '2026-09-10 18:00:00', 1)
+                        'COMPLETED', 1, 1, TIMESTAMP '2026-09-10 08:00:00', TIMESTAMP '2026-09-10 18:00:00', 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         token = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "1380", 1L, "admin", "管理员", Set.of(
                 "expense:add", "expense:edit", "expense:reversal", "expense:attribution:edit", "expense:list", "expense:approval:view")));
     }

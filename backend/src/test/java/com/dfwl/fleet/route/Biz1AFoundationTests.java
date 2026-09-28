@@ -109,7 +109,7 @@ class Biz1AFoundationTests {
         assertThat(participants.current(route).orElseThrow().status()).isEqualTo("COMPLETED");
         assertThatThrownBy(() -> routes.voidRoute(route, new RouteReasonRequest("  "), 1))
                 .isInstanceOf(BusinessException.class);
-        routes.voidRoute(route, new RouteReasonRequest("完成后作废"), 1);
+        routes.voidRoute(route, new RouteReasonRequest("完成后作废", true), 1);
         routes.reactivate(route, 1);
         assertThat(routes.find(route).status()).isEqualTo("COMPLETED");
         assertThat(participants.list(route)).hasSize(1);

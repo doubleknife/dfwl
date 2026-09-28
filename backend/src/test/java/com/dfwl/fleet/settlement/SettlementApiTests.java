@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,9 @@ class SettlementApiTests {
     @Autowired
     private TokenAuthenticationService tokenAuthenticationService;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     private String token;
 
     @BeforeEach
@@ -47,6 +51,7 @@ class SettlementApiTests {
         jdbcTemplate.update("DELETE FROM settlement_month");
         jdbcTemplate.update("DELETE FROM expense_entry");
         jdbcTemplate.update("DELETE FROM route_weight_version");
+        jdbcTemplate.update("DELETE FROM route_participant");
         jdbcTemplate.update("DELETE FROM route_task");
         jdbcTemplate.update("DELETE FROM vehicle");
         jdbcTemplate.update("DELETE FROM driver");
@@ -68,6 +73,7 @@ class SettlementApiTests {
                 VALUES (1, 'R001', 'K001', DATE '2026-09-10', 1, 1, 'OUTBOUND', 'A', 'B', 10.0000,
                         'COMPLETED', 1, 1, 1, 30.00, 1)
                 """);
+        com.dfwl.fleet.route.RouteParticipantFixture.backfill(jdbcTemplate);
         jdbcTemplate.update("""
                 INSERT INTO route_weight_version (id, route_id, version_no, gross_weight, tare_weight, net_weight,
                                                   source_type, operator_id)
@@ -90,21 +96,23 @@ class SettlementApiTests {
 
     @Test
     void generatedSettlementVersionsAreImmutableAndDiffExplainsChanges() throws Exception {
-        mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
+        var first = mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.versionNo").value(1))
                 .andExpect(jsonPath("$.data.totalIncome").value(120.0))
-                .andExpect(jsonPath("$.data.totalProfit").value(45.0));
+                .andExpect(jsonPath("$.data.totalProfit").value(45.0)).andReturn();
+        long firstId = objectMapper.readTree(first.getResponse().getContentAsString()).path("data").path("id").asLong();
 
         jdbcTemplate.update("UPDATE route_weight_version SET net_weight = 13.000 WHERE id = 1");
 
-        mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
+        var second = mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.versionNo").value(2))
                 .andExpect(jsonPath("$.data.totalIncome").value(130.0))
-                .andExpect(jsonPath("$.data.totalProfit").value(55.0));
+                .andExpect(jsonPath("$.data.totalProfit").value(55.0)).andReturn();
+        long secondId = objectMapper.readTree(second.getResponse().getContentAsString()).path("data").path("id").asLong();
 
         mockMvc.perform(get("/api/v1/settlements/2026-09/versions")
                         .header("Authorization", "Bearer " + token))
@@ -113,19 +121,40 @@ class SettlementApiTests {
                 .andExpect(jsonPath("$.data[1].versionNo").value(1))
                 .andExpect(jsonPath("$.data[1].totalProfit").value(45.0));
 
-        mockMvc.perform(get("/api/v1/settlements/versions/2/diff")
+        mockMvc.perform(get("/api/v1/settlements/versions/{id}/diff", secondId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].changeType").value("MODIFY"))
                 .andExpect(jsonPath("$.data[0].incomeDelta").value(10.0))
                 .andExpect(jsonPath("$.data[0].profitDelta").value(10.0));
 
-        mockMvc.perform(get("/api/v1/settlements/versions/1/details")
+        mockMvc.perform(get("/api/v1/settlements/versions/{id}/details", firstId)
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].factType").value("DAILY_EXPENSE"))
-                .andExpect(jsonPath("$.data[0].profitAmount").value(-5.0))
-                .andExpect(jsonPath("$.data[1].factType").value("ROUTE"))
-                .andExpect(jsonPath("$.data[1].profitAmount").value(50.0));
+                .andExpect(jsonPath("$.data[0].factType").value("EXPENSE"))
+                .andExpect(jsonPath("$.data[0].expenseAmount").value(40.0))
+                .andExpect(jsonPath("$.data[1].factType").value("EXPENSE"))
+                .andExpect(jsonPath("$.data[1].profitAmount").value(-5.0))
+                .andExpect(jsonPath("$.data[2].factType").value("ROUTE"))
+                .andExpect(jsonPath("$.data[2].profitAmount").value(50.0));
+    }
+
+    @Test
+    void unchangedFactsDoNotProduceDifferencesInNewVersion() throws Exception {
+        mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.versionNo").value(1));
+
+        var second = mockMvc.perform(post("/api/v1/settlements/2026-09/versions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.versionNo").value(2)).andReturn();
+        long secondId = objectMapper.readTree(second.getResponse().getContentAsString()).path("data").path("id").asLong();
+
+        mockMvc.perform(get("/api/v1/settlements/versions/{id}/diff-page?pageNo=1&pageSize=20", secondId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0));
     }
 }

@@ -216,6 +216,11 @@ class ApprovalInitiationApiTests {
 
     @Test
     void currentResubmissionItemsOnlyPostAndSecondItemFailureRollsBackFirst() throws Exception {
+        jdbc.update("""
+                INSERT INTO route_participant (route_id, sequence_no, driver_id, driver_type_snapshot,
+                                               company_vehicle_id, source_type, status, salary_amount)
+                VALUES (41, 2, 11, 'INTERNAL', 32, 'TRANSFER', 'TRANSFERRED', 0)
+                """);
         template(10, 100, "EXPENSE_WATER", "EXPENSE", "WATER", "OPTIONAL", "ACTIVE", "READY", 2);
         create(finance, routeItems()).andExpect(status().isOk());
         long id = jdbc.queryForObject("SELECT id FROM approval_instance", Long.class);
