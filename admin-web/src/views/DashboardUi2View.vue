@@ -15,7 +15,7 @@ const year = computed(() => state.summary.year || {});
 const primary = computed(() => dashboardMetrics(state.summary));
 const todos = computed(() => [
   { label: '待审批', count: state.approvals.filter(row => ['PENDING','IN_PROGRESS'].includes(row.status)).length, route: 'approvals', permission: 'approval:process' },
-  { label: '未发布线路', count: state.routes.filter(row => row.status === 'UNPUBLISHED').length, route: 'routes', permission: 'route:list' },
+  { label: '未发布任务', count: state.routes.filter(row => row.status === 'UNPUBLISHED').length, route: 'routes', permission: 'task:view' },
   { label: '待归属费用', count: state.expenses.filter(row => row.status === 'PENDING_ATTRIBUTION').length, route: 'expenses', permission: 'expense:list' }
 ].filter(item => can(item.permission)));
 async function load() {
@@ -23,7 +23,7 @@ async function load() {
   try {
     const [summary, profit, routes, expenses, approvals] = await Promise.all([
       dashboardApi.summary(), can('report:profit') ? dashboardApi.profit() : [],
-      can('route:list') ? dashboardApi.routes() : {records:[]},
+      can('task:view') ? dashboardApi.routes() : {records:[]},
       can('expense:list') ? dashboardApi.expenses() : {records:[]},
       can('approval:history:view') || can('approval:process') ? dashboardApi.approvals() : {records:[]}
     ]);

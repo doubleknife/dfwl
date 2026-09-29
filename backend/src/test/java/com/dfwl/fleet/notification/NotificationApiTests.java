@@ -40,6 +40,9 @@ class NotificationApiTests {
     @BeforeEach
     void reset() {
         jdbc.update("DELETE FROM in_app_notification");
+        jdbc.update("DELETE FROM sys_user WHERE id IN (801, 802)");
+        Long driverRoleId = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code = 'DRIVER'", Long.class);
+        jdbc.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '13900000801', 'hash', ?, 1), (802, '13900000802', 'hash', ?, 1)", driverRoleId, driverRoleId);
         userAToken = tokens.issueToken(new AuthenticatedUser(801L, "13900000801", 1L, "DRIVER", "司机", Set.of()));
         userBToken = tokens.issueToken(new AuthenticatedUser(802L, "13900000802", 1L, "DRIVER", "司机", Set.of()));
     }
@@ -67,7 +70,7 @@ class NotificationApiTests {
     void rolledBackBusinessTransactionCannotEmitNotification() throws Exception {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
-            service.toUser(801, "approval:approved:99", "APPROVAL_APPROVED", "通过", "完成", "APPROVAL", 99);
+            service.toUser(801, "task:assigned:99", "TASK_ASSIGNED", "新任务", "请查看", "TASK", 99);
             status.setRollbackOnly();
         });
         mvc.perform(get("/api/v1/notifications/unread-count").header("Authorization", "Bearer " + userAToken))
@@ -75,16 +78,10 @@ class NotificationApiTests {
     }
 
     @Test
-    void pendingApprovalOnlyNotifiesAnActiveNonDriverWithProcessingPermission() {
-        jdbc.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER', '司机', 1), (802, 'ADMIN_TEST', '测试审批人', 1)");
-        jdbc.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '13900000801', 'hash', 801, 1), (802, '13900000802', 'hash', 802, 1)");
-        jdbc.update("INSERT INTO sys_permission (id, permission_code, permission_name, permission_type, status) VALUES (801, 'approval:process', '审批处理', 'API', 1)");
-        jdbc.update("INSERT INTO sys_role_permission (role_id, permission_id) VALUES (801, 801), (802, 801)");
-        service.toEligibleApprover(801, "approval:todo:1", "待办", "请处理", 99);
-        service.toEligibleApprover(802, "approval:todo:1", "待办", "请处理", 99);
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE type = 'APPROVAL_TODO'", Integer.class);
-        org.assertj.core.api.Assertions.assertThat(count).isEqualTo(1);
-        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
-                "SELECT user_id FROM in_app_notification WHERE type = 'APPROVAL_TODO'", Long.class)).isEqualTo(802L);
+    void committedTaskNotificationIsDeliveredOnlyAfterCommit() throws Exception {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> service.toUser(801, "task:assigned:100", "TASK_ASSIGNED", "新任务", "请查看", "TASK", 100));
+        mvc.perform(get("/api/v1/notifications/unread-count").header("Authorization", "Bearer " + userAToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.unreadCount").value(1));
     }
 }

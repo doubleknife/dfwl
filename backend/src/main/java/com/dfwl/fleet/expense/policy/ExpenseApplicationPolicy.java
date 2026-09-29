@@ -6,7 +6,7 @@ import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.expense.domain.ExpenseType;
 import com.dfwl.fleet.expense.repository.ExpenseRepository;
 import com.dfwl.fleet.master.policy.VehicleAccessPolicy;
-import com.dfwl.fleet.route.policy.RouteAccessPolicy;
+import com.dfwl.fleet.route.repository.TransportTaskRepository;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.CurrentUserService;
@@ -24,14 +24,14 @@ public class ExpenseApplicationPolicy implements ApprovalExpenseResourcePolicy {
 
     private final ExpenseRepository expenses;
     private final VehicleAccessPolicy vehicles;
-    private final RouteAccessPolicy routes;
+    private final TransportTaskRepository tasks;
     private final CurrentUserService currentUsers;
 
     public ExpenseApplicationPolicy(ExpenseRepository expenses, VehicleAccessPolicy vehicles,
-                                    RouteAccessPolicy routes, CurrentUserService currentUsers) {
+                                    TransportTaskRepository tasks, CurrentUserService currentUsers) {
         this.expenses = expenses;
         this.vehicles = vehicles;
-        this.routes = routes;
+        this.tasks = tasks;
         this.currentUsers = currentUsers;
     }
 
@@ -66,7 +66,9 @@ public class ExpenseApplicationPolicy implements ApprovalExpenseResourcePolicy {
             throw new AccessDeniedException("expense driver is outside current driver scope");
         }
         vehicles.ensureDriverCanViewVehicle(user, vehicleId);
-        if (routeId != null) routes.ensureDriverCanViewRoute(user, routeId);
+        if (routeId != null && tasks.findForDriver(routeId, driver.driverId()).isEmpty()) {
+            throw new AccessDeniedException("task is outside current driver scope");
+        }
     }
 
     @Override

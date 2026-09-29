@@ -4,7 +4,6 @@
   <block wx:else>
     <view class="mp-home-heading">今天的工作</view>
     <current-task-card task="{{currentTask}}" loading="{{loading}}" bind:open="openTask" />
-    <view wx:if="{{todoCount > 0}}" class="mp-todo" bindtap="openTodo" role="button">您有 {{todoCount}} 项待处理审批 <text>查看待办 ›</text></view>
     <view class="mp-section-heading">常用功能</view>
     <function-grid wx:if="{{actions.length}}" actions="{{actions}}" bind:open="openAction" />
     <feedback-state wx:else kind="empty" message="当前账号暂无可用功能，请联系管理员确认权限。" />

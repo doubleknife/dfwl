@@ -6,7 +6,7 @@ const derivedTone = computed(() => {
   if (props.tone) return props.tone;
   if (['COMPLETED', 'APPROVED', 'ACTIVE', 'AVAILABLE'].includes(props.value)) return 'success';
   if (['PENDING', 'UNPUBLISHED', 'APPROVAL_RESERVED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'ASSIGNED'].includes(props.value)) return 'warning';
-  if (['VOIDED', 'CANCELLED', 'REJECTED', 'CLAIMED'].includes(props.value)) return 'danger';
+  if (['CANCELLED', 'REJECTED', 'CLAIMED'].includes(props.value)) return 'danger';
   return 'info';
 });
 </script>

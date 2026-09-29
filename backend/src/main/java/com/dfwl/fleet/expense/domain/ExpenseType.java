@@ -10,8 +10,6 @@ public enum ExpenseType {
     WATER,
     TOLL,
     CAR_WASH,
-    INFORMATION,
-    DRIVER_SALARY,
     OTHER
 }
 

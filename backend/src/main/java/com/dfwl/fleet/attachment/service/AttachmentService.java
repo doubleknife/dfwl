@@ -223,7 +223,7 @@ public class AttachmentService {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
         if (purpose == AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET
-                && (!"ROUTE".equals(ownerType)
+                && (!"TASK".equals(ownerType)
                     || !"DRIVER".equalsIgnoreCase(user.roleCode())
                     || !repository.canCurrentDriverUploadUnloadTicket(ownerId, user.id(), user.phone()))) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
@@ -238,10 +238,16 @@ public class AttachmentService {
     }
 
     private void requireUploadPermission(AttachmentPurpose purpose, AuthenticatedUser user) {
+        // Until the V3 approval, tire and fixed-import workflows are rebuilt, only
+        // task evidence has a live owner workflow. Do not accept orphan legacy uploads.
+        if (purpose != AttachmentPurpose.WEIGHT_ADJUST
+                && purpose != AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET) {
+            throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
+        }
         boolean allowed = switch (purpose) {
             case TIRE_OCR -> has(user, "tire:request");
-            case WEIGHT_ADJUST -> has(user, "route:weight:adjust");
-            case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "route:unload");
+            case WEIGHT_ADJUST -> has(user, "task:weight:adjust");
+            case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "task:unload");
             case APPROVAL_APPLICATION -> has(user, "approval:create");
             case APPROVAL_ACTION -> hasAny(user, "approval:process", "approval:return");
             case IMPORT_FILE -> hasAny(user, "import:preview", "import:history");
@@ -284,16 +290,16 @@ public class AttachmentService {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         if (purpose == AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET) {
-            if ("ROUTE".equals(attachment.ownerType())
-                    && repository.ownerExists("ROUTE", attachment.ownerId())
-                    && (has(user, "route:list") && !"DRIVER".equalsIgnoreCase(user.roleCode())
-                        || has(user, "route:list") && repository.canDriverReadUnloadTicket(
+            if ("TASK".equals(attachment.ownerType())
+                    && repository.ownerExists("TASK", attachment.ownerId())
+                    && (has(user, "task:weight:view") && !"DRIVER".equalsIgnoreCase(user.roleCode())
+                        || has(user, "task:view") && repository.canDriverReadUnloadTicket(
                                 attachment.ownerId(), user.id(), user.phone()))) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {
             case WEIGHT_ADJUST -> !"DRIVER".equalsIgnoreCase(user.roleCode())
-                    && hasAny(user, "route:list", "route:weight:adjust");
+                    && hasAny(user, "task:weight:view", "task:weight:adjust");
             case IMPORT_FILE -> has(user, "import:history");
             default -> false;
         };

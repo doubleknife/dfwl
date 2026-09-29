@@ -1,8 +1,7 @@
 const { request } = require('../../utils/request');
 
 function targetUrl(item) {
-  if (item.businessType === 'ROUTE') return `/pages/route-detail/index?id=${item.businessId}`;
-  if (item.businessType === 'APPROVAL') return `/pages/approval-detail/index?id=${item.businessId}`;
+  if (item.businessType === 'TASK') return `/pages/route-detail/index?id=${item.businessId}`;
   if (item.businessType === 'SALARY') return '/pages/salary/index';
   return '';
 }

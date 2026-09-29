@@ -42,7 +42,7 @@ public class ApprovalDisplayNameService {
     private void collect(JsonNode item, Map<String, Map<String, String>> names) {
         lookup(item.path("driverId"), names.get("drivers"), "SELECT name FROM driver WHERE id = ?");
         lookup(item.path("vehicleId"), names.get("vehicles"), "SELECT plate_no FROM vehicle WHERE id = ?");
-        lookup(item.path("routeId"), names.get("routes"), "SELECT route_no FROM route_task WHERE id = ?");
+        lookup(item.path("routeId"), names.get("routes"), "SELECT route_no FROM transport_task WHERE id = ?");
     }
 
     private void lookup(JsonNode id, Map<String, String> labels, String sql) {

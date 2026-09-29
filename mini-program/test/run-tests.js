@@ -22,31 +22,29 @@ const tests = [
     const login = fs.readFileSync(path.join(root, 'pages/login/index.js'), 'utf8');
     const profile = fs.readFileSync(path.join(root, 'pages/profile/index.js'), 'utf8');
     const home = fs.readFileSync(path.join(root, 'pages/home/index.js'), 'utf8');
-    const tire = fs.readFileSync(path.join(root, 'pages/tire-request/index.js'), 'utf8');
     assert.match(login, /\/auth\/login/);
     assert.match(login, /accessToken/);
     assert.match(profile, /\/me/);
     assert.match(profile, /\/auth\/password/);
     assert.match(home, /\/me/);
-    assert.match(tire, /\/me/);
-    assert.doesNotMatch(home + profile + tire, /\/drivers\?pageNo=1&pageSize=1/);
+    assert.doesNotMatch(home + profile, /\/drivers\?pageNo=1&pageSize=1/);
   }],
   ['driver menu hides salary and tire for outsourced driver', () => {
-    const user = { permissions: ['route:list', 'salary:mine', 'tire:request', 'approval:create'] };
+    const user = { permissions: ['task:view', 'salary:mine', 'tire:request', 'approval:create'] };
     const cards = visibleHomeCards(user, { driverType: 'OUTSOURCED' }).map((item) => item.key);
     assert.deepEqual(cards, ['routes', 'profile']);
   }],
-  ['internal driver menu includes salary and tire capabilities', () => {
-    const user = { permissions: ['route:list', 'salary:mine', 'tire:request'] };
+  ['internal driver menu includes the currently available salary capability', () => {
+    const user = { permissions: ['task:view', 'salary:mine', 'tire:request'] };
     const cards = visibleHomeCards(user, { driverType: 'INTERNAL' }).map((item) => item.key);
     assert.equal(cards.includes('salary'), true);
-    assert.equal(cards.includes('tire'), true);
+    assert.equal(cards.includes('tire'), false);
   }],
-  ['configured role menu exposes expense approval and approval center', () => {
+  ['retired approval workflows stay out of the active driver menu', () => {
     const user = { permissions: ['approval:create', 'approval:history:view', 'approval:process'] };
     const cards = visibleHomeCards(user, null).map((item) => item.key);
     assert.equal(cards.includes('expenseApply'), false);
-    assert.equal(cards.includes('approvals'), true);
+    assert.equal(cards.includes('approvals'), false);
   }],
   ['weight validation blocks gross less than or equal tare', () => {
     assert.equal(validateWeights('10', '10').ok, false);
@@ -80,33 +78,16 @@ const tests = [
     assert.equal(sensitive.test(routeList), false);
     assert.equal(sensitive.test(routeDetail), false);
   }],
-  ['approval and tire flows use real backend endpoints', () => {
-    const tire = fs.readFileSync(path.join(root, 'pages/tire-request/index.js'), 'utf8');
-    const expense = fs.readFileSync(path.join(root, 'pages/expense-apply/index.js'), 'utf8');
-    const approvals = fs.readFileSync(path.join(root, 'pages/approval-detail/index.js'), 'utf8');
-    assert.match(tire, /\/attachments/);
-    assert.match(tire, /\/ocr\/tire-number/);
-    assert.match(tire, /\/tire-requests/);
-    assert.match(expense, /\/approvals/);
-    assert.match(approvals, /\/approvals\/\$\{this\.data\.id\}\/approve/);
-    assert.match(approvals, /return-applicant/);
-    assert.match(approvals, /return-node/);
-  }],
-  ['approval list tabs request server-side scopes', () => {
-    const approvals = fs.readFileSync(path.join(root, 'pages/approvals/index.js'), 'utf8');
-    assert.match(approvals, /pending:\s*'TODO'/);
-    assert.match(approvals, /mine:\s*'MINE'/);
-    assert.match(approvals, /history:\s*'DONE'/);
-    assert.match(approvals, /scope=\$\{scopeByTab\[this\.data\.tab\]\}/);
-    assert.doesNotMatch(approvals, /\/approvals\?pageNo=1&pageSize=100/);
-    assert.doesNotMatch(approvals, /filter\(/);
+  ['retired pages are not listed in the active mini-program package', () => {
+    const pages = readJson('app.json').pages;
+    for (const retired of ['pages/tire-request/index', 'pages/expense-apply/index', 'pages/approvals/index', 'pages/approval-detail/index']) {
+      assert.equal(pages.includes(retired), false);
+    }
   }]
 ];
 
-tests.push(...require('./f4d-tests'));
 tests.push(...require('./f4e-tests'));
 tests.push(...require('./ui3-tests'));
-tests.push(...require('./ui4-tests'));
 tests.push(...require('./auth-session-tests'));
 
 (async () => {

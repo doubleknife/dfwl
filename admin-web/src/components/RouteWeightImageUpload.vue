@@ -5,7 +5,7 @@ import { weightAdjustUploadBody } from '../views/routeWeightEvidence.js';
 import ApprovalEvidence from './ApprovalEvidence.vue';
 
 const props = defineProps({
-  routeId: { type: Number, required: true },
+  taskId: { type: Number, required: true },
   modelValue: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false }
 });
@@ -26,7 +26,7 @@ async function chooseImages(event) {
     for (const file of files) {
       if (!imageTypes.has(file.type)) throw new Error('请选择 JPG、PNG 或 WebP 图片，确保可以直接预览。');
       if (file.size > 30 * 1024 * 1024) throw new Error('单张图片不能超过 30 MB。');
-      const uploaded = await attachmentApi.upload(weightAdjustUploadBody(props.routeId, file));
+      const uploaded = await attachmentApi.upload(weightAdjustUploadBody(props.taskId, file));
       uploadedFiles.push(uploaded);
       emit('update:modelValue', [...uploadedFiles]);
     }

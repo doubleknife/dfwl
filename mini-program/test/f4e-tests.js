@@ -12,7 +12,7 @@ async function homeData(user) {
   const originalWx = global.wx;
   const pagePath = require.resolve('../pages/home/index.js');
   let definition;
-  requestModule.request = async ({ url }) => url === '/me' ? user : url.startsWith('/routes?') ? { records: [] } : [];
+  requestModule.request = async ({ url }) => url === '/me' ? user : url.startsWith('/driver/transport-tasks?') ? { records: [] } : [];
   global.Page = (page) => { definition = page; };
   global.getApp = () => ({ globalData: {} });
   global.wx = { setStorageSync() {} };
@@ -35,7 +35,7 @@ async function homeData(user) {
 module.exports = [
   ['home shows actual current binding without guessing vehicle status', async () => {
     const data = await homeData({ driverId: 2, driverName: '司机甲', driverType: 'INTERNAL',
-      currentVehicleId: 5, currentPlateNo: '云A12345', permissions: ['route:list'] });
+      currentVehicleId: 5, currentPlateNo: '云A12345', permissions: ['task:view'] });
     assert.equal(data.vehicle.plateNo, '云A12345');
     assert.equal(data.displayName, '司机甲');
     const markup = fs.readFileSync(path.join(__dirname, '../pages/home/index.wxml'), 'utf8');
@@ -46,17 +46,17 @@ module.exports = [
       currentVehicleId: null, permissions: [] })).vehicle, null);
     assert.equal((await homeData({ driverId: null, permissions: [] })).driver, null);
   }],
-  ['home keeps internal and outsourced menus within granted capabilities', () => {
-    const user = { permissions: ['route:list', 'tire:request', 'salary:mine', 'approval:create'] };
+  ['home only exposes V3-A task and salary capabilities', () => {
+    const user = { permissions: ['task:view', 'tire:request', 'salary:mine', 'approval:create'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((card) => card.key),
-      ['routes', 'launchApproval', 'salary', 'tire']);
+      ['routes', 'salary']);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((card) => card.key),
       ['routes']);
   }],
-  ['UI0.1 full internal permissions show five real capabilities only with available template', () => {
-    const user = { permissions: ['route:list', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request'] };
+  ['retired approval and tire permissions cannot restore old home entries', () => {
+    const user = { permissions: ['task:view', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((item) => item.key),
-      ['routes', 'launchApproval', 'approvals', 'salary', 'tire']);
+      ['routes', 'salary']);
     assert.equal(visibleHomeActions(user, { driverType: 'INTERNAL' }, []).some((item) => item.key === 'launchApproval'), false);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((item) => item.key), ['routes']);
   }],
@@ -80,7 +80,7 @@ module.exports = [
     const source = fs.readFileSync(path.join(__dirname, '../pages/route-detail/index.js'), 'utf8');
     assert.match(source, /onShow\(\).*this\.load\(\)/);
     assert.match(source, /this\.data\.busy \|\| this\.data\.confirming/);
-    assert.match(source, /hasPermission\(user, 'route:depart'\)/);
+    assert.match(source, /hasPermission\(user, 'task:depart'\)/);
     assert.match(source, /route\.loadingPlace/);
     assert.match(source, /route\.unloadingPlace/);
   }]

@@ -61,7 +61,7 @@ async function load(page = 1) {
         vehicleId: filters.vehicle, keyword: filters.keyword
       }),
       can('vehicle:list') ? masterApi.vehicles(1) : Promise.resolve({ records: [] }),
-      can('route:list') ? routeApi.list(1) : Promise.resolve({ records: [] })
+      can('task:view') ? routeApi.list(1) : Promise.resolve({ records: [] })
     ]);
     rows.value = result.records || [];
     total.value = Number(result.total || 0);

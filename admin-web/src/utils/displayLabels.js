@@ -14,7 +14,7 @@ export const statusLabels = {
   UNPUBLISHED: '未发布', PUBLISHED: '已发布', TRANSFER_PENDING: '等待接手',
   ASSIGNED: '待发车', TRANSFERRED: '已转派', LEGACY_ENDED: '历史结束',
   IN_TRANSIT: '运输中', COMPLETED: '已完成',
-  VOIDED: '已作废', CANCELLED: '已取消',
+  CANCELLED: '已取消',
   IN_STOCK: '库存中', APPROVAL_RESERVED: '审批预留', CLAIMED: '已申领',
   ACTIVE: '有效', PENDING_ATTRIBUTION: '待确认归属', REVERSED: '已冲销', REVERSAL: '冲销记录',
   DRAFT: '草稿', MAINTENANCE: '维护中',
@@ -33,8 +33,7 @@ export const permissionTypeLabels = { MENU: '菜单', BUTTON: '按钮', API: '�
 export const changeTypeLabels = {
   ADD: '新增', MODIFY: '修改', DELETE: '删除', WEIGHT_ADJUST: '重量调整',
   SALARY_ADJUST: '工资调整', REASSIGN: '重新归属', REVERSAL: '冲销',
-  EXPENSE_ATTRIBUTION_ADJUST: '费用归属调整', ROUTE_VOID: '线路作废',
-  ROUTE_REACTIVATE: '线路恢复', ROUTE_TRANSFER: '线路转派'
+  EXPENSE_ATTRIBUTION_ADJUST: '费用归属调整', ROUTE_TRANSFER: '线路转派'
 };
 
 export function displayValue(key, value, row = {}) {

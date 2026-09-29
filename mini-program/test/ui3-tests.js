@@ -32,13 +32,13 @@ async function pageScenario(relativePath, request, run, overrides = {}) {
 }
 
 function route(id, status = 'PUBLISHED') {
-  return { id, status, routeNo: `R${id}`, loadingPlace: '昆明', unloadingPlace: '曲靖',
-    businessDate: '2026-09-27', assignedDriverId: 1 };
+  return { id, status, taskNo: `T${id}`, loadingPlace: '昆明', unloadingPlace: '曲靖',
+    businessDate: '2026-09-27', currentParticipant: true, version: 0, vehiclePlate: '云A12345' };
 }
 
 module.exports = [
   ['BIZ1B home ignores historical participant and presents current transfer', () => {
-    assert.equal(currentTask([{ ...route(1, 'IN_TRANSIT'), assignedDriverId: 2 }], 1), null);
+    assert.equal(currentTask([{ ...route(1, 'IN_TRANSIT'), currentParticipant: false }], 1), null);
     assert.equal(currentTask([route(2, 'TRANSFER_PENDING')], 1).nextAction, '确认发车');
   }],
   ['UI3 route list uses exact server filter and real total beyond first 50', async () => {
@@ -58,7 +58,7 @@ module.exports = [
       assert.equal(page.data.total, 55);
       assert.equal(page.data.hasMore, false);
       assert.equal(page.data.records[54].statusLabel, '等待发车');
-      assert.deepEqual(urls, [1, 2, 3].map((n) => `/routes?pageNo=${n}&pageSize=20&status=PUBLISHED`));
+      assert.deepEqual(urls, [1, 2, 3].map((n) => `/driver/transport-tasks?pageNo=${n}&pageSize=20&status=PUBLISHED`));
     });
   }],
   ['UI3 tabs change server status and discard stale prior response', async () => {
@@ -77,7 +77,7 @@ module.exports = [
       await Promise.resolve();
       assert.equal(page.data.records[0].id, 3);
       assert.equal(page.data.activeStatus, 'IN_TRANSIT');
-      assert.equal(urls[1], '/routes?pageNo=1&pageSize=20&status=IN_TRANSIT');
+      assert.equal(urls[1], '/driver/transport-tasks?pageNo=1&pageSize=20&status=IN_TRANSIT');
     });
   }],
   ['UI3 list distinguishes empty, network error and retry', async () => {
@@ -108,7 +108,7 @@ module.exports = [
     let modal;
     let posts = 0;
     await pageScenario('route-detail', async ({ url, method }) => {
-      if (url === '/me') return { driverId: 1, currentVehicleId: 7, currentPlateNo: '云A12345', permissions: ['route:list', 'route:depart'] };
+      if (url === '/me') return { driverId: 1, currentVehicleId: 7, currentPlateNo: '云A12345', permissions: ['task:view', 'task:depart'] };
       if (url.endsWith('/depart')) { posts += 1; return route(4, 'IN_TRANSIT'); }
       return route(4);
     }, async (page) => {
@@ -129,7 +129,7 @@ module.exports = [
     let modal;
     let posts = 0;
     await pageScenario('route-detail', async ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['route:list', 'route:depart'] };
+      if (url === '/me') return { driverId: 1, permissions: ['task:view', 'task:depart'] };
       if (url.endsWith('/depart')) posts += 1;
       return route(1);
     }, async (page) => {
@@ -149,7 +149,7 @@ module.exports = [
   ['BIZ1D completed route opens original ticket as read only without an unload action', async () => {
     const opened = [];
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['route:list'] };
+      if (url === '/me') return { driverId: 1, permissions: ['task:view'] };
       return route(4, 'COMPLETED');
     }, async (page) => {
       page.data.id = 4;
@@ -162,8 +162,8 @@ module.exports = [
   }],
   ['BIZ1B only current transfer driver may depart while waiting for handoff', async () => {
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['route:list', 'route:depart'] };
-      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2 };
+      if (url === '/me') return { driverId: 1, permissions: ['task:view', 'task:depart'] };
+      return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: false };
     }, async (page) => {
       page.data.id = 8;
       await page.load();
@@ -171,8 +171,8 @@ module.exports = [
       assert.equal(page.data.route.nextAction, '等待接手司机发车');
     });
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 2, permissions: ['route:list', 'route:depart'] };
-      return { ...route(8, 'TRANSFER_PENDING'), assignedDriverId: 2, currentPlateNo: '外协B002' };
+      if (url === '/me') return { driverId: 2, permissions: ['task:view', 'task:depart'] };
+      return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: true, vehiclePlate: '外协B002' };
     }, async (page) => {
       page.data.id = 8;
       await page.load();
@@ -191,7 +191,7 @@ module.exports = [
   ['BIZ1D weight page requires a ticket before opening confirmation', async () => {
     let modalCalls = 0;
     await pageScenario('weight', ({ url }) => url === '/me'
-      ? { driverId: 1, permissions: ['route:unload'] } : route(9, 'IN_TRANSIT'), async (page) => {
+      ? { driverId: 1, permissions: ['task:unload'] } : route(9, 'IN_TRANSIT'), async (page) => {
       page.data.id = 9;
       await page.load();
       page.onGross({ detail: { value: '30' } });
@@ -205,7 +205,7 @@ module.exports = [
     let selected;
     let uploadCount = 0;
     await pageScenario('weight', ({ url }) => url === '/me'
-      ? { driverId: 1, permissions: ['route:unload'] } : route(10, 'IN_TRANSIT'), async (page) => {
+      ? { driverId: 1, permissions: ['task:unload'] } : route(10, 'IN_TRANSIT'), async (page) => {
       page.data.id = 10;
       await page.load();
       page.chooseTickets();
@@ -227,7 +227,7 @@ module.exports = [
     let posts = 0;
     let backs = 0;
     await pageScenario('weight', ({ url }) => {
-      if (url === '/me') return Promise.resolve({ driverId: 1, permissions: ['route:unload'] });
+      if (url === '/me') return Promise.resolve({ driverId: 1, permissions: ['task:unload'] });
       if (url.endsWith('/unload')) { posts += 1; return new Promise((resolve) => { finishPost = resolve; }); }
       return Promise.resolve(route(5, 'IN_TRANSIT'));
     }, async (page) => {
@@ -256,7 +256,7 @@ module.exports = [
     let fail = false;
     let posts = 0;
     await pageScenario('weight', async ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['route:unload'] };
+      if (url === '/me') return { driverId: 1, permissions: ['task:unload'] };
       if (url.endsWith('/unload')) { posts += 1; throw new Error('网络不可用'); }
       return route(7, 'IN_TRANSIT');
     }, async (page) => {

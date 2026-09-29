@@ -29,13 +29,13 @@ class AttachmentServiceTests {
         RecordingStorage storage = new RecordingStorage();
         AttachmentService service = new AttachmentService(repository, storage);
         AuthenticatedUser user = new AuthenticatedUser(
-                1L, "13800000001", 1L, "importer", "导入员", Set.of("import:preview", "import:history"));
+                1L, "13800000001", 1L, "ADMIN", "管理员", Set.of("task:weight:adjust"));
 
         assertThatThrownBy(() -> service.upload(
-                "IMPORT",
-                0,
-                "IMPORT_FILE",
-                new MockMultipartFile("file", "routes.csv", "text/csv", "a,b\n1,2".getBytes()),
+                "TASK",
+                1,
+                "WEIGHT_ADJUST",
+                new MockMultipartFile("file", "evidence.png", "image/png", new byte[] {1, 2, 3}),
                 user))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 

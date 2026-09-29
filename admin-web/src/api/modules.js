@@ -5,7 +5,7 @@ export const dashboardApi = {
   profit: () => apiClient.get('/reports/profit'),
   expenses: () => apiClient.get('/expenses?pageNo=1&pageSize=20'),
   approvals: () => apiClient.get('/approvals?pageNo=1&pageSize=20'),
-  routes: () => apiClient.get('/routes?pageNo=1&pageSize=20')
+  routes: () => apiClient.get('/transport-tasks?pageNo=1&pageSize=20')
 };
 
 export const masterApi = {
@@ -14,16 +14,12 @@ export const masterApi = {
   vehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=${pageSize}`),
   vehicle: (id) => apiClient.get(`/vehicles/${id}`),
   trailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/trailers?pageNo=${pageNo}&pageSize=${pageSize}`),
-  customers: (pageNo = 1, pageSize = 100) => apiClient.get(`/customers?pageNo=${pageNo}&pageSize=${pageSize}`),
   products: (pageNo = 1, pageSize = 100) => apiClient.get(`/products?pageNo=${pageNo}&pageSize=${pageSize}`),
   createDriver: (body) => apiClient.post('/drivers', body),
   createVehicle: (body) => apiClient.post('/vehicles', body),
   updateVehicle: (id, body) => apiClient.put(`/vehicles/${id}`, body),
   createTrailer: (body) => apiClient.post('/trailers', body),
   updateTrailer: (id, body) => apiClient.put(`/trailers/${id}`, body),
-  createCustomer: (body) => apiClient.post('/customers', body),
-  updateCustomer: (id, body) => apiClient.put(`/customers/${id}`, body),
-  setCustomerStatus: (id, status) => apiClient.put(`/customers/${id}/status`, { status }),
   createProduct: (body) => apiClient.post('/products', body),
   updateProduct: (id, body) => apiClient.put(`/products/${id}`, body),
   setProductStatus: (id, status) => apiClient.put(`/products/${id}/status`, { status }),
@@ -40,28 +36,26 @@ export const routeApi = {
   list: (pageNo = 1, pageSize = 100, filters = {}) => {
     const params = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
     for (const [key, value] of Object.entries(filters)) if (value !== '' && value != null) params.set(key, String(value));
-    return apiClient.get(`/routes?${params}`);
+    return apiClient.get(`/transport-tasks?${params}`);
   },
-  detail: (id) => apiClient.get(`/routes/${id}`),
-  participants: (id) => apiClient.get(`/routes/${id}/participants`),
-  participantSalaryHistory: (id, participantId) => apiClient.get(`/routes/${id}/participants/${participantId}/salary-history`),
-  transfer: (id, body) => apiClient.post(`/routes/${id}/transfer`, body),
-  adjustParticipantSalary: (id, participantId, body) => apiClient.post(`/routes/${id}/participants/${participantId}/salary-adjustments`, body),
-  create: (body) => apiClient.post('/routes', body),
-  update: (id, body) => apiClient.put(`/routes/${id}`, body),
-  delete: (id) => apiClient.delete(`/routes/${id}`),
-  action: (id, action, body = {}) => apiClient.post(`/routes/${id}/${action}`, body),
-  unload: (id, body) => apiClient.post(`/routes/${id}/unload`, body),
-  adjustWeight: (id, body) => apiClient.post(`/routes/${id}/weight-adjustments`, body),
-  weightVersions: (id) => apiClient.get(`/routes/${id}/weight-versions`)
+  detail: (id) => apiClient.get(`/transport-tasks/${id}`),
+  participants: (id) => apiClient.get(`/transport-tasks/${id}/participants`),
+  transfer: (id, body) => apiClient.post(`/transport-tasks/${id}/transfer`, body),
+  depart: (id, body) => apiClient.post(`/transport-tasks/${id}/depart`, body),
+  cancel: (id, body) => apiClient.post(`/transport-tasks/${id}/cancel`, body),
+  adjustWeight: (id, body) => apiClient.post(`/transport-tasks/${id}/weight-adjustments`, body),
+  weightVersions: (id) => apiClient.get(`/transport-tasks/${id}/weight-versions`),
+  amountHistory: (id) => apiClient.get(`/transport-tasks/${id}/amount-history`),
+  adjustAmount: (id, body) => apiClient.post(`/transport-tasks/${id}/amount-adjustments`, body),
+  confirmSalaries: (id, body) => apiClient.post(`/transport-tasks/${id}/participant-salaries/confirm`, body)
 };
 
-export const importApi = {
-  uploadFile: (formData) => apiClient.upload('/attachments', formData),
-  preview: (body) => apiClient.post('/imports/preview', body),
-  commit: (id) => apiClient.post(`/imports/${id}/commit`, {}),
-  history: (pageNo = 1, pageSize = 20) => apiClient.get(`/imports?pageNo=${pageNo}&pageSize=${pageSize}`),
-  failures: (id) => apiClient.download(`/imports/${id}/failures/export`)
+export const routeTemplateApi = {
+  list: () => apiClient.get('/route-templates'),
+  detail: (id) => apiClient.get(`/route-templates/${id}`),
+  create: (body) => apiClient.post('/route-templates', body),
+  update: (id, body) => apiClient.patch(`/route-templates/${id}`, body),
+  setEnabled: (id, enabled, expectedVersion) => apiClient.post(`/route-templates/${id}/${enabled ? 'enable' : 'disable'}`, { expectedVersion })
 };
 
 export const expenseApi = {
@@ -130,14 +124,13 @@ export const tireApi = {
 };
 
 export const salaryApi = {
-  list: (pageNo = 1, driverId = '', businessMonth = '', pageSize = 100) => {
+  list: (pageNo = 1, driverId = '', month = '', pageSize = 100) => {
     const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
     if (driverId) query.set('driverId', String(driverId));
-    if (businessMonth) query.set('businessMonth', businessMonth);
+    if (month) query.set('month', month);
     return apiClient.get(`/driver-salaries?${query}`);
   },
-  create: (body) => apiClient.post('/driver-salaries', body),
-  history: (routeId) => apiClient.get(`/driver-salaries/routes/${routeId}/history`)
+  history: (participantId) => apiClient.get(`/driver-salaries/${participantId}/history`)
 };
 
 export const reportApi = {

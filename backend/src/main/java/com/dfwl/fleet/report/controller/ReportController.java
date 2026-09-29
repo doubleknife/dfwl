@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController
+// Retired from the V3-A runtime; V3 financial projections are rebuilt in V3-E.
 @RequestMapping("/api/v1/reports")
 public class ReportController {
 

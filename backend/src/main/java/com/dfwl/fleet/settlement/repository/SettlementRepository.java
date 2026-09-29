@@ -230,24 +230,24 @@ public class SettlementRepository {
                        CASE WHEN s.missingCount = 0 THEN 1 ELSE 0 END AS salaryComplete,
                        COALESCE(w.net_weight * r.tax_unit_price, 0) - COALESCE(e.routeExpense, 0)
                          - COALESCE(s.salaryAmount, 0) AS profitAmount
-                FROM route_task r
-                LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+                FROM transport_task r
+                LEFT JOIN task_weight_version w ON w.id = r.effective_weight_version_id
                 LEFT JOIN (
-                    SELECT route_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
+                    SELECT task_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
                            SUM(CASE WHEN salary_amount IS NULL THEN 1 ELSE 0 END) AS missingCount
-                    FROM route_participant WHERE status NOT IN ('CANCELLED', 'LEGACY_ENDED')
-                    GROUP BY route_id
-                ) s ON s.route_id = r.id
+                    FROM transport_participant WHERE status NOT IN ('CANCELLED', 'LEGACY_ENDED')
+                    GROUP BY task_id
+                ) s ON s.task_id = r.id
                 LEFT JOIN (
-                    SELECT route_id,
+                    SELECT task_id,
                            SUM(amount) AS routeExpense,
                            SUM(CASE WHEN status = 'REVERSAL' THEN 1 ELSE 0 END) AS reversalCount
                     FROM expense_entry
                     WHERE attribution_type = 'ROUTE'
                       AND status IN ('ACTIVE', 'REVERSED', 'REVERSAL')
                       AND deleted_at IS NULL
-                    GROUP BY route_id
-                ) e ON e.route_id = r.id
+                    GROUP BY task_id
+                ) e ON e.task_id = r.id
                 WHERE r.status = 'COMPLETED'
                   AND r.business_date >= ?
                   AND r.business_date < ?
@@ -280,11 +280,11 @@ public class SettlementRepository {
 
         Map<Long, List<Map<String, Object>>> participants = new HashMap<>();
         jdbcTemplate.query("""
-                SELECT p.route_id, p.id, p.sequence_no, p.driver_id, p.driver_type_snapshot,
+                SELECT p.task_id, p.id, p.sequence_no, p.driver_id, p.driver_type_snapshot,
                        p.company_vehicle_id, p.outsourced_plate_no, p.status, p.salary_amount
-                FROM route_participant p JOIN route_task r ON r.id = p.route_id
+                FROM transport_participant p JOIN transport_task r ON r.id = p.task_id
                 WHERE r.business_date >= ? AND r.business_date < ? AND r.status = 'COMPLETED'
-                  AND r.deleted_at IS NULL ORDER BY p.route_id, p.sequence_no
+                  AND r.deleted_at IS NULL ORDER BY p.task_id, p.sequence_no
                 """, rs -> {
             Map<String, Object> item = new HashMap<>();
             item.put("participantId", rs.getLong("id"));
@@ -295,17 +295,17 @@ public class SettlementRepository {
             item.put("outsourcedPlateNo", rs.getString("outsourced_plate_no"));
             item.put("status", rs.getString("status"));
             item.put("salaryAmount", rs.getBigDecimal("salary_amount"));
-            participants.computeIfAbsent(rs.getLong("route_id"), unused -> new java.util.ArrayList<>()).add(item);
+            participants.computeIfAbsent(rs.getLong("task_id"), unused -> new java.util.ArrayList<>()).add(item);
         }, startDate, endDate);
         Map<Long, List<Map<String, Object>>> routeExpenses = new HashMap<>();
         jdbcTemplate.query("""
-                SELECT e.route_id, e.id, e.expense_type, e.vehicle_id, e.amount, e.source_type,
+                SELECT e.task_id, e.id, e.expense_type, e.vehicle_id, e.amount, e.source_type,
                        e.approval_instance_id, e.status
-                FROM expense_entry e JOIN route_task r ON r.id = e.route_id
+                FROM expense_entry e JOIN transport_task r ON r.id = e.task_id
                 WHERE r.business_date >= ? AND r.business_date < ? AND r.status = 'COMPLETED'
                   AND r.deleted_at IS NULL AND e.attribution_type = 'ROUTE'
                   AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL') AND e.deleted_at IS NULL
-                ORDER BY e.route_id, e.id
+                ORDER BY e.task_id, e.id
                 """, rs -> {
             Map<String, Object> item = new HashMap<>();
             item.put("expenseId", rs.getLong("id"));
@@ -315,7 +315,7 @@ public class SettlementRepository {
             item.put("sourceType", rs.getString("source_type"));
             item.put("approvalInstanceId", readLong(rs, "approval_instance_id"));
             item.put("status", rs.getString("status"));
-            routeExpenses.computeIfAbsent(rs.getLong("route_id"), unused -> new java.util.ArrayList<>()).add(item);
+            routeExpenses.computeIfAbsent(rs.getLong("task_id"), unused -> new java.util.ArrayList<>()).add(item);
         }, startDate, endDate);
         for (Fact fact : routeFacts) {
             fact.snapshot().put("participants", participants.getOrDefault(fact.sourceId(), List.of()));
@@ -326,7 +326,7 @@ public class SettlementRepository {
                 SELECT e.id AS sourceId, e.expense_no AS expenseNo, e.expense_type AS expenseType,
                        e.business_date AS businessDate, e.vehicle_id AS vehicleId, e.driver_id AS driverId,
                        e.amount AS expenseAmount, e.created_by, e.created_at, e.updated_by, e.updated_at, e.reversal_of_id,
-                       e.status, e.route_id, e.attribution_type, e.source_type, e.approval_instance_id,
+                       e.status, e.task_id, e.attribution_type, e.source_type, e.approval_instance_id,
                        a.created_at AS approvalCreatedAt, a.applicant_user_id AS applicantUserId,
                        a.completed_at AS approvedAt,
                        (SELECT act.operator_id FROM approval_action act
@@ -334,10 +334,10 @@ public class SettlementRepository {
                         WHERE t.approval_instance_id = a.id AND act.action_type = 'APPROVE'
                         ORDER BY act.operated_at DESC, act.id DESC LIMIT 1) AS finalApproverId,
                        CASE WHEN e.attribution_type = 'DAILY' THEN 'DAILY'
-                            WHEN e.status = 'PENDING_ATTRIBUTION' OR e.route_id IS NULL
+                            WHEN e.status = 'PENDING_ATTRIBUTION' OR e.task_id IS NULL
                               OR r.status <> 'COMPLETED' OR r.id IS NULL THEN 'UNASSIGNED'
                             ELSE 'ROUTE' END AS companyCategory
-                FROM expense_entry e LEFT JOIN route_task r ON r.id = e.route_id
+                FROM expense_entry e LEFT JOIN transport_task r ON r.id = e.task_id
                 LEFT JOIN approval_instance a ON a.id = e.approval_instance_id
                 WHERE e.status IN ('ACTIVE', 'PENDING_ATTRIBUTION', 'REVERSED', 'REVERSAL')
                   AND e.business_date >= ? AND e.business_date < ? AND e.deleted_at IS NULL
@@ -349,7 +349,7 @@ public class SettlementRepository {
             snapshot.put("vehicleId", rs.getLong("vehicleId"));
             snapshot.put("driverId", readLong(rs, "driverId"));
             snapshot.put("status", rs.getString("status"));
-            snapshot.put("routeId", readLong(rs, "route_id"));
+            snapshot.put("routeId", readLong(rs, "task_id"));
             snapshot.put("attributionType", rs.getString("attribution_type"));
             snapshot.put("companyCategory", rs.getString("companyCategory"));
             snapshot.put("sourceType", rs.getString("source_type"));
@@ -430,9 +430,7 @@ public class SettlementRepository {
             }
         }
         for (DetailFact removed : previous.values()) {
-            BusinessChange change = "ROUTE".equals(removed.factType())
-                    ? routeStatusChange(removed.sourceId(), "VOID", "ROUTE_VOID") : null;
-            if (change == null) change = new BusinessChange("DELETE", null, null, null);
+            BusinessChange change = new BusinessChange("DELETE", null, null, null);
             insertDiff(versionId, previousVersionId, removed.factType(), removed.sourceId(), change.type(),
                     removed.snapshotJson(), null, removed.incomeAmount().negate(),
                     removed.expenseAmount().negate(), removed.profitAmount().negate(), change);
@@ -496,10 +494,6 @@ public class SettlementRepository {
                     null);
         }
         if ("ROUTE".equals(after.factType())) {
-            if (before == null) {
-                BusinessChange reactivated = routeStatusChange(after.sourceId(), "REACTIVATE", "ROUTE_REACTIVATE");
-                if (reactivated != null) return reactivated;
-            }
             Long weightVersionId = longValue(after.snapshot().get("effectiveWeightVersionId"));
             JsonNode previousSnapshot = before == null ? null : snapshot(before.snapshotJson());
             JsonNode previousWeight = previousSnapshot == null ? null : previousSnapshot.get("effectiveWeightVersionId");
@@ -562,14 +556,14 @@ public class SettlementRepository {
     private BusinessChange salaryChange(long routeId) {
         List<BusinessChange> legacySalary = jdbcTemplate.query("""
                 SELECT operator_id, operation_time, reason FROM driver_salary_history
-                WHERE route_id = ? ORDER BY operation_time DESC, id DESC LIMIT 1
+                WHERE task_id = ? ORDER BY operation_time DESC, id DESC LIMIT 1
                 """, (rs, rowNum) -> new BusinessChange("SALARY_ADJUST", readLong(rs, "operator_id"),
                 rs.getTimestamp("operation_time").toLocalDateTime(), rs.getString("reason")), routeId);
         List<BusinessChange> participantSalary = jdbcTemplate.query("""
                 SELECT h.operator_id, h.operation_time, h.reason
-                FROM route_participant_salary_history h
-                JOIN route_participant p ON p.id = h.participant_id
-                WHERE p.route_id = ?
+                FROM participant_salary_history h
+                JOIN transport_participant p ON p.id = h.participant_id
+                WHERE p.task_id = ?
                 ORDER BY h.operation_time DESC, h.id DESC
                 LIMIT 1
                 """, (rs, rowNum) -> new BusinessChange("SALARY_ADJUST", readLong(rs, "operator_id"),
@@ -589,7 +583,7 @@ public class SettlementRepository {
         return jdbcTemplate.query("""
                 SELECT operator_id, operation_time, reason
                 FROM expense_attribution_history
-                WHERE (before_route_id = ? OR after_route_id = ?)
+                WHERE (before_task_id = ? OR after_task_id = ?)
                 ORDER BY operation_time DESC
                 LIMIT 1
                 """, (rs, rowNum) -> new BusinessChange("EXPENSE_ATTRIBUTION_ADJUST", readLong(rs, "operator_id"),
@@ -606,21 +600,12 @@ public class SettlementRepository {
                 .stream().findFirst().orElse(null);
     }
 
-    private BusinessChange routeStatusChange(long routeId, String operation, String changeType) {
-        return jdbcTemplate.query("""
-                SELECT operator_id, operation_time, reason FROM route_status_history
-                WHERE route_id = ? AND operation_type = ? ORDER BY operation_time DESC, id DESC LIMIT 1
-                """, (rs, row) -> new BusinessChange(changeType, readLong(rs, "operator_id"),
-                rs.getTimestamp("operation_time").toLocalDateTime(), rs.getString("reason")), routeId, operation)
-                .stream().findFirst().orElse(null);
-    }
-
     private BusinessChange routeReversalChange(long routeId) {
         return jdbcTemplate.query("""
                 SELECT l.operator_id, l.created_at, l.reason
                 FROM expense_reversal_link l
                 JOIN expense_entry e ON e.id = l.reversal_expense_id
-                WHERE e.route_id = ?
+                WHERE e.task_id = ?
                 ORDER BY l.created_at DESC
                 LIMIT 1
                 """, (rs, rowNum) -> new BusinessChange("REVERSAL", readLong(rs, "operator_id"),

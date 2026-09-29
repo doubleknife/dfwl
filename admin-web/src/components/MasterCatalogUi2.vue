@@ -13,18 +13,16 @@ import ConfirmDialog from './ConfirmDialog.vue';
 import ErrorState from './ErrorState.vue';
 
 const props = defineProps({ type: { type: String, required: true } });
-const names = { vehicles: '车辆', trailers: '车挂', customers: '客户', products: '产品' };
+const names = { vehicles: '车辆', trailers: '车挂', products: '货物' };
 const permissions = {
   vehicles: { add: 'vehicle:add', edit: 'vehicle:edit' },
   trailers: { add: 'trailer:add', edit: 'trailer:edit' },
-  customers: { add: 'route:create', edit: 'route:edit' },
-  products: { add: 'route:create', edit: 'route:edit' }
+  products: { add: 'template:manage', edit: 'template:manage' }
 };
 const columns = {
   vehicles: [{ key: 'plateNo', label: '车牌' }, { key: 'energyType', label: '能源' }, { key: 'maxLoad', label: '最大载重' }, { key: 'currentDriverName', label: '当前司机' }, { key: 'currentTrailerPlateNo', label: '当前车挂' }, { key: 'status', label: '状态' }, { key: 'actions', label: '操作' }],
   trailers: [{ key: 'trailerNo', label: '车挂号' }, { key: 'plateNo', label: '车挂车牌' }, { key: 'insuranceComplete', label: '保险' }, { key: 'currentVehiclePlateNo', label: '当前车辆' }, { key: 'status', label: '状态' }, { key: 'actions', label: '操作' }],
-  customers: [{ key: 'customerName', label: '客户名称' }, { key: 'customerCode', label: '编码' }, { key: 'status', label: '状态' }, { key: 'remark', label: '备注' }, { key: 'actions', label: '操作' }],
-  products: [{ key: 'productName', label: '产品名称' }, { key: 'productCode', label: '编码' }, { key: 'status', label: '状态' }, { key: 'remark', label: '备注' }, { key: 'actions', label: '操作' }]
+  products: [{ key: 'name', label: '货物名称' }, { key: 'enabled', label: '状态' }, { key: 'actions', label: '操作' }]
 };
 const records = ref([]);
 const page = ref(1);
@@ -41,8 +39,9 @@ const toggleTarget = ref(null);
 const form = reactive({ id: null, plateNo: '', trailerNo: '', energyType: 'ELECTRIC', maxLoad: '', insuranceComplete: true, loadStandardType: 'PERCENT', loadStandardPercent: '0.9', loadStandardMinLoad: '', customerCode: '', customerName: '', productCode: '', productName: '', status: 1, remark: '' });
 const listApi = computed(() => masterApi[props.type]);
 const filtered = computed(() => records.value.filter((row) => {
-  const label = `${row.plateNo || ''} ${row.trailerNo || ''} ${row.customerName || ''} ${row.customerCode || ''} ${row.productName || ''} ${row.productCode || ''}`.toLowerCase();
-  return (!search.value || label.includes(search.value.toLowerCase())) && (!statusFilter.value || String(row.status) === statusFilter.value);
+  const label = `${row.plateNo || ''} ${row.trailerNo || ''} ${row.name || ''}`.toLowerCase();
+  const status = props.type === 'products' ? (row.enabled ? 1 : 0) : row.status;
+  return (!search.value || label.includes(search.value.toLowerCase())) && (!statusFilter.value || String(status) === statusFilter.value);
 }));
 
 async function load(nextPage = 1) {
@@ -56,19 +55,18 @@ async function load(nextPage = 1) {
   finally { loading.value = false; }
 }
 function openEditor(row = null) {
-  Object.assign(form, { id: row?.id || null, plateNo: row?.plateNo || '', trailerNo: row?.trailerNo || '', energyType: row?.energyType || 'ELECTRIC', maxLoad: row?.maxLoad || '', insuranceComplete: row?.insuranceComplete ?? true, loadStandardType: row?.loadStandardType || 'PERCENT', loadStandardPercent: row?.loadStandardPercent ?? '0.9', loadStandardMinLoad: row?.loadStandardMinLoad || '', customerCode: row?.customerCode || '', customerName: row?.customerName || '', productCode: row?.productCode || '', productName: row?.productName || '', status: row?.status ?? 1, remark: row?.remark || '' });
+  Object.assign(form, { id: row?.id || null, plateNo: row?.plateNo || '', trailerNo: row?.trailerNo || '', energyType: row?.energyType || 'ELECTRIC', maxLoad: row?.maxLoad || '', insuranceComplete: row?.insuranceComplete ?? true, loadStandardType: row?.loadStandardType || 'PERCENT', loadStandardPercent: row?.loadStandardPercent ?? '0.9', loadStandardMinLoad: row?.loadStandardMinLoad || '', productName: row?.name || '', status: row ? (row.enabled ? 1 : 0) : 1, version: row?.version ?? null });
   editor.value = true;
 }
 function payload() {
   if (props.type === 'vehicles') return { plateNo: form.plateNo, insuranceComplete: form.insuranceComplete, energyType: form.energyType, maxLoad: form.maxLoad, loadStandardType: form.loadStandardType, loadStandardPercent: form.loadStandardType === 'PERCENT' ? form.loadStandardPercent : null, loadStandardMinLoad: form.loadStandardType === 'FIXED' ? form.loadStandardMinLoad : null, status: Number(form.status) };
   if (props.type === 'trailers') return { trailerNo: form.trailerNo, plateNo: form.plateNo || null, insuranceComplete: form.insuranceComplete, status: Number(form.status) };
-  if (props.type === 'customers') return { customerCode: form.customerCode || null, customerName: form.customerName, status: Number(form.status), remark: form.remark || null };
-  return { productCode: form.productCode || null, productName: form.productName, status: Number(form.status), remark: form.remark || null };
+  return { name: form.productName, enabled: Number(form.status) === 1, expectedVersion: form.version };
 }
 async function save() {
   busy.value = true; error.value = '';
   try {
-    const singular = { vehicles: 'Vehicle', trailers: 'Trailer', customers: 'Customer', products: 'Product' }[props.type];
+    const singular = { vehicles: 'Vehicle', trailers: 'Trailer', products: 'Product' }[props.type];
     if (form.id) await masterApi[`update${singular}`](form.id, payload());
     else await masterApi[`create${singular}`](payload());
     editor.value = false;
@@ -89,8 +87,7 @@ async function toggleStatus() {
   if (!toggleTarget.value) return;
   busy.value = true; error.value = '';
   try {
-    const kind = props.type === 'customers' ? 'Customer' : 'Product';
-    await masterApi[`set${kind}Status`](toggleTarget.value.id, toggleTarget.value.status === 1 ? 0 : 1);
+    await masterApi.setProductStatus(toggleTarget.value.id, toggleTarget.value.enabled ? 0 : 1);
     toggleTarget.value = null; await load(page.value);
   } catch (cause) { error.value = cause.message || '状态更新失败'; }
   finally { busy.value = false; }
@@ -109,10 +106,11 @@ onMounted(() => load());
       <template #maxLoad="{value}">{{ value == null ? '—' : `${value} 吨` }}</template>
       <template #insuranceComplete="{value}"><StatusTag :value="value ? '保险完整' : '保险不完整'" :tone="value ? 'success' : 'warning'" /></template>
       <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" :tone="value === 1 ? 'success' : 'neutral'" /></template>
+      <template #enabled="{value}"><StatusTag :value="value ? '启用' : '停用'" :tone="value ? 'success' : 'neutral'" /></template>
       <template #currentDriverName="{value}">{{ value || '未绑定' }}</template>
       <template #currentTrailerPlateNo="{value}">{{ value || '未绑定' }}</template>
       <template #currentVehiclePlateNo="{value}">{{ value || '未绑定' }}</template>
-      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="type === 'vehicles' || type === 'trailers'" type="button" @click="show(row)">详情</button><button v-if="can(permissions[type].edit)" type="button" @click="openEditor(row)">编辑</button><button v-if="(type === 'customers' || type === 'products') && can(permissions[type].edit)" type="button" @click="toggleTarget = row">{{ row.status === 1 ? '停用' : '启用' }}</button></div></template>
+      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="type === 'vehicles' || type === 'trailers'" type="button" @click="show(row)">详情</button><button v-if="can(permissions[type].edit)" type="button" @click="openEditor(row)">编辑</button><button v-if="type === 'products' && can(permissions[type].edit)" type="button" @click="toggleTarget = row">{{ row.enabled ? '停用' : '启用' }}</button></div></template>
     </DataTable>
     <PaginationBar v-if="!error" :page-no="page" :page-size="20" :total="total" @change="load" />
 
@@ -120,8 +118,7 @@ onMounted(() => load());
       <form @submit.prevent="save"><div class="ui-form-grid">
         <template v-if="type === 'vehicles'"><label class="ui-form-field">车牌号<input v-model.trim="form.plateNo" required /></label><label class="ui-form-field">能源类型<select v-model="form.energyType"><option value="ELECTRIC">电</option><option value="GAS">气</option></select></label><label class="ui-form-field">最大载重（吨）<input v-model="form.maxLoad" required type="number" min="0.001" step="0.001" /></label><label class="ui-form-field">保险<select v-model="form.insuranceComplete"><option :value="true">完整</option><option :value="false">不完整</option></select></label><label class="ui-form-field">达标标准<select v-model="form.loadStandardType"><option value="PERCENT">按最大载重比例</option><option value="FIXED">按最低载重</option></select></label><label v-if="form.loadStandardType === 'PERCENT'" class="ui-form-field">达标比例<input v-model="form.loadStandardPercent" required type="number" min="0" max="1" step="0.0001" /></label><label v-else class="ui-form-field">最低载重（吨）<input v-model="form.loadStandardMinLoad" required type="number" min="0" step="0.001" /></label></template>
         <template v-else-if="type === 'trailers'"><label class="ui-form-field">车挂号<input v-model.trim="form.trailerNo" required /></label><label class="ui-form-field">车挂车牌<input v-model.trim="form.plateNo" /></label><label class="ui-form-field">保险<select v-model="form.insuranceComplete"><option :value="true">完整</option><option :value="false">不完整</option></select></label></template>
-        <template v-else-if="type === 'customers'"><label class="ui-form-field">客户名称<input v-model.trim="form.customerName" required /></label><label class="ui-form-field">客户编码<input v-model.trim="form.customerCode" /></label><label class="ui-form-field">备注<input v-model.trim="form.remark" /></label></template>
-        <template v-else><label class="ui-form-field">产品名称<input v-model.trim="form.productName" required /></label><label class="ui-form-field">产品编码<input v-model.trim="form.productCode" /></label><label class="ui-form-field">备注<input v-model.trim="form.remark" /></label></template>
+        <template v-else><label class="ui-form-field">货物名称<input v-model.trim="form.productName" required /></label></template>
         <label class="ui-form-field">状态<select v-model.number="form.status"><option :value="1">启用</option><option :value="0">停用</option></select></label>
       </div><div class="ui-dialog-actions"><button type="button" @click="editor = false">取消</button><button class="primary" :disabled="busy">{{ busy ? '正在保存…' : '保存' }}</button></div></form>
     </FormDialog>
@@ -130,6 +127,6 @@ onMounted(() => load());
         <template v-if="type === 'vehicles' && can('vehicle:bindingHistory')"><h3>绑定历史</h3><div v-if="!history.length" class="ui-empty">暂无绑定历史</div><ol v-else class="ui-timeline"><li v-for="item in history" :key="`${item.kind}-${item.id}`"><strong>{{ item.kind }}：{{ item.subjectName }} ↔ {{ item.targetName }}</strong><p>绑定 {{ item.bindTime }} · 操作人 {{ item.bindByPhone || '未记录' }}</p><p v-if="item.unbindTime">解绑 {{ item.unbindTime }} · 操作人 {{ item.unbindByPhone || '未记录' }} · {{ item.unbindReason || '未填写原因' }}</p></li></ol></template>
       </template>
     </DetailDrawer>
-    <ConfirmDialog :open="!!toggleTarget" :title="`${toggleTarget?.status === 1 ? '停用' : '启用'}${names[type]}`" :message="`确认${toggleTarget?.status === 1 ? '停用' : '启用'} ${toggleTarget?.customerName || toggleTarget?.productName || ''}？停用后不能用于新的业务录入。`" :busy="busy" :danger="toggleTarget?.status === 1" @cancel="toggleTarget = null" @confirm="toggleStatus" />
+    <ConfirmDialog :open="!!toggleTarget" :title="`${toggleTarget?.enabled ? '停用' : '启用'}货物`" :message="`确认${toggleTarget?.enabled ? '停用' : '启用'} ${toggleTarget?.name || ''}？停用后不能用于新模板。`" :busy="busy" :danger="!!toggleTarget?.enabled" @cancel="toggleTarget = null" @confirm="toggleStatus" />
   </section>
 </template>

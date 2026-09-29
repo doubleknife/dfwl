@@ -26,68 +26,13 @@ public class ExpenseRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public long insertImportedExpense(ImportedExpense expense, long operatorId) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update(connection -> {
-            PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
-                                               attribution_type, route_id, amount, source_type, status,
-                                               import_row_id, remark, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'IMPORT', ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, expense.expenseNo());
-            ps.setString(2, expense.expenseType());
-            ps.setObject(3, expense.businessDate());
-            ps.setLong(4, expense.vehicleId());
-            ps.setObject(5, expense.driverId());
-            ps.setString(6, expense.attributionType());
-            ps.setObject(7, expense.routeId());
-            ps.setBigDecimal(8, expense.amount());
-            ps.setString(9, "ROUTE".equals(expense.attributionType()) && expense.routeId() == null
-                    ? "PENDING_ATTRIBUTION" : "ACTIVE");
-            ps.setLong(10, expense.importRowId());
-            ps.setString(11, expense.remark());
-            ps.setLong(12, operatorId);
-            return ps;
-        }, keyHolder);
-        return keyHolder.getKey().longValue();
-    }
-
-    public void insertEnergyDetail(long expenseId, String energyType, Long stationId, String orderNo,
-                                   LocalDateTime startTime, BigDecimal quantity, Long routeId, String matchStatus) {
-        jdbcTemplate.update("""
-                INSERT INTO expense_energy_detail (expense_id, energy_type, station_id, order_no, start_time,
-                                                   quantity, auto_matched_route_id, match_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, expenseId, energyType, stationId, orderNo, Timestamp.valueOf(startTime), quantity, routeId, matchStatus);
-    }
-
-    public record ImportedExpense(
-            String expenseNo,
-            String expenseType,
-            LocalDate businessDate,
-            long vehicleId,
-            Long driverId,
-            String attributionType,
-            Long routeId,
-            BigDecimal amount,
-            long importRowId,
-            String remark
-    ) {
-    }
-
-    public boolean importVehicleExists(long id) {
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle WHERE id = ? AND status = 1 AND deleted_at IS NULL", Integer.class, id);
-        return count != null && count > 0;
-    }
-
     public PageResponse<ExpenseResponse> list(int pageNo, int pageSize, Long routeId,
             java.time.LocalDate businessDate, String expenseType, String attributionType,
             String status, Long vehicleId, String keyword) {
         String search = keyword == null || keyword.isBlank() ? null : "%" + keyword.trim() + "%";
         Long total = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM expense_entry e WHERE e.deleted_at IS NULL
-                  AND (? IS NULL OR (e.route_id = ? AND e.attribution_type = 'ROUTE'
+                  AND (? IS NULL OR (e.task_id = ? AND e.attribution_type = 'ROUTE'
                     AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')))
                   AND (? IS NULL OR e.business_date = ?)
                   AND (? IS NULL OR e.expense_type = ?)
@@ -100,11 +45,11 @@ public class ExpenseRepository {
                 vehicleId, vehicleId, search, search, search);
         List<ExpenseResponse> records = jdbcTemplate.query("""
                 SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
+                       d.auto_matched_task_id, d.match_status
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.deleted_at IS NULL
-                  AND (? IS NULL OR (e.route_id = ? AND e.attribution_type = 'ROUTE'
+                  AND (? IS NULL OR (e.task_id = ? AND e.attribution_type = 'ROUTE'
                     AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')))
                   AND (? IS NULL OR e.business_date = ?)
                   AND (? IS NULL OR e.expense_type = ?)
@@ -123,7 +68,7 @@ public class ExpenseRepository {
     public Optional<ExpenseResponse> find(long id) {
         return jdbcTemplate.query("""
                 SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
+                       d.auto_matched_task_id, d.match_status
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.id = ? AND e.deleted_at IS NULL
@@ -133,7 +78,7 @@ public class ExpenseRepository {
     public Optional<ExpenseResponse> lockExpense(long id) {
         return jdbcTemplate.query("""
                 SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
+                       d.auto_matched_task_id, d.match_status
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.id = ? AND e.deleted_at IS NULL FOR UPDATE
@@ -143,7 +88,7 @@ public class ExpenseRepository {
     public List<ApprovalExpenseRow> approvalItems(long approvalInstanceId) {
         return jdbcTemplate.query("""
                 SELECT e.id, e.approval_item_no, e.deleted_at, e.expense_type, e.business_date, e.vehicle_id,
-                       e.driver_id, e.attribution_type, e.route_id, e.amount,
+                       e.driver_id, e.attribution_type, e.task_id, e.amount,
                        (SELECT COUNT(*) FROM expense_energy_detail d WHERE d.expense_id = e.id) AS energy_count,
                        (SELECT COUNT(*) FROM expense_penalty_detail d WHERE d.expense_id = e.id) AS penalty_count,
                        (SELECT COUNT(*) FROM expense_repair_detail d WHERE d.expense_id = e.id) AS repair_count,
@@ -155,7 +100,7 @@ public class ExpenseRepository {
                 rs.getLong("id"), rs.getString("approval_item_no"), rs.getTimestamp("deleted_at") != null,
                 rs.getString("expense_type"),
                 rs.getDate("business_date").toLocalDate(), rs.getLong("vehicle_id"),
-                readLong(rs, "driver_id"), rs.getString("attribution_type"), readLong(rs, "route_id"),
+                readLong(rs, "driver_id"), rs.getString("attribution_type"), readLong(rs, "task_id"),
                 rs.getBigDecimal("amount"), rs.getInt("energy_count") > 0, rs.getInt("penalty_count") > 0,
                 rs.getInt("repair_count") > 0, rs.getInt("toll_count") > 0), approvalInstanceId);
     }
@@ -175,7 +120,7 @@ public class ExpenseRepository {
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
-                                               attribution_type, route_id, amount, source_type, status,
+                                               attribution_type, task_id, amount, source_type, status,
                                                approval_instance_id, approval_item_no, import_row_id, remark, created_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
@@ -203,7 +148,7 @@ public class ExpenseRepository {
                                    Long autoMatchedRouteId, String matchStatus) {
         jdbcTemplate.update("""
                 INSERT INTO expense_energy_detail (expense_id, energy_type, station_id, order_no, start_time,
-                                                   quantity, auto_matched_route_id, match_status)
+                                                   quantity, auto_matched_task_id, match_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, expenseId, detail.energyType(), detail.stationId(), detail.orderNo(),
                 Timestamp.valueOf(detail.startTime()), detail.quantity(), autoMatchedRouteId, matchStatus);
@@ -213,7 +158,7 @@ public class ExpenseRepository {
         return jdbcTemplate.update("""
                 UPDATE expense_entry
                 SET expense_type = ?, business_date = ?, vehicle_id = ?, driver_id = ?, attribution_type = ?,
-                    route_id = ?, amount = ?, source_type = ?, status = ?, remark = ?, updated_by = ?
+                    task_id = ?, amount = ?, source_type = ?, status = ?, remark = ?, updated_by = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """, request.expenseType(), request.businessDate(), request.vehicleId(), request.driverId(),
                 request.attributionType(), routeId, request.amount(), request.sourceType(),
@@ -240,52 +185,19 @@ public class ExpenseRepository {
     public boolean updateAttribution(long id, String attributionType, Long routeId, long operatorId) {
         return jdbcTemplate.update("""
                 UPDATE expense_entry
-                SET attribution_type = ?, route_id = ?, status = ?, updated_by = ?
+                SET attribution_type = ?, task_id = ?, status = ?, updated_by = ?
                 WHERE id = ? AND deleted_at IS NULL AND status IN ('ACTIVE', 'PENDING_ATTRIBUTION')
                 """, attributionType, routeId,
                 "ROUTE".equals(attributionType) && routeId == null ? "PENDING_ATTRIBUTION" : "ACTIVE",
                 operatorId, id) == 1;
     }
 
-    public int markEnergyExpensesPendingForVoidedRoute(long routeId, long operatorId, String reason) {
-        List<ExpenseResponse> expenses = jdbcTemplate.query("""
-                SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
-                FROM expense_entry e
-                JOIN expense_energy_detail d ON d.expense_id = e.id
-                WHERE e.route_id = ?
-                  AND e.attribution_type = 'ROUTE'
-                  AND e.status = 'ACTIVE'
-                  AND e.expense_type IN ('ELECTRIC', 'GAS', 'TEMP_ELECTRIC')
-                  AND e.deleted_at IS NULL
-                ORDER BY e.id
-                """, this::mapExpense, routeId);
-        for (ExpenseResponse expense : expenses) {
-            jdbcTemplate.update("""
-                    UPDATE expense_entry
-                    SET status = 'PENDING_ATTRIBUTION', updated_by = ?
-                    WHERE id = ? AND status = 'ACTIVE'
-                    """, operatorId, expense.id());
-            insertAttributionHistory(
-                    expense.id(),
-                    expense.attributionType(),
-                    expense.routeId(),
-                    expense.status(),
-                    expense.attributionType(),
-                    expense.routeId(),
-                    "PENDING_ATTRIBUTION",
-                    operatorId,
-                    reason);
-        }
-        return expenses.size();
-    }
-
     public void insertAttributionHistory(long expenseId, String beforeAttributionType, Long beforeRouteId,
                                          String beforeStatus, String afterAttributionType, Long afterRouteId,
                                          String afterStatus, long operatorId, String reason) {
         jdbcTemplate.update("""
-                INSERT INTO expense_attribution_history (expense_id, before_attribution_type, before_route_id,
-                                                         before_status, after_attribution_type, after_route_id,
+                INSERT INTO expense_attribution_history (expense_id, before_attribution_type, before_task_id,
+                                                         before_status, after_attribution_type, after_task_id,
                                                          after_status, operator_id, reason)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, expenseId, beforeAttributionType, beforeRouteId, beforeStatus,
@@ -294,8 +206,8 @@ public class ExpenseRepository {
 
     public List<ExpenseAttributionHistoryResponse> attributionHistory(long expenseId) {
         return jdbcTemplate.query("""
-                SELECT id, expense_id, before_attribution_type, before_route_id, before_status,
-                       after_attribution_type, after_route_id, after_status, operator_id, operation_time, reason
+                SELECT id, expense_id, before_attribution_type, before_task_id, before_status,
+                       after_attribution_type, after_task_id, after_status, operator_id, operation_time, reason
                 FROM expense_attribution_history
                 WHERE expense_id = ?
                 ORDER BY id
@@ -303,10 +215,10 @@ public class ExpenseRepository {
                 rs.getLong("id"),
                 rs.getLong("expense_id"),
                 rs.getString("before_attribution_type"),
-                readLong(rs, "before_route_id"),
+                readLong(rs, "before_task_id"),
                 rs.getString("before_status"),
                 rs.getString("after_attribution_type"),
-                readLong(rs, "after_route_id"),
+                readLong(rs, "after_task_id"),
                 rs.getString("after_status"),
                 rs.getLong("operator_id"),
                 rs.getTimestamp("operation_time").toLocalDateTime(),
@@ -324,7 +236,7 @@ public class ExpenseRepository {
     public Optional<ExpenseResponse> findReversalByOriginalId(long originalId) {
         return jdbcTemplate.query("""
                 SELECT e.*, d.energy_type, d.station_id, d.order_no, d.start_time, d.quantity,
-                       d.auto_matched_route_id, d.match_status
+                       d.auto_matched_task_id, d.match_status
                 FROM expense_entry e
                 LEFT JOIN expense_energy_detail d ON d.expense_id = e.id
                 WHERE e.reversal_of_id = ? AND e.status = 'REVERSAL' AND e.deleted_at IS NULL
@@ -338,7 +250,7 @@ public class ExpenseRepository {
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO expense_entry (expense_no, expense_type, business_date, vehicle_id, driver_id,
-                                               attribution_type, route_id, amount, source_type, status,
+                                               attribution_type, task_id, amount, source_type, status,
                                                approval_instance_id, reversal_of_id, remark, created_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SYSTEM', 'REVERSAL', ?, ?, ?, ?)
                     """, new String[]{"id"});
@@ -396,8 +308,8 @@ public class ExpenseRepository {
     public List<Long> matchRoutes(long vehicleId, LocalDateTime startTime) {
         List<Long> routes = jdbcTemplate.query("""
                 SELECT DISTINCT r.id
-                FROM route_task r
-                JOIN route_participant p ON p.route_id = r.id
+                FROM transport_task r
+                JOIN transport_participant p ON p.task_id = r.id
                   AND p.company_vehicle_id = ? AND p.driver_type_snapshot = 'INTERNAL'
                   AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                 WHERE r.departure_time <= ? AND r.unload_time >= ?
@@ -411,7 +323,7 @@ public class ExpenseRepository {
     public boolean eligibleRouteVehicle(long routeId, long vehicleId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(DISTINCT p.company_vehicle_id)
-                FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                FROM transport_task r JOIN transport_participant p ON p.task_id = r.id
                 WHERE r.id = ? AND r.deleted_at IS NULL AND r.status <> 'CANCELLED'
                   AND p.company_vehicle_id = ? AND p.driver_type_snapshot = 'INTERNAL'
                   AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
@@ -420,14 +332,14 @@ public class ExpenseRepository {
     }
 
     public void lockRoute(long routeId) {
-        jdbcTemplate.query("SELECT id FROM route_task WHERE id = ? AND deleted_at IS NULL FOR UPDATE",
+        jdbcTemplate.query("SELECT id FROM transport_task WHERE id = ? AND deleted_at IS NULL FOR UPDATE",
                 (rs, row) -> rs.getLong("id"), routeId);
     }
 
     public List<java.util.Map<String, Object>> eligibleRouteVehicles(long routeId) {
         return jdbcTemplate.queryForList("""
                 SELECT DISTINCT v.id AS vehicleId, v.plate_no AS plateNo
-                FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                FROM transport_task r JOIN transport_participant p ON p.task_id = r.id
                 JOIN vehicle v ON v.id = p.company_vehicle_id
                 WHERE r.id = ? AND r.deleted_at IS NULL AND r.status <> 'CANCELLED'
                   AND p.driver_type_snapshot = 'INTERNAL'
@@ -449,7 +361,7 @@ public class ExpenseRepository {
     }
 
     public boolean routeExists(long routeId) {
-        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM route_task WHERE id = ? AND deleted_at IS NULL", Integer.class, routeId);
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM transport_task WHERE id = ? AND deleted_at IS NULL", Integer.class, routeId);
         return count != null && count > 0;
     }
 
@@ -461,7 +373,7 @@ public class ExpenseRepository {
                 rs.getString("order_no"),
                 startTime.toLocalDateTime(),
                 rs.getBigDecimal("quantity"),
-                readLong(rs, "auto_matched_route_id"),
+                readLong(rs, "auto_matched_task_id"),
                 rs.getString("match_status"));
         return new ExpenseResponse(
                 rs.getLong("id"),
@@ -471,7 +383,7 @@ public class ExpenseRepository {
                 rs.getLong("vehicle_id"),
                 readLong(rs, "driver_id"),
                 rs.getString("attribution_type"),
-                readLong(rs, "route_id"),
+                readLong(rs, "task_id"),
                 rs.getBigDecimal("amount"),
                 rs.getString("source_type"),
                 rs.getString("status"),

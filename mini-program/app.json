@@ -6,10 +6,6 @@
     "pages/route-detail/index",
     "pages/weight/index",
     "pages/salary/index",
-    "pages/tire-request/index",
-    "pages/expense-apply/index",
-    "pages/approvals/index",
-    "pages/approval-detail/index",
     "pages/profile/index",
     "pages/notifications/index"
   ],

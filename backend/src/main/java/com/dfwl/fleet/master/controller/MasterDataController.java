@@ -3,8 +3,6 @@ package com.dfwl.fleet.master.controller;
 import com.dfwl.fleet.master.dto.response.BindingHistoryResponse;
 import com.dfwl.fleet.master.dto.request.BindTrailerVehicleRequest;
 import com.dfwl.fleet.master.dto.request.BindVehicleRequest;
-import com.dfwl.fleet.master.dto.request.CustomerRequest;
-import com.dfwl.fleet.master.dto.response.CustomerResponse;
 import com.dfwl.fleet.master.dto.request.DriverRequest;
 import com.dfwl.fleet.master.dto.response.DriverResponse;
 import com.dfwl.fleet.master.dto.request.ProductRequest;
@@ -48,47 +46,8 @@ public class MasterDataController {
         this.currentUserService = currentUserService;
     }
 
-    @GetMapping("/customers")
-    @PreAuthorize("hasAuthority('route:list')")
-    public ApiResponse<PageResponse<CustomerResponse>> listCustomers(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.listCustomers(pageNo, pageSize), RequestIdHolder.get());
-    }
-
-    @PostMapping("/customers")
-    @PreAuthorize("hasAuthority('route:create')")
-    public ApiResponse<CustomerResponse> createCustomer(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @Valid @RequestBody CustomerRequest request) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.createCustomer(request), RequestIdHolder.get());
-    }
-
-    @PutMapping("/customers/{id}")
-    @PreAuthorize("hasAuthority('route:edit')")
-    public ApiResponse<CustomerResponse> updateCustomer(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @PathVariable long id,
-            @Valid @RequestBody CustomerRequest request) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.updateCustomer(id, request), RequestIdHolder.get());
-    }
-
-    @PutMapping("/customers/{id}/status")
-    @PreAuthorize("hasAuthority('route:edit')")
-    public ApiResponse<CustomerResponse> updateCustomerStatus(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @PathVariable long id,
-            @Valid @RequestBody StatusRequest request) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.updateCustomerStatus(id, request.status()), RequestIdHolder.get());
-    }
-
     @GetMapping("/products")
-    @PreAuthorize("hasAuthority('route:list')")
+    @PreAuthorize("hasAuthority('template:view')")
     public ApiResponse<PageResponse<ProductResponse>> listProducts(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
@@ -98,7 +57,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/products")
-    @PreAuthorize("hasAuthority('route:create')")
+    @PreAuthorize("hasAuthority('template:manage')")
     public ApiResponse<ProductResponse> createProduct(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ProductRequest request) {
@@ -107,7 +66,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/products/{id}")
-    @PreAuthorize("hasAuthority('route:edit')")
+    @PreAuthorize("hasAuthority('template:manage')")
     public ApiResponse<ProductResponse> updateProduct(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -117,7 +76,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/products/{id}/status")
-    @PreAuthorize("hasAuthority('route:edit')")
+    @PreAuthorize("hasAuthority('template:manage')")
     public ApiResponse<ProductResponse> updateProductStatus(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,

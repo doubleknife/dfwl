@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController
+// Retired from the V3-A runtime; the V3 approval contract is rebuilt in V3-D.
 @RequestMapping("/api/v1/approval-templates")
 public class ApprovalTemplateController {
 

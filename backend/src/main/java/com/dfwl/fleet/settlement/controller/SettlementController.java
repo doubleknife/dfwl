@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@RestController
+// Retired from the V3-A runtime; immutable V3 settlement is rebuilt in V3-E.
 @RequestMapping("/api/v1/settlements")
 public class SettlementController {
 

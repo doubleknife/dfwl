@@ -1,250 +1,66 @@
 package com.dfwl.fleet.route;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
 import java.util.Set;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:h2:mem:routedb;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
-        "spring.datasource.driver-class-name=org.h2.Driver",
-        "spring.datasource.username=sa",
-        "spring.datasource.password=",
-        "spring.flyway.enabled=false",
-        "spring.sql.init.mode=always",
+        "spring.datasource.url=jdbc:h2:mem:v3-task-api;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
+        "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa",
+        "spring.datasource.password=", "spring.flyway.enabled=false", "spring.sql.init.mode=always",
         "spring.sql.init.schema-locations=classpath:schema-auth-test.sql"
 })
 @AutoConfigureMockMvc
 class RouteApiTests {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
-    @Autowired
-    private TokenAuthenticationService tokenAuthenticationService;
-
-    private String token;
-
-    private String driverToken() {
-        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_role WHERE id = 801", Integer.class) == 0)
-            jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER', '司机', 1)");
-        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user WHERE id = 801", Integer.class) == 0)
-            jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
-        jdbcTemplate.update("UPDATE driver SET user_id = 801 WHERE id = 1");
-        return tokenAuthenticationService.issueToken(new AuthenticatedUser(
-                801L, "1381", 801L, "DRIVER", "司机", Set.of("route:list", "route:unload")));
-    }
-
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM route_unload_evidence");
-        jdbcTemplate.update("DELETE FROM file_attachment");
-        jdbcTemplate.update("DELETE FROM in_app_notification");
-        jdbcTemplate.update("DELETE FROM sys_user WHERE id = 801");
-        jdbcTemplate.update("DELETE FROM sys_role WHERE id = 801");
-        jdbcTemplate.update("DELETE FROM route_weight_version");
-        jdbcTemplate.update("DELETE FROM route_status_history");
-        jdbcTemplate.update("DELETE FROM route_task");
-        jdbcTemplate.update("DELETE FROM vehicle_trailer_current");
-        jdbcTemplate.update("DELETE FROM driver_vehicle_current");
-        jdbcTemplate.update("DELETE FROM trailer");
-        jdbcTemplate.update("DELETE FROM vehicle");
-        jdbcTemplate.update("DELETE FROM driver");
-        jdbcTemplate.update("DELETE FROM product");
-        jdbcTemplate.update("DELETE FROM customer");
-
-        jdbcTemplate.update("INSERT INTO customer (id, customer_name, status) VALUES (1, '客户A', 1)");
-        jdbcTemplate.update("INSERT INTO product (id, product_name, status) VALUES (1, '煤炭', 1)");
-        jdbcTemplate.update("INSERT INTO driver (id, driver_type, name, phone, status) VALUES (1, 'INTERNAL', '张三', '1381', 1)");
-        jdbcTemplate.update("""
-                INSERT INTO vehicle (id, plate_no, insurance_complete, energy_type, max_load, load_standard_type,
-                                     load_standard_percent, status)
-                VALUES (1, '京A10001', 1, 'ELECTRIC', 30.000, 'PERCENT', 0.9000, 1)
-                """);
-        jdbcTemplate.update("INSERT INTO trailer (id, trailer_no, insurance_complete, status) VALUES (1, 'G001', 1, 1)");
-        jdbcTemplate.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
-        jdbcTemplate.update("INSERT INTO vehicle_trailer_current (vehicle_id, trailer_id, bound_at, bound_by) VALUES (1, 1, CURRENT_TIMESTAMP, 1)");
-
-        AuthenticatedUser user = new AuthenticatedUser(1L, "13800000000", 1L, "admin", "管理员", Set.of(
-                "route:create", "route:publish", "route:depart", "route:unload", "route:cancel",
-                "route:void", "route:reactivate", "route:weight:adjust", "route:list"));
-        token = tokenAuthenticationService.issueToken(user);
-    }
+    @Autowired MockMvc mvc;
+    @Autowired TokenAuthenticationService tokens;
 
     @Test
-    void managementRouteFiltersApplyBeforePaginationAndReturnRealTotal() throws Exception {
-        long older = createRoute("2026-09-10");
-        createRoute("2026-09-11");
-
-        mockMvc.perform(get("/api/v1/routes")
-                        .header("Authorization", "Bearer " + token)
-                        .param("pageNo", "1").param("pageSize", "1")
-                        .param("businessDate", "2026-09-10")
-                        .param("customerId", "1").param("driverId", "1")
-                        .param("keyword", "A"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.total").value(1))
-                .andExpect(jsonPath("$.data.records[0].id").value(older));
-
-        mockMvc.perform(get("/api/v1/routes")
-                        .header("Authorization", "Bearer " + token)
-                        .param("pageNo", "1").param("pageSize", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.total").value(2));
-
-        mockMvc.perform(get("/api/v1/routes")
-                        .header("Authorization", "Bearer " + token)
-                        .param("keyword", "missing"))
+    void transportTasksAreTheOnlyCurrentManagementResource() throws Exception {
+        String token = token("ADMIN", Set.of("task:view"));
+        mvc.perform(get("/api/v1/transport-tasks").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(0));
+        mvc.perform(get("/api/v1/routes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/routes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void routeCanPublishDepartAndUnloadWithFrozenSnapshot() throws Exception {
-        jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (801, 'DRIVER', '测试司机', 1)");
-        jdbcTemplate.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '1381', 'hash', 801, 1)");
-        long routeId = createRoute();
-
-        mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId))
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"initialSalary\":0}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM in_app_notification WHERE user_id = 801 AND type = 'ROUTE_ASSIGNED' AND business_id = ?", Integer.class, routeId)).isEqualTo(1);
-
-        mockMvc.perform(post("/api/v1/routes/%d/depart".formatted(routeId))
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("IN_TRANSIT"))
-                .andExpect(jsonPath("$.data.departureDriverId").value(1))
-                .andExpect(jsonPath("$.data.departureVehicleId").value(1))
-                .andExpect(jsonPath("$.data.departureTrailerId").value(1));
-
-        long ticket = RouteTicketFixture.ticket(jdbcTemplate, routeId, 801);
-        mockMvc.perform(post("/api/v1/routes/%d/unload".formatted(routeId))
-                        .header("Authorization", "Bearer " + driverToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"grossWeight":30.500,"tareWeight":10.250,"evidenceAttachmentIds":[%d]}
-                                """.formatted(ticket)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.data.netWeight").value(20.250));
-    }
-
-    @Test
-    void inTransitRouteCannotBeCancelledAndBadWeightFails() throws Exception {
-        long routeId = createRoute();
-        mockMvc.perform(post("/api/v1/routes/%d/publish".formatted(routeId)).header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialSalary\":0}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/routes/%d/depart".formatted(routeId)).header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(post("/api/v1/routes/%d/cancel".formatted(routeId))
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ROUTE_002"));
-
-        mockMvc.perform(post("/api/v1/routes/%d/unload".formatted(routeId))
-                        .header("Authorization", "Bearer " + driverToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"grossWeight":10.000,"tareWeight":10.250}
-                                """))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ROUTE_004"));
-    }
-
-    @Test
-    void transferAndSalaryEndpointsEnforceIndependentPermissionsAndCurrentVersion() throws Exception {
-        jdbcTemplate.update("INSERT INTO driver (id, driver_type, name, phone, status) VALUES (2, 'OUTSOURCED', '外协司机', '1382', 1)");
-        long routeId = createRoute();
-        mockMvc.perform(post("/api/v1/routes/{id}/publish", routeId).header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"initialSalary\":\"12.00\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/routes/{id}/depart", routeId).header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk());
-        long current = jdbcTemplate.queryForObject("SELECT current_participant_id FROM route_task WHERE id = ?", Long.class, routeId);
-        int version = jdbcTemplate.queryForObject("SELECT version FROM route_task WHERE id = ?", Integer.class, routeId);
-        String body = """
-                {"expectedCurrentParticipantId":%d,"expectedRouteVersion":%d,"newDriverId":2,
-                 "outsourcedPlateNo":"外协B002","newSalary":"0.00","reason":"车辆调整",
-                 "salaries":[{"participantId":%d,"amount":"0.00"}]}
-                """.formatted(current, version, current);
-        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId).header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
+    void managementTaskListIsNotGrantedByDriverRoleOrMissingPermission() throws Exception {
+        mvc.perform(get("/api/v1/transport-tasks")
+                        .header("Authorization", "Bearer " + token("ADMIN", Set.of())))
                 .andExpect(status().isForbidden());
-        String transferToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L,
-                "admin", "管理员", Set.of("route:list", "route:transfer")));
-        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId)
-                        .header("Authorization", "Bearer " + transferToken)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("TRANSFER_PENDING"));
-        mockMvc.perform(post("/api/v1/routes/{id}/transfer", routeId)
-                        .header("Authorization", "Bearer " + transferToken)
-                        .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isConflict());
-        mockMvc.perform(get("/api/v1/routes/{id}/participants", routeId)
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].salaryAmount").doesNotExist());
-        mockMvc.perform(get("/api/v1/routes/{id}/participants", routeId)
-                        .header("Authorization", "Bearer " + transferToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].salaryAmount").value(0.00));
-        long next = jdbcTemplate.queryForObject("SELECT current_participant_id FROM route_task WHERE id = ?", Long.class, routeId);
-        int participantVersion = jdbcTemplate.queryForObject("SELECT version FROM route_participant WHERE id = ?", Integer.class, next);
-        String adjust = """
-                {"amount":"5.00","expectedParticipantVersion":%d,"reason":"补正"}
-                """.formatted(participantVersion);
-        mockMvc.perform(post("/api/v1/routes/{id}/participants/{participantId}/salary-adjustments", routeId, next)
-                        .header("Authorization", "Bearer " + transferToken)
-                        .contentType(MediaType.APPLICATION_JSON).content(adjust))
+        mvc.perform(get("/api/v1/transport-tasks")
+                        .header("Authorization", "Bearer " + token("DRIVER", Set.of("task:view"))))
                 .andExpect(status().isForbidden());
-        String adjustToken = tokenAuthenticationService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L,
-                "admin", "管理员", Set.of("route:list", "route:salary:adjust")));
-        mockMvc.perform(post("/api/v1/routes/{id}/participants/{participantId}/salary-adjustments", routeId, next)
-                        .header("Authorization", "Bearer " + adjustToken)
-                        .contentType(MediaType.APPLICATION_JSON).content(adjust))
-                .andExpect(status().isOk());
-        assertThat(jdbcTemplate.queryForObject("SELECT driver_salary FROM route_task WHERE id = ?", java.math.BigDecimal.class, routeId))
-                .isEqualByComparingTo("5.00");
     }
 
-    private long createRoute() throws Exception {
-        return createRoute("2026-09-10");
+    @Test
+    void laterStageV2ModulesHaveNoReachableHttpEntry() throws Exception {
+        String token = token("ADMIN", Set.of("task:view", "expense:list", "approval:process", "tire:list"));
+        for (String path : new String[] {
+                "/api/v1/expenses", "/api/v1/approvals", "/api/v1/approval-templates",
+                "/api/v1/tires", "/api/v1/tire-requests", "/api/v1/reports/profit",
+                "/api/v1/settlements/2026-09/versions", "/api/v1/imports"
+        }) {
+            mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isNotFound());
+        }
     }
 
-    private long createRoute(String businessDate) throws Exception {
-        mockMvc.perform(post("/api/v1/routes")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"businessDate":"%s","customerId":1,"productId":1,"direction":"OUTBOUND",
-                                 "loadingPlace":"A","unloadingPlace":"B","assignedDriverId":1,"taxUnitPrice":1.0000}
-                                """.formatted(businessDate)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("UNPUBLISHED"));
-        return jdbcTemplate.queryForObject("SELECT id FROM route_task WHERE business_unique_key LIKE ?", Long.class,
-                "1|" + businessDate + "%");
+    private String token(String role, Set<String> permissions) {
+        return tokens.issueToken(new AuthenticatedUser(1L, "13900000001", 1L, role, role, permissions));
     }
 }

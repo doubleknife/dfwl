@@ -3,94 +3,57 @@ package com.dfwl.fleet.salary.controller;
 import com.dfwl.fleet.common.api.ApiResponse;
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.web.RequestIdHolder;
-import com.dfwl.fleet.salary.dto.request.DriverSalaryRequest;
-import com.dfwl.fleet.salary.dto.response.DriverSalaryResponse;
-import com.dfwl.fleet.salary.dto.response.DriverSalaryMonthlySummaryResponse;
-import com.dfwl.fleet.salary.dto.response.DriverSalaryHistoryResponse;
+import com.dfwl.fleet.salary.dto.response.ParticipantSalaryHistoryResponse;
+import com.dfwl.fleet.salary.dto.response.ParticipantSalaryResponse;
+import com.dfwl.fleet.salary.dto.response.SalarySlipResponse;
 import com.dfwl.fleet.salary.service.DriverSalaryService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
-import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/driver-salaries")
 public class DriverSalaryController {
+    private final DriverSalaryService salaries;
+    private final CurrentUserService users;
 
-    private final DriverSalaryService salaryService;
-    private final CurrentUserService currentUserService;
-
-    public DriverSalaryController(DriverSalaryService salaryService, CurrentUserService currentUserService) {
-        this.salaryService = salaryService;
-        this.currentUserService = currentUserService;
+    public DriverSalaryController(DriverSalaryService salaries, CurrentUserService users) {
+        this.salaries = salaries;
+        this.users = users;
     }
 
-    @PostMapping
-    @PreAuthorize("hasAuthority('salary:manage')")
-    public ApiResponse<DriverSalaryResponse> upsert(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @Valid @RequestBody DriverSalaryRequest request) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(salaryService.upsertManual(request, user.id()), RequestIdHolder.get());
-    }
-
-    @GetMapping
+    @GetMapping("/api/v1/driver-salaries")
     @PreAuthorize("hasAuthority('salary:view')")
-    public ApiResponse<PageResponse<DriverSalaryResponse>> list(
+    public ApiResponse<PageResponse<ParticipantSalaryResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long driverId,
-            @RequestParam(required = false) String businessMonth,
+            @RequestParam(required = false) String month,
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(salaryService.list(driverId, businessMonth, pageNo, pageSize), RequestIdHolder.get());
+        users.denyAllDrivers(user);
+        return ApiResponse.success(salaries.list(driverId, month, pageNo, pageSize), RequestIdHolder.get());
     }
 
-    @GetMapping("/me")
-    @PreAuthorize("hasAuthority('salary:mine')")
-    public ApiResponse<PageResponse<DriverSalaryResponse>> mine(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @RequestParam(required = false) String businessMonth,
-            @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        return ApiResponse.success(salaryService.mySalary(user, businessMonth, pageNo, pageSize), RequestIdHolder.get());
-    }
-
-    @GetMapping("/me/monthly-summary")
-    @PreAuthorize("hasAuthority('salary:mine')")
-    public ApiResponse<DriverSalaryMonthlySummaryResponse> mineMonthlySummary(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @RequestParam String businessMonth) {
-        return ApiResponse.success(salaryService.myMonthlySummary(user, businessMonth), RequestIdHolder.get());
-    }
-
-    @GetMapping("/drivers/{driverId}")
-    @PreAuthorize("hasAnyAuthority('salary:mine','salary:view')")
-    public ApiResponse<PageResponse<DriverSalaryResponse>> byDriver(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @PathVariable long driverId,
-            @RequestParam(required = false) String businessMonth,
-            @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        return ApiResponse.success(salaryService.salaryForDriver(user, driverId, businessMonth, pageNo, pageSize),
-                RequestIdHolder.get());
-    }
-
-    @GetMapping("/routes/{routeId}/history")
+    @GetMapping("/api/v1/driver-salaries/{participantId}/history")
     @PreAuthorize("hasAuthority('salary:view')")
-    public ApiResponse<List<DriverSalaryHistoryResponse>> history(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @PathVariable long routeId) {
-        currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(salaryService.history(routeId), RequestIdHolder.get());
+    public ApiResponse<List<ParticipantSalaryHistoryResponse>> history(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long participantId) {
+        users.denyAllDrivers(user);
+        return ApiResponse.success(salaries.history(participantId), RequestIdHolder.get());
+    }
+
+    @GetMapping("/api/v1/salary-slips/mine")
+    @PreAuthorize("hasAuthority('salary:mine')")
+    public ApiResponse<SalarySlipResponse> mine(
+            @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String month,
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return ApiResponse.success(salaries.slip(user, month, pageNo, pageSize), RequestIdHolder.get());
     }
 }

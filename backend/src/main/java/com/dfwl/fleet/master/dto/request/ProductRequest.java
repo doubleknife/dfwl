@@ -4,9 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 public record ProductRequest(
-        String productCode,
-        @NotBlank String productName,
-        @NotNull Integer status,
-        String remark
+        @NotBlank String name,
+        @NotNull Boolean enabled,
+        Integer expectedVersion
 ) {
 }

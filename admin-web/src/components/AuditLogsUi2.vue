@@ -17,7 +17,7 @@ const error = ref('');
 const selected = ref(null);
 const modules = { ROUTE: '线路', APPROVAL: '审批', EXPENSE: '费用', TIRE: '轮胎', SALARY: '工资', MASTER: '基础资料', SYSTEM: '系统', IMPORT: '导入' };
 const operations = { CREATE: '新增', UPDATE: '修改', DELETE: '删除', APPROVE: '审批通过', RETURN_APPLICANT: '打回申请人', RETURN_NODE: '打回节点', REVERSE: '冲销' };
-const businessNames = { expense_entry: '费用单', route_task: '线路', tire_request: '换胎申请', driver_salary_entry: '司机工资', sys_user: '用户' };
+const businessNames = { expense_entry: '费用单', transport_task: '运输任务', transport_participant: '任务参与司机', tire_request: '换胎申请', sys_user: '用户' };
 function moduleName(value) { return modules[String(value || '').toUpperCase()] || value || '—'; }
 function businessName(value) { return businessNames[value] || displayValue('businessType', value); }
 function operationName(value) { return operations[value] || value || '—'; }

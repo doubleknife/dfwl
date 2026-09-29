@@ -13,19 +13,19 @@ Page({
     const version = this._loadVersion = (this._loadVersion || 0) + 1;
     this.setData({ loading: true, error: '' });
     try {
-      const [route, user] = await Promise.all([request({ url: `/routes/${this.data.id}` }), request({ url: '/me' })]);
+      const [route, user] = await Promise.all([request({ url: `/driver/transport-tasks/${this.data.id}` }), request({ url: '/me' })]);
       if (version !== this._loadVersion) return;
       const safe = routePresentation(sanitizeRoute(route));
-      const sameDriver = user.driverId && user.driverId === safe.assignedDriverId;
+      const sameDriver = !!safe.currentParticipant;
       this.setData({ route: {
           ...safe,
           nextAction: !sameDriver && safe.status === 'TRANSFER_PENDING'
             ? '等待接手司机发车' : safe.nextAction
         }, user,
-        driverLabel: sameDriver ? (user.driverName || '本人') : (safe.assignedDriverId ? `司机 #${safe.assignedDriverId}` : '暂未分配'),
+        driverLabel: sameDriver ? (user.driverName || '本人') : '接手司机',
         vehicleLabel: safe.currentPlateNo || user.currentPlateNo || '暂未绑定',
-        canDepart: !!sameDriver && hasPermission(user, 'route:depart'),
-        canUnload: !!sameDriver && hasPermission(user, 'route:unload') });
+        canDepart: !!sameDriver && hasPermission(user, 'task:depart'),
+        canUnload: !!sameDriver && hasPermission(user, 'task:unload') });
     } catch (error) {
       if (version === this._loadVersion) this.setData({ error: error.statusCode === 403 ? '当前账号不能查看这条线路，请联系调度' : (error.message || '线路详情加载失败，请重试') });
     } finally { if (version === this._loadVersion) this.setData({ loading: false }); }
@@ -40,7 +40,10 @@ Page({
         if (!res.confirm) { this.setData({ confirming: false }); return; }
         this.setData({ busy: true, error: '' });
         try {
-          const departed = await request({ url: `/routes/${this.data.id}/depart`, method: 'POST' });
+          this._departKey = this._departKey || `depart-${this.data.id}-${Date.now()}`;
+          const departed = await request({ url: `/transport-tasks/${this.data.id}/depart`, method: 'POST',
+            data: { expectedVersion: this.data.route.version, requestKey: this._departKey } });
+          this._departKey = null;
           this.setData({ route: routePresentation(sanitizeRoute(departed)) });
           wx.showToast({ title: '已发车' });
           await this.load();

@@ -48,7 +48,7 @@ Page({
     const status = this.data.activeStatus;
     const filter = status ? `&status=${encodeURIComponent(status)}` : '';
     try {
-      const page = await request({ url: `/routes?pageNo=${pageNo}&pageSize=${PAGE_SIZE}${filter}` });
+      const page = await request({ url: `/driver/transport-tasks?pageNo=${pageNo}&pageSize=${PAGE_SIZE}${filter}` });
       if (version !== this._queryVersion || status !== this.data.activeStatus) return;
       const incoming = (page.records || []).map((item) => routePresentation(sanitizeRoute(item)));
       const records = replace ? incoming : this.data.records.concat(incoming);

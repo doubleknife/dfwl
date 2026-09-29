@@ -26,20 +26,20 @@ public class ReportRepository {
                    CASE WHEN r.status = 'COMPLETED' THEN COALESCE(x.routeExpense, 0) + COALESCE(s.salaryAmount, 0) ELSE 0 END AS expenseTotal,
                    CASE WHEN r.status = 'COMPLETED' THEN COALESCE(w.net_weight * r.tax_unit_price, 0)
                          - COALESCE(x.routeExpense, 0) - COALESCE(s.salaryAmount, 0) ELSE 0 END AS profitAmount
-            FROM route_task r
-            LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+            FROM transport_task r
+            LEFT JOIN task_weight_version w ON w.id = r.effective_weight_version_id
             LEFT JOIN (
-                SELECT route_id, SUM(amount) AS routeExpense FROM expense_entry
+                SELECT task_id, SUM(amount) AS routeExpense FROM expense_entry
                 WHERE attribution_type = 'ROUTE' AND status IN ('ACTIVE', 'REVERSED', 'REVERSAL')
-                  AND deleted_at IS NULL GROUP BY route_id
-            ) x ON x.route_id = r.id
+                  AND deleted_at IS NULL GROUP BY task_id
+            ) x ON x.task_id = r.id
             LEFT JOIN (
-                SELECT route_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
+                SELECT task_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
                        COUNT(*) AS participantCount,
                        COUNT(DISTINCT CASE WHEN driver_type_snapshot = 'INTERNAL' THEN company_vehicle_id END) AS vehicleCount
-                FROM route_participant WHERE status NOT IN ('CANCELLED', 'LEGACY_ENDED') GROUP BY route_id
-            ) s ON s.route_id = r.id
-            WHERE r.deleted_at IS NULL AND r.status IN ('COMPLETED', 'VOIDED')
+                FROM transport_participant WHERE status NOT IN ('CANCELLED', 'LEGACY_ENDED') GROUP BY task_id
+            ) s ON s.task_id = r.id
+            WHERE r.deleted_at IS NULL AND r.status = 'COMPLETED'
             """;
 
     private static final String EFFECTIVE_EXPENSE_STATUS = "e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')";
@@ -61,13 +61,13 @@ public class ReportRepository {
         BigDecimal companyProfit = income.subtract(companyExpense()).subtract(driverSalary);
         boolean salaryComplete = scalar("""
                 SELECT COUNT(*)
-                FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                FROM transport_task r JOIN transport_participant p ON p.task_id = r.id
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                   AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED') AND p.salary_amount IS NULL
                 """) == 0;
         return Map.ofEntries(
-                Map.entry("routeCount", scalar("SELECT COUNT(*) FROM route_task WHERE deleted_at IS NULL")),
-                Map.entry("completedRouteCount", scalar("SELECT COUNT(*) FROM route_task WHERE status = 'COMPLETED' AND deleted_at IS NULL")),
+                Map.entry("routeCount", scalar("SELECT COUNT(*) FROM transport_task WHERE deleted_at IS NULL")),
+                Map.entry("completedRouteCount", scalar("SELECT COUNT(*) FROM transport_task WHERE status = 'COMPLETED' AND deleted_at IS NULL")),
                 Map.entry("incomeAmount", income),
                 Map.entry("routeExpense", routeExpense),
                 Map.entry("dailyExpense", dailyExpense),
@@ -115,21 +115,21 @@ public class ReportRepository {
                        COALESCE(exp.routeExpense, 0) + COALESCE(s.salaryAmount, 0) AS expenseTotal,
                        COALESCE(w.net_weight * r.tax_unit_price, 0) - COALESCE(exp.routeExpense, 0)
                          - COALESCE(s.salaryAmount, 0) AS profitAmount
-                FROM route_task r
+                FROM transport_task r
                 LEFT JOIN customer c ON c.id = r.customer_id
                 LEFT JOIN product p ON p.id = r.product_id
                 LEFT JOIN driver d ON d.id = r.departure_driver_id
                 LEFT JOIN vehicle v ON v.id = r.departure_vehicle_id
-                LEFT JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+                LEFT JOIN task_weight_version w ON w.id = r.effective_weight_version_id
                 LEFT JOIN (
-                    SELECT route_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
+                    SELECT task_id, SUM(COALESCE(salary_amount, 0)) AS salaryAmount,
                            SUM(CASE WHEN salary_amount IS NULL THEN 1 ELSE 0 END) AS missingCount
-                    FROM route_participant
+                    FROM transport_participant
                     WHERE status NOT IN ('CANCELLED', 'LEGACY_ENDED')
-                    GROUP BY route_id
-                ) s ON s.route_id = r.id
+                    GROUP BY task_id
+                ) s ON s.task_id = r.id
                 LEFT JOIN (
-                    SELECT e.route_id,
+                    SELECT e.task_id,
                            SUM(e.amount) AS routeExpense,
                            SUM(CASE WHEN e.expense_type = 'ELECTRIC' THEN e.amount ELSE 0 END) AS electricAmount,
                            SUM(CASE WHEN e.expense_type = 'ELECTRIC' THEN COALESCE(ed.quantity, 0) ELSE 0 END) AS electricQuantity,
@@ -144,8 +144,8 @@ public class ReportRepository {
                     WHERE e.attribution_type = 'ROUTE'
                       AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')
                       AND e.deleted_at IS NULL
-                    GROUP BY e.route_id
-                ) exp ON exp.route_id = r.id
+                    GROUP BY e.task_id
+                ) exp ON exp.task_id = r.id
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                 ORDER BY r.business_date DESC, r.id DESC
                 """);
@@ -154,11 +154,11 @@ public class ReportRepository {
     public PageResponse<Map<String, Object>> completedRoutes(int pageNo, int pageSize, String status) {
         int safePage = Math.max(1, pageNo);
         int safeSize = Math.min(100, Math.max(1, pageSize));
-        if (status != null && !status.equals("COMPLETED") && !status.equals("VOIDED"))
+        if (status != null && !status.equals("COMPLETED"))
             throw new BusinessException(ErrorCode.SYS_002);
         Long total = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM route_task r WHERE r.deleted_at IS NULL
-                  AND r.status IN ('COMPLETED', 'VOIDED') AND (? IS NULL OR r.status = ?)
+                SELECT COUNT(*) FROM transport_task r WHERE r.deleted_at IS NULL
+                  AND r.status = 'COMPLETED' AND (? IS NULL OR r.status = ?)
                 """, Long.class, status, status);
         List<Map<String, Object>> records = jdbcTemplate.queryForList(
                 OPERATING_SELECT + " AND (? IS NULL OR r.status = ?) ORDER BY r.business_date DESC, r.id DESC LIMIT ? OFFSET ?",
@@ -172,7 +172,7 @@ public class ReportRepository {
         int safePage = Math.max(1, expensePageNo);
         int safeSize = Math.min(100, Math.max(1, expensePageSize));
         Long total = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM expense_entry WHERE route_id = ? AND attribution_type = 'ROUTE'
+                SELECT COUNT(*) FROM expense_entry WHERE task_id = ? AND attribution_type = 'ROUTE'
                   AND status IN ('ACTIVE', 'REVERSED', 'REVERSAL') AND deleted_at IS NULL
                 """, Long.class, routeId);
         List<Map<String, Object>> expenses = jdbcTemplate.queryForList("""
@@ -182,7 +182,7 @@ public class ReportRepository {
                        e.approval_instance_id AS sourceApprovalId,
                        e.import_row_id AS sourceImportRowId, e.amount, e.status, e.business_date AS businessDate
                 FROM expense_entry e JOIN vehicle v ON v.id = e.vehicle_id
-                WHERE e.route_id = ? AND e.attribution_type = 'ROUTE'
+                WHERE e.task_id = ? AND e.attribution_type = 'ROUTE'
                   AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL') AND e.deleted_at IS NULL
                 ORDER BY e.business_date DESC, e.id DESC LIMIT ? OFFSET ?
                 """, routeId, safeSize, (safePage - 1) * safeSize);
@@ -191,7 +191,7 @@ public class ReportRepository {
                        v.plate_no AS plateNo, e.source_type AS sourceType,
                        COUNT(*) AS expenseCount, COALESCE(SUM(e.amount), 0) AS amount
                 FROM expense_entry e JOIN vehicle v ON v.id = e.vehicle_id
-                WHERE e.route_id = ? AND e.attribution_type = 'ROUTE'
+                WHERE e.task_id = ? AND e.attribution_type = 'ROUTE'
                   AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL') AND e.deleted_at IS NULL
                 GROUP BY e.expense_type, e.vehicle_id, v.plate_no, e.source_type
                 ORDER BY e.expense_type, e.vehicle_id, e.source_type
@@ -203,9 +203,9 @@ public class ReportRepository {
                        p.outsourced_plate_no AS outsourcedPlateNo,
                        p.salary_amount AS salaryAmount, p.status, p.assigned_at AS assignedAt,
                        p.departed_at AS departedAt, p.ended_at AS endedAt
-                FROM route_participant p LEFT JOIN driver d ON d.id = p.driver_id
+                FROM transport_participant p LEFT JOIN driver d ON d.id = p.driver_id
                 LEFT JOIN vehicle v ON v.id = p.company_vehicle_id
-                WHERE p.route_id = ? ORDER BY p.sequence_no
+                WHERE p.task_id = ? ORDER BY p.sequence_no
                 """, routeId);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("summary", summaries.get(0));
@@ -231,7 +231,7 @@ public class ReportRepository {
                   AND e.status IN ('ACTIVE', 'PENDING_ATTRIBUTION', 'REVERSED', 'REVERSAL') AND e.deleted_at IS NULL
                 LEFT JOIN (
                     SELECT p.company_vehicle_id AS vehicle_id, COUNT(DISTINCT r.id) AS routeCount
-                    FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                    FROM transport_task r JOIN transport_participant p ON p.task_id = r.id
                     WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                       AND p.driver_type_snapshot = 'INTERNAL' AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                     GROUP BY p.company_vehicle_id
@@ -263,10 +263,10 @@ public class ReportRepository {
                            COALESCE(SUM(d.driverSalary), 0) AS driverSalary,
                            SUM(d.missingSalaryCount) AS missingSalaryCount
                     FROM (
-                        SELECT p.driver_id, r.id AS route_id, MAX(r.mileage_km) AS mileageKm,
+                        SELECT p.driver_id, r.id AS task_id, MAX(r.mileage_km) AS mileageKm,
                                SUM(COALESCE(p.salary_amount, 0)) AS driverSalary,
                                SUM(CASE WHEN p.salary_amount IS NULL THEN 1 ELSE 0 END) AS missingSalaryCount
-                        FROM route_task r JOIN route_participant p ON p.route_id = r.id
+                        FROM transport_task r JOIN transport_participant p ON p.task_id = r.id
                         WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                           AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                         GROUP BY p.driver_id, r.id
@@ -285,8 +285,8 @@ public class ReportRepository {
                        COUNT(DISTINCT r.id) AS routeCount,
                        COUNT(DISTINCT r.business_date) AS workDays,
                        CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS worked
-                FROM route_task r
-                JOIN route_participant p ON p.route_id = r.id
+                FROM transport_task r
+                JOIN transport_participant p ON p.task_id = r.id
                   AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                 LEFT JOIN driver d ON d.id = p.driver_id
                 WHERE p.driver_id IS NOT NULL
@@ -326,15 +326,15 @@ public class ReportRepository {
     private Map<String, Object> summary(String routeDatePredicate, String expenseDatePredicate) {
         BigDecimal income = amount("""
                 SELECT COALESCE(SUM(w.net_weight * r.tax_unit_price), 0)
-                FROM route_task r
-                JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+                FROM transport_task r
+                JOIN task_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL AND %s
                 """.formatted(routeDatePredicate));
         BigDecimal routeExpense = expenseAmount("ROUTE", expenseDatePredicate);
         BigDecimal dailyExpense = expenseAmount("DAILY", expenseDatePredicate);
         BigDecimal salary = amount("""
                 SELECT COALESCE(SUM(p.salary_amount), 0)
-                FROM route_participant p JOIN route_task r ON r.id = p.route_id
+                FROM transport_participant p JOIN transport_task r ON r.id = p.task_id
                 WHERE p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                   AND r.status = 'COMPLETED' AND r.deleted_at IS NULL AND %s
                 """.formatted(routeDatePredicate));
@@ -342,7 +342,7 @@ public class ReportRepository {
         BigDecimal unassigned = companyExpense.subtract(routeExpense).subtract(dailyExpense);
         long routeCount = scalar("""
                 SELECT COUNT(*)
-                FROM route_task r
+                FROM transport_task r
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL AND %s
                 """.formatted(routeDatePredicate));
         return Map.ofEntries(
@@ -362,17 +362,17 @@ public class ReportRepository {
                        COALESCE(i.incomeAmount, 0) - COALESCE(i.salaryAmount, 0)
                          - COALESCE(e.expenseAmount, 0) AS profitAmount
                 FROM (
-                    SELECT DATE_FORMAT(business_date, '%Y-%m') AS monthValue FROM route_task WHERE deleted_at IS NULL
+                    SELECT DATE_FORMAT(business_date, '%Y-%m') AS monthValue FROM transport_task WHERE deleted_at IS NULL
                     UNION
                     SELECT DATE_FORMAT(business_date, '%Y-%m') AS monthValue FROM expense_entry WHERE deleted_at IS NULL
                 ) m
                 LEFT JOIN (
                     SELECT DATE_FORMAT(r.business_date, '%Y-%m') AS monthValue,
                            SUM(w.net_weight * r.tax_unit_price) AS incomeAmount,
-                           COALESCE(SUM((SELECT SUM(p.salary_amount) FROM route_participant p
-                                  WHERE p.route_id = r.id AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED'))), 0) AS salaryAmount
-                    FROM route_task r
-                    JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+                           COALESCE(SUM((SELECT SUM(p.salary_amount) FROM transport_participant p
+                                  WHERE p.task_id = r.id AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED'))), 0) AS salaryAmount
+                    FROM transport_task r
+                    JOIN task_weight_version w ON w.id = r.effective_weight_version_id
                     WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                     GROUP BY DATE_FORMAT(r.business_date, '%Y-%m')
                 ) i ON i.monthValue = m.monthValue
@@ -394,8 +394,8 @@ public class ReportRepository {
     public BigDecimal income() {
         return amount("""
                 SELECT COALESCE(SUM(w.net_weight * r.tax_unit_price), 0)
-                FROM route_task r
-                JOIN route_weight_version w ON w.id = r.effective_weight_version_id
+                FROM transport_task r
+                JOIN task_weight_version w ON w.id = r.effective_weight_version_id
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                 """);
     }
@@ -411,7 +411,7 @@ public class ReportRepository {
     private BigDecimal expenseAmount(String attributionType, String datePredicate) {
         if ("ROUTE".equals(attributionType)) return amount("""
                 SELECT COALESCE(SUM(e.amount), 0)
-                FROM expense_entry e JOIN route_task r ON r.id = e.route_id
+                FROM expense_entry e JOIN transport_task r ON r.id = e.task_id
                 WHERE e.attribution_type = 'ROUTE' AND r.status = 'COMPLETED' AND r.deleted_at IS NULL
                   AND e.status IN ('ACTIVE', 'REVERSED', 'REVERSAL')
                   AND e.deleted_at IS NULL AND %s
@@ -441,7 +441,7 @@ public class ReportRepository {
     public BigDecimal driverSalary() {
         return amount("""
                 SELECT COALESCE(SUM(p.salary_amount), 0)
-                FROM route_participant p JOIN route_task r ON r.id = p.route_id
+                FROM transport_participant p JOIN transport_task r ON r.id = p.task_id
                 WHERE r.status = 'COMPLETED' AND r.deleted_at IS NULL
                   AND p.status NOT IN ('CANCELLED', 'LEGACY_ENDED')
                 """);

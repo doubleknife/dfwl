@@ -47,15 +47,12 @@ class SystemManagementContractTests {
     void setUp() {
         jdbcTemplate.update("DELETE FROM audit_log");
         jdbcTemplate.update("DELETE FROM approval_flow_node");
-        jdbcTemplate.update("DELETE FROM approval_flow_initiator_role");
-        jdbcTemplate.update("DELETE FROM approval_flow_expense_config");
         jdbcTemplate.update("DELETE FROM approval_flow");
         jdbcTemplate.update("DELETE FROM approval_template");
         jdbcTemplate.update("DELETE FROM sys_role_permission");
         jdbcTemplate.update("DELETE FROM sys_permission");
         jdbcTemplate.update("DELETE FROM sys_user");
         jdbcTemplate.update("DELETE FROM sys_role");
-        jdbcTemplate.update("DELETE FROM customer");
         jdbcTemplate.update("DELETE FROM product");
 
         jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (1, 'ADMIN', '管理员', 1)");
@@ -68,9 +65,8 @@ class SystemManagementContractTests {
                   (3, 'permission:manage', '权限管理', 'API'),
                   (4, 'audit:view', '审计日志查看', 'API'),
                   (5, 'approval:flow:manage', '审批流程维护', 'API'),
-                  (6, 'route:list', '线路列表', 'API'),
-                  (7, 'route:create', '线路创建', 'API'),
-                  (8, 'route:edit', '线路编辑', 'API')
+                  (6, 'template:view', '线路模板查看', 'API'),
+                  (7, 'template:manage', '线路模板维护', 'API')
                 """);
         jdbcTemplate.update("""
                 INSERT INTO sys_user (id, phone, password_hash, role_id, status)
@@ -79,52 +75,17 @@ class SystemManagementContractTests {
     }
 
     @Test
-    void customerCrudUsesRealApi() throws Exception {
-        String token = token("route:list", "route:create", "route:edit");
-
-        mockMvc.perform(post("/api/v1/customers")
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"customerCode":"C001","customerName":"客户一","status":1,"remark":"first"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.customerName").value("客户一"));
-
-        mockMvc.perform(get("/api/v1/customers")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.total").value(1));
-
-        mockMvc.perform(put("/api/v1/customers/1")
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"customerCode":"C001","customerName":"客户一更新","status":1,"remark":"updated"}
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.customerName").value("客户一更新"));
-
-        mockMvc.perform(put("/api/v1/customers/1/status")
-                        .header("Authorization", bearer(token))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":0}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value(0));
-    }
-
-    @Test
     void productCrudUsesRealApi() throws Exception {
-        String token = token("route:list", "route:create", "route:edit");
+        String token = token("template:view", "template:manage");
 
         mockMvc.perform(post("/api/v1/products")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"productCode":"P001","productName":"产品一","status":1,"remark":"first"}
+                                {"name":"货物一","enabled":true}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.productName").value("产品一"));
+                .andExpect(jsonPath("$.data.name").value("货物一"));
 
         mockMvc.perform(get("/api/v1/products")
                         .header("Authorization", bearer(token)))
@@ -135,60 +96,17 @@ class SystemManagementContractTests {
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"productCode":"P001","productName":"产品一更新","status":1,"remark":"updated"}
+                                {"name":"货物一更新","enabled":true,"expectedVersion":0}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.productName").value("产品一更新"));
+                .andExpect(jsonPath("$.data.name").value("货物一更新"));
 
         mockMvc.perform(put("/api/v1/products/1/status")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":0}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value(0));
-    }
-
-    @Test
-    void approvalFlowListVersionsActiveAndDetailAreQueryable() throws Exception {
-        String token = token("approval:flow:manage");
-        jdbcTemplate.update("""
-                INSERT INTO approval_template (id, template_code, category, approval_type, created_by)
-                VALUES (10, 'EXPENSE', 'EXPENSE', 'EXPENSE', 1),
-                       (12, 'TIRE', 'TIRE', 'TIRE', 1)
-                """);
-        jdbcTemplate.update("""
-                INSERT INTO approval_flow (id, template_id, approval_type, flow_name, version_no, status, created_by)
-                VALUES (10, 10, 'EXPENSE', '费用审批V1', 1, 'DRAFT', 1),
-                       (11, 10, 'EXPENSE', '费用审批V2', 2, 'ACTIVE', 1),
-                       (12, 12, 'TIRE', '轮胎审批V1', 1, 'MAINTENANCE', 1)
-                """);
-        jdbcTemplate.update("""
-                INSERT INTO approval_flow_node (id, flow_id, node_order, node_name, position_id, approver_user_id, allow_return)
-                VALUES (100, 11, 1, '财务', NULL, 1, 1),
-                       (101, 11, 2, '经理', NULL, 1, 1)
-                """);
-
-        mockMvc.perform(get("/api/v1/approval-flows?approvalType=EXPENSE")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.total").value(2))
-                .andExpect(jsonPath("$.data.records[0].versionNo").value(2));
-
-        mockMvc.perform(get("/api/v1/approval-flows/types/EXPENSE/versions")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].status").value("ACTIVE"));
-
-        mockMvc.perform(get("/api/v1/approval-flows/types/EXPENSE/active")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.flow.id").value(11))
-                .andExpect(jsonPath("$.data.nodes[1].nodeOrder").value(2));
-
-        mockMvc.perform(get("/api/v1/approval-flows/11")
-                        .header("Authorization", bearer(token)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.nodes[0].nodeName").value("财务"));
+                .andExpect(jsonPath("$.data.enabled").value(false));
     }
 
     @Test

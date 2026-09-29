@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Fleet Operations API
-  version: 1.0.0
+  version: 3.0.0
   description: 车队经营管理系统统一 API 契约。详细业务规则以项目需求基线文档为准。
 servers:
   - url: /api/v1
@@ -9,21 +9,14 @@ security:
   - bearerAuth: []
 tags:
   - {name: Auth}
-  - {name: Customers}
   - {name: Products}
   - {name: Drivers}
   - {name: Vehicles}
   - {name: Trailers}
-  - {name: Routes}
-  - {name: Imports}
-  - {name: Expenses}
+  - {name: RouteTemplates}
+  - {name: TransportTasks}
   - {name: DriverSalaries}
   - {name: Notifications}
-  - {name: Approvals}
-  - {name: Tires}
-  - {name: OCR}
-  - {name: Reports}
-  - {name: Settlements}
   - {name: Attachments}
   - {name: System}
 paths:
@@ -175,59 +168,31 @@ paths:
         - {name: endTime, in: query, required: false, schema: {type: string, format: date-time}}
       responses: {'200': {description: OK}}
 
-  /customers:
-    get:
-      tags: [Customers]
-      summary: 客户分页列表
-      x-permission: route:list
-      responses: {'200': {description: OK}}
-    post:
-      tags: [Customers]
-      summary: 新增客户
-      x-permission: route:create
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerRequest'}}}}
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /customers/{id}:
-    put:
-      tags: [Customers]
-      summary: 编辑客户
-      x-permission: route:edit
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerRequest'}}}}
-      responses: {'200': {description: OK}}
-  /customers/{id}/status:
-    put:
-      tags: [Customers]
-      summary: 启用/停用客户
-      x-permission: route:edit
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusRequest'}}}}
-      responses: {'200': {description: OK}}
   /products:
     get:
       tags: [Products]
-      summary: 产品分页列表
-      x-permission: route:list
+      summary: 货物分页列表
+      x-permission: template:view
       responses: {'200': {description: OK}}
     post:
       tags: [Products]
-      summary: 新增产品
-      x-permission: route:create
+      summary: 新增货物
+      x-permission: template:manage
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /products/{id}:
     put:
       tags: [Products]
-      summary: 编辑产品
-      x-permission: route:edit
+      summary: 编辑货物
+      x-permission: template:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
       responses: {'200': {description: OK}}
   /products/{id}/status:
     put:
       tags: [Products]
-      summary: 启用/停用产品
-      x-permission: route:edit
+      summary: 启用/停用货物
+      x-permission: template:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusRequest'}}}}
       responses: {'200': {description: OK}}
@@ -366,367 +331,197 @@ paths:
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
 
-  /routes:
+  /route-templates:
     get:
-      tags: [Routes]
-      summary: 线路分页列表；司机仅返回本人参与线路，按路线分页不重复
-      x-permission: route:list
-      parameters:
-        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
-        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
-        - {name: status, in: query, required: false, description: 精确状态筛选，不改变司机线路归属范围, schema: {type: string, enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]}}
-        - {name: businessDate, in: query, required: false, description: 管理端业务日期精确筛选, schema: {type: string, format: date}}
-        - {name: customerId, in: query, required: false, description: 管理端客户精确筛选, schema: {type: integer, format: int64}}
-        - {name: driverId, in: query, required: false, description: 管理端参与司机精确筛选, schema: {type: integer, format: int64}}
-        - {name: keyword, in: query, required: false, description: 管理端线路号或装卸地点包含筛选, schema: {type: string}}
+      tags: [RouteTemplates]
+      summary: 查询最终线路模板
+      x-permission: template:view
       responses: {'200': {description: OK}}
     post:
-      tags: [Routes]
-      summary: 创建线路
-      x-permission: route:create
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteCreateRequest'}}}}
+      tags: [RouteTemplates]
+      summary: 创建线路模板
+      x-permission: template:manage
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
       responses: {'200': {description: OK}}
-  /routes/{id}:
+  /route-templates/{id}:
     get:
-      tags: [Routes]
-      summary: 线路详情
-      x-permission: route:list
+      tags: [RouteTemplates]
+      x-permission: template:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
-    put:
-      tags: [Routes]
-      summary: 发车前编辑线路
-      x-permission: route:edit
+    patch:
+      tags: [RouteTemplates]
+      x-permission: template:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
       responses: {'200': {description: OK}}
-    delete:
-      tags: [Routes]
-      summary: 发车前逻辑删除
-      x-permission: route:delete
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /routes/{id}/participants:
-    get:
-      tags: [Routes]
-      summary: 管理端按 sequenceNo 查询参与历史；route:list 仅可见非工资事实，工资另需 salary:view 或 route:transfer 或 route:salary:adjust
-      x-permission: route:list
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /routes/{id}/participants/{participantId}/salary-history:
-    get:
-      tags: [Routes]
-      summary: 查询指定参与工资调整历史
-      x-permissions: [route:list, salary:view]
-      parameters:
-        - {$ref: '#/components/parameters/Id'}
-        - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
-      responses: {'200': {description: OK}}
-  /routes/{id}/publish:
+  /route-templates/{id}/enable:
     post:
-      tags: [Routes]
-      summary: 发布线路并创建 INITIAL 参与；显式提交初始工资，外协必填真实车牌且不要求公司车
-      x-permission: route:publish
+      tags: [RouteTemplates]
+      x-permission: template:manage
       parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoutePublishRequest'}}}}
+      responses: {'200': {description: OK}}
+  /route-templates/{id}/disable:
+    post:
+      tags: [RouteTemplates]
+      x-permission: template:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /dispatch-batches/preview:
+    post:
+      tags: [TransportTasks]
+      summary: 对全部调度行预校验；失败不产生正式任务
+      x-permission: task:create
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchBatchRequest'}}}}
+      responses: {'200': {description: OK}}
+  /dispatch-batches/confirm:
+    post:
+      tags: [TransportTasks]
+      summary: 再次全量校验后整批原子发布，requestKey 幂等
+      x-permission: task:publish
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchConfirmRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/transfer:
-    post:
-      tags: [Routes]
-      summary: 按当前参与与线路版本原子转派，完整重核所有正式参与工资并进入等待接手
-      x-permission: route:transfer
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTransferRequest'}}}}
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/participants/{participantId}/salary-adjustments:
-    post:
-      tags: [Routes]
-      summary: 非转派场景调整指定正式参与工资；完成线路允许调整
-      x-permission: route:salary:adjust
-      parameters:
-        - {$ref: '#/components/parameters/Id'}
-        - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ParticipantSalaryAdjustmentRequest'}}}}
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/depart:
-    post:
-      tags: [Routes]
-      summary: 发车并冻结司机车辆车挂快照；司机仅返回 DriverRoute（不含经营、工资、达标字段）
-      x-permission: route:depart
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/unload:
-    post:
-      tags: [Routes]
-      summary: 当前参与司机提交毛重、皮重及至少一张独立用途的磅单并卸货；仅返回 DriverRoute
-      x-permission: route:unload
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UnloadRequest'}}}}
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/cancel:
-    post:
-      tags: [Routes]
-      summary: 发车前取消
-      x-permission: route:cancel
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /routes/{id}/void:
-    post:
-      tags: [Routes]
-      summary: 仅已完成线路可作废；原因及经营影响确认均由后端强校验
-      x-permission: route:void
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteReasonRequest'}}}}
-      responses: {'200': {description: OK}}
-  /routes/{id}/reactivate:
-    post:
-      tags: [Routes]
-      summary: 作废线路恢复为 COMPLETED，不再次发布或发车
-      x-permission: route:reactivate
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /routes/{id}/weight-adjustments:
-    post:
-      tags: [Routes]
-      summary: 财务调整毛重皮重
-      x-permission: route:weight:adjust
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WeightAdjustmentRequest'}}}}
-      responses: {'200': {description: OK}}
-  /routes/{id}/weight-versions:
+  /dispatch-batches/{id}:
     get:
-      tags: [Routes]
-      summary: 查询线路重量版本历史
-      description: 仅非 DRIVER 管理端账号可查；返回司机原始重量和每次财务纠错版本，包含达标阈值、修改人、时间、原因和 WEIGHT_ADJUST 附件 ID。DRIVER 即使具备 route:list 也返回 403。
-      x-permission: route:list
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items: {$ref: '#/components/schemas/RouteWeightVersion'}
-
-  /imports/preview:
-    post:
-      tags: [Imports]
-      summary: 导入预览与预校验
-      description: 原始文件必须先通过附件中心上传为 IMPORT_FILE（ownerType=IMPORT、ownerId=0）；每个 originalFileId 只能绑定一个导入任务，重复或并发 preview 仅允许一次成功，其余返回 409/ATTACHMENT_004，提示“该上传文件已用于导入任务，请重新上传文件后创建新的导入任务”；重新上传相同内容可创建新任务，但业务数据重复仍按原有规则校验；后端根据 originalFileId 读取真实 xlsx/xls/csv 文件并解析为标准行数据，预览阶段保存 import_task/import_row 并做格式、引用和重复预校验。
-      x-permission: import:preview
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ImportPreviewRequest'}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/ImportTask'}
-        '409': {$ref: '#/components/responses/BusinessConflict'}
-  /imports/{id}/commit:
-    post:
-      tags: [Imports]
-      summary: 正式导入并再次校验
-      description: commit 按最新数据库状态逐行重新校验并独立事务落库；允许部分成功，最终行状态为 SUCCESS、UNPUBLISHED 或 FAILURE。
-      x-permission: import:commit
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/ImportTask'}
-  /imports:
-    get:
-      tags: [Imports]
-      summary: 导入任务历史
-      x-permission: import:history
-      responses: {'200': {description: OK}}
-  /imports/{id}/failures/export:
-    get:
-      tags: [Imports]
-      summary: 导出失败明细
-      x-permission: import:failure:export
+      tags: [TransportTasks]
+      x-permission: task:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
-
-  /expenses:
+  /transport-tasks:
     get:
-      tags: [Expenses]
-      summary: 费用列表；按当前归属线路及业务条件组合筛选并分页，total 为全量匹配数
-      x-permission: expense:list
+      tags: [TransportTasks]
+      summary: 管理端任务分页；司机使用专用脱敏接口
+      x-permission: task:view
       parameters:
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
         - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
-        - {name: routeId, in: query, schema: {type: integer, format: int64}}
+        - {name: status, in: query, schema: {$ref: '#/components/schemas/TaskStatus'}}
+        - {name: templateId, in: query, schema: {type: integer, format: int64}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: taskNo, in: query, schema: {type: string}}
         - {name: businessDate, in: query, schema: {type: string, format: date}}
-        - {name: expenseType, in: query, schema: {type: string}}
-        - {name: attributionType, in: query, schema: {type: string, enum: [ROUTE, DAILY]}}
-        - {name: status, in: query, schema: {type: string}}
-        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
-        - {name: keyword, in: query, schema: {type: string}}
       responses: {'200': {description: OK}}
+  /transport-tasks/{id}:
+    get:
+      tags: [TransportTasks]
+      x-permission: task:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/participants:
+    get:
+      tags: [TransportTasks]
+      summary: 参与历史；工资字段另需 salary:view
+      x-permission: task:participants:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/weight-versions:
+    get:
+      tags: [TransportTasks]
+      x-permission: task:weight:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/transfer:
     post:
-      tags: [Expenses]
-      summary: 人工新增费用
-      x-permission: expense:add
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ExpenseRequest'}}}}
-      responses: {'200': {description: OK}}
-  /expenses/eligible-route-vehicles:
-    get:
-      tags: [Expenses]
-      summary: 查询线路正式 INTERNAL 参与车辆候选；提交及最终落账仍重新校验
-      x-permission: expense:list
-      parameters:
-        - {name: routeId, in: query, required: true, schema: {type: integer, format: int64}}
-      responses: {'200': {description: 仅返回 vehicleId 与 plateNo}}
-  /expenses/{id}:
-    put:
-      tags: [Expenses]
-      summary: 编辑允许来源费用
-      x-permission: expense:edit
+      tags: [TransportTasks]
+      x-permission: task:transfer
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskTransferRequest'}}}}
       responses: {'200': {description: OK}}
-    delete:
-      tags: [Expenses]
-      summary: 逻辑删除允许来源费用
-      x-permission: expense:delete
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /expenses/{id}/reversal:
+  /transport-tasks/{id}/depart:
     post:
-      tags: [Expenses]
-      summary: 冲销审批费用
-      x-permission: expense:reversal
+      tags: [TransportTasks]
+      summary: 仅当前参与司机可发车；响应为脱敏 DriverTask
+      x-permission: task:depart
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskDepartRequest'}}}}
       responses: {'200': {description: OK}}
-  /expenses/{id}/reversal-record:
+  /transport-tasks/{id}/unload:
+    post:
+      tags: [TransportTasks]
+      summary: 仅当前在途司机可卸货；必须有原始磅单
+      x-permission: task:unload
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskUnloadRequest'}}}}
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/cancel:
+    post:
+      tags: [TransportTasks]
+      summary: 仅未实际发车且未进入转派链的任务可取消
+      x-permission: task:cancel
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskCancelRequest'}}}}
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/weight-adjustments:
+    post:
+      tags: [TransportTasks]
+      x-permission: task:weight:adjust
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskWeightAdjustmentRequest'}}}}
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/amount-adjustments:
+    post:
+      tags: [TransportTasks]
+      summary: 实际单价或信息费授权调整并追加历史
+      x-permission: task:amount:adjust
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskAmountAdjustmentRequest'}}}}
+      responses: {'200': {description: OK}}
+  /transport-tasks/{id}/amount-history:
     get:
-      tags: [Expenses]
-      summary: 查询原费用对应的冲销记录，未冲销时 data 为 null
-      x-permission: expense:list
+      tags: [TransportTasks]
+      x-permission: task:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
-  /expenses/{id}/attribution:
-    put:
-      tags: [Expenses]
-      summary: 费用在合格线路及未归属间调整，保留归属历史与 Audit，不重复生成金额事实
-      x-permission: expense:attribution:edit
+  /transport-tasks/{id}/participant-salaries/confirm:
+    post:
+      tags: [DriverSalaries]
+      summary: 按参与人统一核定实际工资并追加调整历史
+      x-permission: salary:adjust
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskSalariesConfirmRequest'}}}}
       responses: {'200': {description: OK}}
-  /expenses/{id}/attribution-history:
+  /driver/transport-tasks:
     get:
-      tags: [Expenses]
-      summary: 查询费用归属调整历史
-      description: 返回归属修改前后的 attribution_type、route_id、status、操作人、操作时间和原因，用于解释线路作废后的能源费用待确认与财务确认过程。
-      x-permission: expense:attribution:edit
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items: {$ref: '#/components/schemas/ExpenseAttributionHistory'}
-  /expenses/{id}/approval:
+      tags: [TransportTasks]
+      summary: 本人参与任务分页；仅返回脱敏 DriverTask
+      x-permission: task:view
+      responses: {'200': {description: OK}}
+  /driver/transport-tasks/{id}:
     get:
-      tags: [Expenses]
-      summary: 查看关联审批链
-      x-permission: expense:approval:view
+      tags: [TransportTasks]
+      summary: 本人参与任务详情；无单价、工资、收入、利润和达标字段
+      x-permission: task:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
-
   /driver-salaries:
     get:
       tags: [DriverSalaries]
-      summary: 财务/管理员查询司机工资
+      summary: 管理端只读 Participant 工资台账
       x-permission: salary:view
       parameters:
-        - {name: driverId, in: query, required: false, schema: {type: integer, format: int64}}
-        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: month, in: query, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
       responses: {'200': {description: OK}}
-    post:
-      tags: [DriverSalaries]
-      summary: 人工录入或调整线路司机工资
-      description: 写入 driver_salary_entry 与 driver_salary_history，并同步 route_task.driver_salary 作为线路最终工资金额。
-      x-permission: salary:manage
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/DriverSalaryRequest'}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/DriverSalary'}
-  /driver-salaries/me:
+  /driver-salaries/{participantId}/history:
     get:
       tags: [DriverSalaries]
-      summary: 自有司机查看本人工资单
-      description: 外协司机强制拒绝；司机只能看到本人线路工资。
-      x-permission: salary:mine
-      parameters:
-        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
-      responses: {'200': {description: OK}}
-  /driver-salaries/me/monthly-summary:
-    get:
-      tags: [DriverSalaries]
-      summary: 本人指定月份的完整工资汇总
-      description: 仅自有司机可查看；数据库对该月全部工资明细做精确十进制聚合，不受分页限制。
-      x-permission: salary:mine
-      parameters:
-        - {name: businessMonth, in: query, required: true, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
-      responses: {'200': {description: 返回 businessMonth、totalAmount、entryCount}}
-  /driver-salaries/drivers/{driverId}:
-    get:
-      tags: [DriverSalaries]
-      summary: 按司机查询工资单
-      description: 司机角色只能查询本人；管理角色按 salary:view 权限查询。
-      x-permission: salary:mine or salary:view
-      parameters:
-        - {name: driverId, in: path, required: true, schema: {type: integer, format: int64}}
-        - {name: businessMonth, in: query, required: false, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
-      responses: {'200': {description: OK}}
-  /driver-salaries/routes/{routeId}/history:
-    get:
-      tags: [DriverSalaries]
-      summary: 查询线路工资调整历史
+      summary: 指定 Participant 工资调整历史
       x-permission: salary:view
       parameters:
-        - {name: routeId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
       responses: {'200': {description: OK}}
-
+  /salary-slips/mine:
+    get:
+      tags: [DriverSalaries]
+      summary: 自有司机本人月工资摘要和参与明细；外协拒绝
+      x-permission: salary:mine
+      parameters:
+        - {name: month, in: query, required: true, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
+      responses: {'200': {description: OK}}
   /notifications/unread-count:
     get:
       tags: [Notifications]
@@ -753,489 +548,11 @@ paths:
       summary: 将当前用户全部通知标记已读
       responses: {'200': {description: 返回最新未读数}}
 
-  /approvals:
-    get:
-      tags: [Approvals]
-      summary: 审批列表
-      description: scope=TODO/DONE/MINE 按当前登录用户服务端过滤；scope=ALL 仅具有 approval:history:view 的角色可查看全量。
-      x-permission: approval:history:view / approval:process / approval:return / approval:create
-      parameters:
-        - {name: scope, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalListScope', default: ALL}}
-        - {name: approvalType, in: query, required: false, schema: {type: string}}
-        - {name: status, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalInstanceStatus'}}
-        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
-        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/ApprovalPage'}
-    post:
-      tags: [Approvals]
-      summary: 按 templateId 发起 EXPENSE/OTHER 审批
-      description: 通用发起必须明确选择模板；旧请求仅在原审批类型只有一个 ACTIVE 历史模板时兼容，多个模板不猜选。TIRE 仅从换胎专用入口发起。创建前校验当前角色、申请依据、费用归属与司机资源范围；Excel 仅是浏览器本地录入工具，不上传文件。
-      x-permission: approval:create
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalCreateRequest'}
-      responses: {'200': {description: OK}}
-  /approvals/{id}:
-    get:
-      tags: [Approvals]
-      summary: 审批详情与历史
-      description: 返回审批实例、全部 submission version、节点任务、实际审批人、动作、备注、时间和任务失效标记。
-      x-permission: approval:history:view
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/ApprovalDetail'}
-  /approvals/{id}/approve:
-    post:
-      tags: [Approvals]
-      summary: 当前节点通过
-      x-permission: approval:process
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalActionRequest'}
-      responses: {'200': {description: OK}}
-  /approvals/{id}/return-applicant:
-    post:
-      tags: [Approvals]
-      summary: 打回申请人
-      x-permission: approval:return
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalActionRequest'}
-      responses: {'200': {description: OK}}
-  /approvals/{id}/return-node:
-    post:
-      tags: [Approvals]
-      summary: 打回指定前序节点
-      x-permission: approval:return
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalActionRequest'}
-      responses: {'200': {description: OK}}
-  /approvals/{id}/resubmit:
-    post:
-      tags: [Approvals]
-      summary: 原申请人按实例锁定的历史 Flow Version 修改后重提
-      x-permission: approval:create
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalCreateRequest'}
-      responses: {'200': {description: OK}}
-  /approval-templates/available:
-    get:
-      tags: [Approvals]
-      summary: 查询当前用户可从通用入口发起的 ACTIVE 模板
-      description: 仅返回角色允许、配置 READY 的 EXPENSE/OTHER；外协司机不返回可发起模板。TIRE 使用换胎专用入口。
-      x-permission: approval:create
-      responses:
-        '200':
-          description: 当前可发起模板
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalAvailableTemplate'}}}}
-  /approval-templates:
-    get:
-      tags: [Approvals]
-      summary: 列出稳定审批模板及各自当前 ACTIVE 版本
-      x-permission: approval:flow:manage
-      responses:
-        '200':
-          description: 模板列表
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalTemplate'}}}}
-    post:
-      tags: [Approvals]
-      summary: 创建模板及 DRAFT V1；TIRE 仅允许代码 TIRE_REQUEST 且仍走专用申请流程
-      x-permission: approval:flow:manage
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalTemplateCreateRequest'}
-      responses:
-        '200':
-          description: 返回 DRAFT Flow V1 完整配置
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
-  /approval-templates/{templateId}:
-    get:
-      tags: [Approvals]
-      summary: 查询稳定模板身份
-      x-permission: approval:flow:manage
-      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
-      responses:
-        '200':
-          description: 模板身份
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalTemplate'}}}
-  /approval-templates/{templateId}/versions:
-    get:
-      tags: [Approvals]
-      summary: 按模板查看版本列表（每个模板独立从 V1 编号）
-      x-permission: approval:flow:manage
-      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
-      responses:
-        '200':
-          description: 版本列表
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ApprovalFlow'}}}}
-  /approval-templates/{templateId}/active:
-    get:
-      tags: [Approvals]
-      summary: 查看模板当前 ACTIVE Flow Version 及完整配置
-      x-permission: approval:flow:manage
-      parameters: [{name: templateId, in: path, required: true, schema: {type: integer, format: int64}}]
-      responses:
-        '200':
-          description: 当前 ACTIVE 版本的完整配置
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
-  /approval-templates/{templateId}/versions/{flowId}:
-    get:
-      tags: [Approvals]
-      summary: 查看指定历史版本的节点、发起角色、依据及费用配置
-      x-permission: approval:flow:manage
-      parameters:
-        - {name: templateId, in: path, required: true, schema: {type: integer, format: int64}}
-        - {name: flowId, in: path, required: true, schema: {type: integer, format: int64}}
-      responses:
-        '200':
-          description: 指定历史版本的完整配置
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - {type: object, properties: {data: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}}}
-  /approval-flows:
-    get:
-      tags: [Approvals]
-      summary: 审批流程列表，可按类型和状态筛选
-      x-permission: approval:flow:manage
-      parameters:
-        - {name: approvalType, in: query, required: false, schema: {type: string}}
-        - {name: status, in: query, required: false, schema: {$ref: '#/components/schemas/ApprovalFlowStatus'}}
-      responses: {'200': {description: OK}}
-  /approval-flows/types/{approvalType}/versions:
-    get:
-      tags: [Approvals]
-      summary: 兼容旧客户端，查看某审批类型所有流程版本；新管理端应按 templateId 查询
-      x-permission: approval:flow:manage
-      parameters:
-        - {name: approvalType, in: path, required: true, schema: {type: string}}
-      responses: {'200': {description: OK}}
-  /approval-flows/types/{approvalType}/active:
-    get:
-      tags: [Approvals]
-      summary: 兼容旧客户端，按审批类型查看最高版本 ACTIVE；新管理端应按 templateId 查询
-      x-permission: approval:flow:manage
-      parameters:
-        - {name: approvalType, in: path, required: true, schema: {type: string}}
-      responses: {'200': {description: OK}}
-  /approval-flows/{id}/maintenance:
-    post:
-      tags: [Approvals]
-      summary: 流程进入维护并禁止新发起
-      x-permission: approval:flow:manage
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /approval-flows/{id}:
-    get:
-      tags: [Approvals]
-      summary: 查看流程版本详情、节点顺序和审批人
-      x-permission: approval:flow:manage
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-    put:
-      tags: [Approvals]
-      summary: 无在途审批后创建新 Flow Version；可覆盖或继承角色和版本配置，旧请求继续兼容
-      x-permission: approval:flow:manage
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/ApprovalFlowUpdateRequest'}
-      responses: {'200': {description: OK}}
-  /approval-flows/{id}/publish:
-    post:
-      tags: [Approvals]
-      summary: 发布 Flow Version；同模板并发最多一个 ACTIVE
-      x-permission: approval:flow:manage
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-
-  /tires:
-    get:
-      tags: [Tires]
-      summary: 轮胎库存与历史
-      x-permission: tire:list
-      parameters:
-        - {in: query, name: pageNo, schema: {type: integer, default: 1}}
-        - {in: query, name: pageSize, schema: {type: integer, default: 20}}
-        - {in: query, name: tireNo, description: 完整胎号精确筛选, schema: {type: string}}
-        - {in: query, name: status, schema: {type: string}}
-        - {in: query, name: vehicleId, schema: {type: integer, format: int64}}
-      responses: {'200': {description: OK}}
-  /tires/request-target:
-    get:
-      tags: [Tires]
-      summary: 按完整确认胎号精确查询可申请库存轮胎
-      description: 仅用于换胎申请，返回单条可申请轮胎；创建申请时仍重新校验状态和胎号。
-      x-permission: tire:request
-      parameters:
-        - in: query
-          name: tireNumber
-          required: true
-          schema: {type: string, maxLength: 128}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
-                          tireId: {type: integer, format: int64}
-                          tireNumber: {type: string}
-                          status: {type: string, enum: [IN_STOCK]}
-  /tire-requests:
-    post:
-      tags: [Tires]
-      summary: 发起换胎申请
-      x-permission: tire:request
-      responses: {'200': {description: OK}}
-  /tire-requests/{id}:
-    get:
-      tags: [Tires]
-      summary: 换胎申请详情
-      x-permission: tire:approval:view
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /ocr/tire-number:
-    post:
-      tags: [OCR]
-      summary: 识别胎号
-      description: 后端根据 attachmentId 读取 TIRE_OCR 原图，Base64 后调用腾讯云 GeneralAccurateOCR；不接受调用方传 recognizedText/rawResultJson 作为识别结果来源。
-      x-permission: tire:request
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/OcrTireNumberRequest'}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/OcrRecord'}
-  /ocr/{id}/confirm:
-    post:
-      tags: [OCR]
-      summary: 确认 OCR 最终胎号
-      x-permission: tire:request
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: '#/components/schemas/OcrConfirmRequest'}
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - {$ref: '#/components/schemas/ApiResponse'}
-                  - type: object
-                    properties:
-                      data: {$ref: '#/components/schemas/OcrRecord'}
-
-  /reports/dashboard:
-    get:
-      tags: [Reports]
-      summary: 经营看板
-      description: 返回收入、有效线路费用、日常费用、未归属公司费用、参与工资及利润；有效未归属费用降低公司总利润，作废线路归属费用仍为公司真实支出。
-      x-permission: report:dashboard
-      responses: {'200': {description: OK}}
-  /reports/profit:
-    get:
-      tags: [Reports]
-      summary: 利润报表
-      description: 按线路返回客户、产品、司机、车牌、装卸地、实际载重、线路收入、费用分类、司机工资、支出合计和线路利润；日常费用不分摊到线路。
-      x-permission: report:profit
-      responses: {'200': {description: OK}}
-  /reports/completed-routes:
-    get:
-      tags: [Reports]
-      summary: 已完成及已作废线路经营摘要，服务端分页；route:list 不授予金额查看权
-      x-permission: report:profit
-      parameters:
-        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
-        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-        - {name: status, in: query, schema: {type: string, enum: [COMPLETED, VOIDED]}}
-      responses: {'200': {description: PageResponse，含净重、参与人数、车辆数、收入、总支出及利润}}
-  /reports/completed-routes/{routeId}:
-    get:
-      tags: [Reports]
-      summary: 单线路经营档案；参与事实及当前归属费用明细分页
-      x-permission: report:profit
-      parameters:
-        - {name: routeId, in: path, required: true, schema: {type: integer, format: int64}}
-        - {name: expensePageNo, in: query, schema: {type: integer, minimum: 1}}
-        - {name: expensePageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-      responses: {'200': {description: 经营摘要、参与人（含公司车牌或外协车牌）及当前归属费用 PageResponse（含来源与归属类型）}}
-  /reports/vehicle-expense:
-    get:
-      tags: [Reports]
-      summary: 车辆支出
-      description: 按车辆汇总罚款、洗车、加水、维修、能源费用和趟次。
-      x-permission: report:vehicle
-      responses: {'200': {description: OK}}
-  /reports/driver-expense:
-    get:
-      tags: [Reports]
-      summary: 司机支出
-      description: 按司机汇总趟数、公里数、费用分类、司机工资和工资完整性标记。
-      x-permission: report:driver
-      responses: {'200': {description: OK}}
-  /reports/attendance:
-    get:
-      tags: [Reports]
-      summary: 出勤
-      description: 按司机、业务日期返回是否存在有效出车事实。
-      x-permission: report:attendance
-      responses: {'200': {description: OK}}
-  /reports/energy:
-    get:
-      tags: [Reports]
-      summary: 电费/气费
-      description: 按车牌和能源类型汇总充电/加气度数及金额。
-      x-permission: report:energy
-      responses: {'200': {description: OK}}
-
-  /settlements/{yearMonth}/versions:
-    get:
-      tags: [Settlements]
-      summary: 月度结算版本列表
-      description: 返回每版金额、生成时间及生成账号手机号 generatedByPhone；原 generatedBy 编号保留兼容。
-      x-permission: settlement:view
-      parameters: [{$ref: '#/components/parameters/YearMonth'}]
-      responses: {'200': {description: OK}}
-    post:
-      tags: [Settlements]
-      summary: 生成新的不可变结算版本
-      description: 在同一可重复读事务中生成不可变版本；分别保存线路费用、日常费用、未归属公司费用、参与工资及利润，并冻结参与及费用来源事实。
-      x-permission: settlement:generate
-      parameters: [{$ref: '#/components/parameters/YearMonth'}]
-      responses: {'200': {description: OK}}
-  /settlements/versions/{id}/details:
-    get:
-      tags: [Settlements]
-      summary: 旧版兼容的完整快照明细；新界面使用 details-page
-      x-permission: settlement:view
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /settlements/versions/{id}/diff:
-    get:
-      tags: [Settlements]
-      summary: 旧版兼容的完整差异；新界面使用 diff-page
-      description: 差异包含修改前后快照、收入/支出/利润影响、真实业务操作人、操作时间和原因；与结算版本生成人区分。
-      x-permission: settlement:diff:view
-      parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-  /settlements/versions/{id}/details-page:
-    get:
-      tags: [Settlements]
-      summary: 服务端分页结算事实，附可读业务摘要；原始 JSON 为高级信息
-      x-permission: settlement:view
-      parameters:
-        - {$ref: '#/components/parameters/Id'}
-        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
-        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-      responses: {'200': {description: PageResponse}}
-  /settlements/versions/{id}/diff-page:
-    get:
-      tags: [Settlements]
-      summary: 服务端分页业务差异，附前后业务摘要、金额影响及操作来源
-      x-permission: settlement:diff:view
-      parameters:
-        - {$ref: '#/components/parameters/Id'}
-        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
-        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-      responses: {'200': {description: PageResponse}}
-
   /attachments:
     get:
       tags: [Attachments]
       summary: 按 ownerType/ownerId/purpose 查询附件元数据
-      description: 文件读取权限由后端根据 owner_type、owner_id、purpose 映射到既有业务权限并校验业务归属。ROUTE_UNLOAD_WEIGHT_TICKET 对司机要求线路参与范围；WEIGHT_ADJUST 仅非 DRIVER 管理端可见。
+      description: 任务证据读取权限由后端根据 owner_type、owner_id、purpose 和参与范围校验；司机可读取原始卸货磅单，重量纠错证据仅授权管理人员可见。
       parameters:
         - {name: ownerType, in: query, required: false, schema: {type: string, maxLength: 64}}
         - {name: ownerId, in: query, required: false, schema: {type: integer, format: int64}}
@@ -1256,7 +573,7 @@ paths:
     post:
       tags: [Attachments]
       summary: 上传原始文件
-      description: 每次真实上传均创建新的附件 ID、唯一 storageKey 和上传时间，所有 purpose 均不按文件名、内容或 SHA-256 复用旧附件；originalFilename 保留客户端文件名，fileHash 仅记录 SHA-256 内容指纹。文件本体写入 StorageService，数据库仅保存元数据和 storageKey；后端按 purpose 校验既有业务权限，不注册 attachment:* 同义权限码。审批申请创建前上传图片时使用 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION；创建或重新提交审批成功后，后端原子绑定到对应 approval instance，并把附件 ID 固化进 submission snapshot。
+      description: 当前仅允许 TASK 的原始卸货磅单与重量纠错证据上传；每次上传生成独立附件，后端按任务归属和权限校验。
       requestBody:
         required: true
         content:
@@ -1297,7 +614,7 @@ paths:
     delete:
       tags: [Attachments]
       summary: 普通删除入口
-      description: V1.0 不允许通过普通附件接口删除审批相关图片；当前实现统一拒绝删除，避免破坏审批、运输和审计历史。
+      description: 当前实现统一拒绝普通附件删除，避免破坏任务证据和审计历史。
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses:
         '409': {$ref: '#/components/responses/BusinessConflict'}
@@ -1354,38 +671,13 @@ components:
       required: [status]
       properties:
         status: {type: integer, enum: [0, 1]}
-    CustomerRequest:
-      type: object
-      required: [customerName, status]
-      properties:
-        customerCode: {type: [string, 'null']}
-        customerName: {type: string}
-        status: {type: integer, enum: [0, 1]}
-        remark: {type: [string, 'null']}
-    Customer:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        customerCode: {type: [string, 'null']}
-        customerName: {type: string}
-        status: {type: integer, enum: [0, 1]}
-        remark: {type: [string, 'null']}
     ProductRequest:
       type: object
-      required: [productName, status]
+      required: [name, enabled]
       properties:
-        productCode: {type: [string, 'null']}
-        productName: {type: string}
-        status: {type: integer, enum: [0, 1]}
-        remark: {type: [string, 'null']}
-    Product:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        productCode: {type: [string, 'null']}
-        productName: {type: string}
-        status: {type: integer, enum: [0, 1]}
-        remark: {type: [string, 'null']}
+        name: {type: string}
+        enabled: {type: boolean}
+        expectedVersion: {type: [integer, 'null']}
     UserRequest:
       type: object
       required: [phone, roleId, status]
@@ -1394,20 +686,6 @@ components:
         password: {type: [string, 'null'], description: 新增账号必填；编辑账号不使用该字段重置密码}
         roleId: {type: integer, format: int64}
         status: {type: integer, enum: [0, 1]}
-    User:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        phone: {type: string}
-        roleId: {type: integer, format: int64}
-        roleCode: {type: string}
-        roleName: {type: string}
-        status: {type: integer, enum: [0, 1]}
-        lastLoginAt: {type: [string, 'null'], format: date-time}
-        createdBy: {type: [integer, 'null'], format: int64}
-        createdAt: {type: string, format: date-time}
-        updatedBy: {type: [integer, 'null'], format: int64}
-        updatedAt: {type: string, format: date-time}
     RoleRequest:
       type: object
       required: [roleCode, roleName, status]
@@ -1421,46 +699,12 @@ components:
         permissionCodes:
           type: array
           items: {$ref: '#/components/schemas/PermissionCode'}
-    Role:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        roleCode: {type: string}
-        roleName: {type: string}
-        systemFixed: {type: boolean}
-        status: {type: integer, enum: [0, 1]}
-        permissions:
-          type: array
-          items: {$ref: '#/components/schemas/Permission'}
-    Permission:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        permissionCode: {$ref: '#/components/schemas/PermissionCode'}
-        permissionName: {type: string}
-        permissionType: {type: string, enum: [MENU, BUTTON, API, MINI_PROGRAM]}
-        status: {type: integer, enum: [0, 1]}
-    AuditLog:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        module: {type: string}
-        businessType: {type: string}
-        businessId: {type: [integer, 'null'], format: int64}
-        operationType: {type: string}
-        beforeJson: {type: [string, 'null']}
-        afterJson: {type: [string, 'null']}
-        operatorId: {type: integer, format: int64}
-        operationTime: {type: string, format: date-time}
-        reason: {type: [string, 'null']}
-        ip: {type: [string, 'null']}
-        terminal: {type: [string, 'null']}
-    RouteStatus:
+    TaskStatus:
       type: string
-      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, VOIDED, CANCELLED]
+      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]
     AttachmentPurpose:
       type: string
-      enum: [TIRE_OCR, WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, APPROVAL_APPLICATION, APPROVAL_ACTION, IMPORT_FILE]
+      enum: [WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET]
     Attachment:
       type: object
       required: [id, ownerType, ownerId, purpose, storageKey, originalFilename, fileSize, fileHash, uploadedBy, uploadedAt]
@@ -1476,496 +720,6 @@ components:
         storageKey: {type: string}
         uploadedBy: {type: integer, format: int64}
         uploadedAt: {type: string, format: date-time}
-    OcrTireNumberRequest:
-      type: object
-      required: [attachmentId]
-      properties:
-        attachmentId:
-          type: integer
-          format: int64
-          description: 已上传的 TIRE_OCR 原图附件 ID。后端读取附件 bytes 并调用 OCR Provider。
-    OcrConfirmRequest:
-      type: object
-      required: [confirmedText]
-      properties:
-        confirmedText: {type: string, minLength: 1, description: 司机最终确认的胎号，可来自候选或人工输入。}
-    OcrCandidate:
-      type: object
-      properties:
-        candidate: {type: string}
-        confidence: {type: [number, 'null'], format: double}
-        sourceText: {type: string}
-        inventoryMatched: {type: boolean}
-    OcrRecord:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        attachmentId: {type: integer, format: int64}
-        ocrProvider: {type: [string, 'null'], example: TENCENT_GENERAL_ACCURATE}
-        providerRequestId: {type: [string, 'null']}
-        rawResultJson: {type: [string, 'null'], description: 腾讯云 GeneralAccurateOCR 原始响应 JSON，不包含密钥。}
-        recognizedText: {type: [string, 'null'], description: OCR 检测到的原始文本聚合。}
-        candidateText: {type: [string, 'null'], description: 排序最高的胎号候选。}
-        ocrStatus: {type: string, enum: [SUCCESS, NO_CANDIDATE, FAILED]}
-        errorCode: {type: [string, 'null']}
-        errorMessage: {type: [string, 'null']}
-        candidates:
-          type: array
-          items: {$ref: '#/components/schemas/OcrCandidate'}
-        confirmedText: {type: [string, 'null']}
-        confirmedBy: {type: [integer, 'null'], format: int64}
-        confirmedAt: {type: [string, 'null'], format: date-time}
-    ApprovalFlowStatus:
-      type: string
-      enum: [DRAFT, ACTIVE, MAINTENANCE]
-    ApprovalInstanceStatus:
-      type: string
-      enum: [PENDING, APPROVED, REJECTED, RETURNED_TO_APPLICANT]
-    ApprovalTaskStatus:
-      type: string
-      enum: [PENDING, APPROVED, RETURNED, INVALIDATED]
-    ApprovalListScope:
-      type: string
-      enum: [TODO, DONE, MINE, ALL]
-    ApprovalCreateRequest:
-      type: object
-      properties:
-        templateId: {type: [integer, 'null'], format: int64, description: 通用新申请选择稳定模板身份；TIRE 专用入口不传。}
-        approvalType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
-        businessType: {type: [string, 'null'], description: 旧客户端兼容字段；提供时必须与所选模板一致。}
-        businessId: {type: [integer, 'null'], format: int64}
-        attributionType: {type: [string, 'null'], enum: [ROUTE, DAILY, null], description: EXPENSE 整个申请共享的归属；ROUTE 必须指定 routeId，DAILY 不得指定。}
-        routeId: {type: [integer, 'null'], format: int64, description: EXPENSE 申请级线路 ID；ROUTE 必填，DAILY 必须为空。}
-        items:
-          type: array
-          minItems: 1
-          items: {$ref: '#/components/schemas/ApprovalExpenseItemRequest'}
-          description: EXPENSE 统一明细；费用类型由所选模板版本确定。单条也使用一项。旧单条字段仅可单独放在 businessSnapshot，由服务端转为一项；不得与 items 同时提交。本地 Excel 解析结果只能转为此 JSON，不上传 Excel 文件。
-        businessSnapshot:
-          type: object
-          additionalProperties: true
-          description: 其他审批必传的申请快照；EXPENSE 新请求可省略，服务端从模板、归属和 items 构造正式快照。旧单条费用请求仅在未传 items 时兼容。服务端只把经过校验的顶层 attachmentIds 固化到快照。
-        attachmentIds:
-          type: array
-          items: {type: integer, format: int64}
-          description: 已通过 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_APPLICATION 预上传的附件 ID。
-    ApprovalExpenseItemRequest:
-      type: object
-      required: [itemNo, vehicleId, amount, businessDate]
-      properties:
-        itemNo: {type: string, pattern: '^[A-Za-z0-9_-]{1,64}$', description: 同一审批内唯一且重提时稳定的明细序号。}
-        vehicleId: {type: integer, format: int64}
-        driverId: {type: [integer, 'null'], format: int64}
-        amount: {type: number, multipleOf: 0.01, exclusiveMinimum: 0}
-        businessDate: {type: string, format: date}
-        remark: {type: [string, 'null']}
-        energyDetail: {type: [object, 'null'], description: ELECTRIC/GAS/TEMP_ELECTRIC 必填；沿用现有 energyType、stationId、orderNo、startTime、quantity 字段。}
-        penaltyDetail: {type: [object, 'null'], description: 可选的现有罚款分类明细字段。}
-        repairDetail: {type: [object, 'null'], description: 可选的现有维修分类明细字段。}
-        tollDetail: {type: [object, 'null'], description: 可选的现有过路费分类明细字段。}
-      description: 不接受 expenseType、attributionType、routeId 或 Excel 文件/来源字段；这些由模板与申请级契约确定。
-    ApprovalActionRequest:
-      type: object
-      properties:
-        comment: {type: [string, 'null']}
-        targetNodeOrder: {type: [integer, 'null'], description: 打回指定节点时填写目标前序节点序号}
-        attachmentIds:
-          type: array
-          items: {type: integer, format: int64}
-          description: 审批动作前通过 ownerType=APPROVAL_UPLOAD、ownerId=当前用户ID、purpose=APPROVAL_ACTION 预上传的附件 ID；动作成功后绑定 approval_action.id。
-    ApprovalSummary:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        approvalNo: {type: string}
-        approvalType: {type: string}
-        businessType: {type: string}
-        businessId: {type: integer, format: int64}
-        applicantUserId: {type: integer, format: int64}
-        status: {$ref: '#/components/schemas/ApprovalInstanceStatus'}
-        currentNodeOrder: {type: [integer, 'null']}
-        createdAt: {type: string, format: date-time}
-    ApprovalPage:
-      type: object
-      properties:
-        records:
-          type: array
-          items: {$ref: '#/components/schemas/ApprovalSummary'}
-        total: {type: integer, format: int64}
-        pageNo: {type: integer}
-        pageSize: {type: integer}
-    ApprovalFlowUpdateRequest:
-      type: object
-      required: [flowName, nodes]
-      properties:
-        flowName: {type: string}
-        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
-        initiatorRoleIds:
-          type: array
-          items: {type: integer, format: int64}
-        expenseConfig: {$ref: '#/components/schemas/ApprovalExpenseConfigRequest'}
-        nodes:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            required: [nodeOrder, nodeName, approverUserId]
-            properties:
-              nodeOrder: {type: integer, minimum: 1}
-              nodeName: {type: string}
-              positionId: {type: [integer, 'null'], format: int64}
-              approverUserId: {type: integer, format: int64}
-              allowReturn: {type: boolean, default: true}
-    ApprovalTemplateCategory:
-      type: string
-      enum: [TIRE, EXPENSE, OTHER]
-    ApprovalEvidenceRequirement:
-      type: string
-      enum: [NONE, OPTIONAL, REQUIRED]
-    ApprovalExpenseConfigRequest:
-      type: object
-      required: [expenseType, inputModes, attributionTypes]
-      properties:
-        expenseType:
-          $ref: '#/components/schemas/ExpenseType'
-        inputModes:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items: {type: string, enum: [SINGLE, EXCEL]}
-        attributionTypes:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items: {type: string, enum: [ROUTE, DAILY]}
-    ApprovalTemplateCreateRequest:
-      type: object
-      required: [templateCode, category, flowName, evidenceRequirement, initiatorRoleIds, nodes]
-      properties:
-        templateCode: {type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$'}
-        category: {$ref: '#/components/schemas/ApprovalTemplateCategory'}
-        flowName: {type: string}
-        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
-        initiatorRoleIds:
-          type: array
-          description: EXPENSE/OTHER 必须至少一个有效角色；TIRE 可为空，发起资格仍由换胎专用 Policy 控制。
-          uniqueItems: true
-          items: {type: integer, format: int64}
-        nodes:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            required: [nodeOrder, nodeName, approverUserId]
-            properties:
-              nodeOrder: {type: integer, minimum: 1}
-              nodeName: {type: string}
-              positionId: {type: [integer, 'null'], format: int64}
-              approverUserId: {type: integer, format: int64}
-              allowReturn: {type: boolean, default: true}
-        expenseConfig:
-          description: 仅 EXPENSE 必填，TIRE/OTHER 禁止提供。
-          $ref: '#/components/schemas/ApprovalExpenseConfigRequest'
-    ApprovalTemplate:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        templateCode: {type: string}
-        category: {$ref: '#/components/schemas/ApprovalTemplateCategory'}
-        approvalType: {type: string}
-        activeFlowId: {type: [integer, 'null'], format: int64}
-    ApprovalAvailableTemplate:
-      type: object
-      properties:
-        templateId: {type: integer, format: int64}
-        templateCode: {type: string}
-        category: {type: string, enum: [EXPENSE, OTHER]}
-        flowId: {type: integer, format: int64}
-        versionNo: {type: integer}
-        flowName: {type: string}
-        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
-        expenseType: {type: [string, 'null'], description: EXPENSE 时对应现有 ExpenseType。}
-        allowedInputModes: {type: array, items: {type: string, enum: [SINGLE, EXCEL]}}
-        allowedAttributionTypes: {type: array, items: {type: string, enum: [ROUTE, DAILY]}}
-    ApprovalFlowConfiguration:
-      type: object
-      properties:
-        flow: {$ref: '#/components/schemas/ApprovalFlow'}
-        nodes:
-          type: array
-          items: {$ref: '#/components/schemas/ApprovalFlowNode'}
-        evidenceRequirement: {$ref: '#/components/schemas/ApprovalEvidenceRequirement'}
-        configurationStatus: {type: string, enum: [READY, NEEDS_REVIEW]}
-        initiatorRoleIds:
-          type: array
-          items: {type: integer, format: int64}
-        expenseConfig: {$ref: '#/components/schemas/ApprovalExpenseConfigRequest'}
-    ApprovalFlow:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        approvalType: {type: string}
-        flowName: {type: string}
-        versionNo: {type: integer}
-        status: {$ref: '#/components/schemas/ApprovalFlowStatus'}
-    ApprovalFlowNode:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        flowId: {type: integer, format: int64}
-        nodeOrder: {type: integer}
-        nodeName: {type: string}
-        positionId: {type: [integer, 'null'], format: int64}
-        approverUserId: {type: integer, format: int64}
-        allowReturn: {type: boolean}
-    ApprovalFlowDetail:
-      type: object
-      properties:
-        flow: {$ref: '#/components/schemas/ApprovalFlow'}
-        nodes:
-          type: array
-          items: {$ref: '#/components/schemas/ApprovalFlowNode'}
-    ApprovalDetail:
-      type: object
-      properties:
-        templateId: {type: integer, format: int64, description: 实例创建时的稳定模板。}
-        flowConfiguration: {$ref: '#/components/schemas/ApprovalFlowConfiguration'}
-        displayNames:
-          type: object
-          description: 授权审批详情中的当前登记名称映射，包含 drivers/vehicles/routes；仅供展示，历史事实仍以各 Submission 的冻结 Snapshot 为准。
-          additionalProperties:
-            type: object
-            additionalProperties: {type: string}
-        approval:
-          type: object
-          properties:
-            id: {type: integer, format: int64}
-            approvalNo: {type: string}
-            approvalType: {type: string}
-            flowId: {type: integer, format: int64}
-            flowVersion: {type: integer}
-            status: {$ref: '#/components/schemas/ApprovalInstanceStatus'}
-            currentNodeOrder: {type: [integer, 'null']}
-        submissions:
-          type: array
-          items:
-            type: object
-            properties:
-              id: {type: integer, format: int64}
-              versionNo: {type: integer}
-              businessSnapshotJson: {type: string}
-              submittedBy: {type: integer, format: int64}
-              submittedAt: {type: string, format: date-time}
-              attachments:
-                type: array
-                description: 当前 Submission Version 的正式证据引用；可包含原 TIRE_OCR 图片，不复制文件或改变其 owner/purpose。不同版本分别返回各自证据，审批动作图片仅在 tasks.actions.attachments 中返回。
-                items: {$ref: '#/components/schemas/Attachment'}
-        tasks:
-          type: array
-          items:
-            type: object
-            properties:
-              id: {type: integer, format: int64}
-              submissionVersionId: {type: integer, format: int64}
-              submissionVersionNo: {type: integer}
-              nodeOrder: {type: integer}
-              nodeName: {type: string}
-              approverUserId: {type: integer, format: int64}
-              status: {$ref: '#/components/schemas/ApprovalTaskStatus'}
-              invalidated: {type: boolean}
-              createdAt: {type: string, format: date-time}
-              completedAt: {type: [string, 'null'], format: date-time}
-              actions:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id: {type: integer, format: int64}
-                    actionType: {type: string, enum: [APPROVE, RETURN_APPLICANT, RETURN_NODE]}
-                    operatorId: {type: integer, format: int64}
-                    comment: {type: [string, 'null']}
-                    targetNodeOrder: {type: [integer, 'null']}
-                    operatedAt: {type: string, format: date-time}
-                    attachments:
-                      type: array
-                      description: 当前 approval_action 的审批节点补充图片。
-                      items: {$ref: '#/components/schemas/Attachment'}
-    ExpenseType:
-      type: string
-      enum: [PENALTY, CARRYING, REPAIR, ELECTRIC, GAS, TEMP_ELECTRIC, WATER, TOLL, CAR_WASH, INFORMATION, DRIVER_SALARY, OTHER]
-    ExpenseStatus:
-      type: string
-      enum: [ACTIVE, PENDING_ATTRIBUTION, REVERSED, REVERSAL]
-    ExpenseAttributionType:
-      type: string
-      enum: [ROUTE, DAILY]
-    ExpenseAttributionHistory:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        expenseId: {type: integer, format: int64}
-        beforeAttributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
-        beforeRouteId: {type: [integer, 'null'], format: int64}
-        beforeStatus: {$ref: '#/components/schemas/ExpenseStatus'}
-        afterAttributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
-        afterRouteId: {type: [integer, 'null'], format: int64}
-        afterStatus: {$ref: '#/components/schemas/ExpenseStatus'}
-        operatorId: {type: integer, format: int64}
-        operationTime: {type: string, format: date-time}
-        reason: {type: string}
-    ImportBusinessType:
-      type: string
-      enum: [ROUTE, TIRE, EXPENSE, SALARY]
-    ImportFinalStatus:
-      type: string
-      enum: [SUCCESS, UNPUBLISHED, FAILURE]
-    ImportPreviewRequest:
-      type: object
-      required: [businessType, originalFileId]
-      properties:
-        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
-        templateId: {type: [integer, 'null'], format: int64}
-        originalFileId: {type: integer, format: int64, description: 附件中心 IMPORT_FILE 文件 ID}
-        rows:
-          type: array
-          deprecated: true
-          description: 仅保留兼容旧内部测试数据结构；生产导入不使用调用方传入 rows，后端必须从 originalFileId 对应文件解析。
-          items: {$ref: '#/components/schemas/ImportRowInput'}
-    ImportRowInput:
-      type: object
-      required: [rowNo, rawData]
-      properties:
-        rowNo: {type: integer}
-        businessUniqueKey: {type: [string, 'null'], description: 可选；为空时后端按业务类型计算。费用导入仅在存在 expenseNo、能源站点+订单号、罚款号、维修发票/收据、过路费收据等稳定标识时自动计算；无天然唯一编号的费用必须提供该字段}
-        rawData:
-          oneOf:
-            - {$ref: '#/components/schemas/ImportRouteRawData'}
-            - {$ref: '#/components/schemas/ImportTireRawData'}
-            - {$ref: '#/components/schemas/ImportExpenseRawData'}
-            - {$ref: '#/components/schemas/ImportSalaryRawData'}
-    ImportRouteRawData:
-      type: object
-      required: [businessDate, customerId, productId, direction, loadingPlace, unloadingPlace, taxUnitPrice]
-      properties:
-        routeNo: {type: [string, 'null']}
-        businessDate: {type: string, format: date}
-        customerId: {type: integer, format: int64}
-        productId: {type: integer, format: int64}
-        direction: {type: string, enum: [OUTBOUND, RETURN]}
-        loadingPlace: {type: string}
-        unloadingPlace: {type: string}
-        taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
-        assignedDriverId: {type: [integer, 'null'], format: int64}
-        vehicleId: {type: [integer, 'null'], format: int64, description: 若提供，必须与司机当前绑定车辆一致}
-    ImportTireRawData:
-      type: object
-      required: [tireNo]
-      properties:
-        tireNo: {type: string}
-        barcode: {type: [string, 'null']}
-        used: {type: boolean, description: false 表示未使用库存；true 表示历史已使用数据，后端使用 CLAIMED + tire_claim.install_time 表示}
-        status: {type: [string, 'null'], enum: [IN_STOCK, APPROVAL_RESERVED, CLAIMED, null]}
-        installTime: {type: [string, 'null'], format: date-time}
-        vehicleId: {type: [integer, 'null'], format: int64}
-        driverId: {type: [integer, 'null'], format: int64}
-    ImportExpenseRawData:
-      type: object
-      required: [expenseType, businessDate, vehicleId, attributionType, amount]
-      properties:
-        expenseNo: {type: [string, 'null'], description: 费用业务单号；存在时优先用于导入查重}
-        expenseType: {$ref: '#/components/schemas/ExpenseType'}
-        businessDate: {type: string, format: date}
-        vehicleId: {type: integer, format: int64}
-        driverId: {type: [integer, 'null'], format: int64}
-        attributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
-        routeId: {type: [integer, 'null'], format: int64}
-        amount: {$ref: '#/components/schemas/DecimalMoney'}
-        energyDetail:
-          type: [object, 'null']
-          properties:
-            energyType: {type: string, enum: [ELECTRIC, GAS, TEMP_ELECTRIC]}
-            stationId: {type: [integer, 'null'], format: int64, description: 能源站点；与 orderNo 共同构成电费/气费/临电费导入稳定业务键}
-            orderNo: {type: string, description: 能源订单号；与 stationId 共同构成电费/气费/临电费导入稳定业务键}
-            startTime: {type: string, format: date-time}
-            quantity: {$ref: '#/components/schemas/DecimalWeight'}
-    ImportSalaryRawData:
-      type: object
-      required: [routeId, driverId, salaryAmount]
-      properties:
-        routeId: {type: integer, format: int64}
-        driverId: {type: integer, format: int64}
-        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
-    DriverSalaryRequest:
-      type: object
-      required: [routeId, driverId, salaryAmount]
-      properties:
-        routeId: {type: integer, format: int64}
-        driverId: {type: integer, format: int64}
-        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
-        reason: {type: [string, 'null']}
-    DriverSalary:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        routeId: {type: integer, format: int64}
-        routeNo: {type: string}
-        driverId: {type: integer, format: int64}
-        driverName: {type: string}
-        businessMonth: {type: string}
-        businessDate: {type: string, format: date}
-        salaryAmount: {$ref: '#/components/schemas/DecimalMoney'}
-        sourceType: {type: string, enum: [MANUAL, IMPORT]}
-        importTaskId: {type: [integer, 'null'], format: int64}
-        importRowId: {type: [integer, 'null'], format: int64}
-        createdBy: {type: integer, format: int64}
-        createdAt: {type: string, format: date-time}
-        updatedBy: {type: [integer, 'null'], format: int64}
-        updatedAt: {type: string, format: date-time}
-    DriverSalaryHistory:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        salaryEntryId: {type: [integer, 'null'], format: int64}
-        routeId: {type: integer, format: int64}
-        driverId: {type: integer, format: int64}
-        beforeAmount: {$ref: '#/components/schemas/DecimalMoney'}
-        afterAmount: {$ref: '#/components/schemas/DecimalMoney'}
-        beforeSourceType: {type: [string, 'null']}
-        afterSourceType: {type: string}
-        operatorId: {type: integer, format: int64}
-        operationTime: {type: string, format: date-time}
-        reason: {type: [string, 'null']}
-        importTaskId: {type: [integer, 'null'], format: int64}
-        importRowId: {type: [integer, 'null'], format: int64}
-    ImportTask:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        batchNo: {type: string}
-        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
-        originalFileId: {type: integer, format: int64}
-        totalCount: {type: integer}
-        successCount: {type: integer}
-        unpublishedCount: {type: integer}
-        failureCount: {type: integer}
-        status: {type: string, enum: [PREVIEWED, COMMITTED]}
-        rows:
-          type: array
-          items: {$ref: '#/components/schemas/ImportRow'}
-    ImportRow:
-      type: object
-      properties:
-        id: {type: integer, format: int64}
-        rowNo: {type: integer}
-        previewStatus: {type: string, enum: [SUCCESS, FAILURE]}
-        previewErrorCode: {type: [string, 'null']}
-        previewErrorMessage: {type: [string, 'null']}
-        finalStatus: {$ref: '#/components/schemas/ImportFinalStatus'}
-        finalErrorCode: {type: [string, 'null']}
-        finalErrorMessage: {type: [string, 'null']}
-        businessType: {$ref: '#/components/schemas/ImportBusinessType'}
-        businessId: {type: [integer, 'null'], format: int64}
-        businessUniqueKey: {type: [string, 'null']}
     DecimalMoney:
       type: string
       pattern: '^\\d{1,16}(\\.\\d{1,2})?$'
@@ -1974,28 +728,6 @@ components:
       type: string
       pattern: '^\\d{1,15}(\\.\\d{1,3})?$'
       description: 重量/电量/气量 DECIMAL(18,3)，接口以字符串传输避免浮点误差。
-    DecimalUnitPrice:
-      type: string
-      pattern: '^\\d{1,14}(\\.\\d{1,4})?$'
-      description: 单价 DECIMAL(18,4)，接口以字符串传输避免浮点误差。
-    DecimalMileage:
-      type: string
-      pattern: '^\\d{1,16}(\\.\\d{1,2})?$'
-      description: 里程 DECIMAL(18,2)，接口以字符串传输避免浮点误差。
-    RouteCreateRequest:
-      type: object
-      required: [businessDate, customerId, productId, direction, loadingPlace, unloadingPlace, taxUnitPrice]
-      properties:
-        businessDate: {type: string, format: date}
-        customerId: {type: integer, format: int64}
-        productId: {type: integer, format: int64}
-        direction: {type: string, enum: [OUTBOUND, RETURN]}
-        loadingPlace: {type: string}
-        unloadingPlace: {type: string}
-        assignedDriverId: {type: [integer, 'null'], format: int64}
-        taxUnitPrice: {$ref: '#/components/schemas/DecimalUnitPrice'}
-        externalRouteNo: {type: [string, 'null']}
-        tripSequence: {type: [string, 'null']}
     DriverCreateRequest:
       type: object
       required: [driverType, name, phone, status]
@@ -2009,120 +741,118 @@ components:
         drivingLicenseNo: {type: [string, 'null']}
         idCardNo: {type: [string, 'null']}
         birthDate: {type: [string, 'null'], format: date}
-    RoutePublishRequest:
+    RouteTemplateRequest:
       type: object
-      required: [initialSalary]
+      required: [stableCode, name, customerName, productId, loadingPlace, unloadingPlace, defaultUnitPrice, defaultInformationFee, defaultDriverSalary]
       properties:
-        initialSalary: {$ref: '#/components/schemas/DecimalMoney'}
-        outsourcedPlateNo: {type: [string, 'null'], description: OUTSOURCED 必填完整真实外协车牌；INTERNAL 不使用}
-    RouteTransferRequest:
+        stableCode: {type: string, maxLength: 64}
+        name: {type: string, maxLength: 128}
+        customerName: {type: string, maxLength: 128}
+        productId: {type: integer, format: int64}
+        loadingPlace: {type: string}
+        unloadingPlace: {type: string}
+        defaultUnitPrice: {$ref: '#/components/schemas/DecimalMoney'}
+        defaultInformationFee: {$ref: '#/components/schemas/DecimalMoney'}
+        defaultDriverSalary: {$ref: '#/components/schemas/DecimalMoney'}
+        remark: {type: [string, 'null']}
+        expectedVersion: {type: [integer, 'null'], description: 更新时必填}
+    DispatchBatchRequest:
       type: object
-      required: [expectedCurrentParticipantId, expectedRouteVersion, newDriverId, newSalary, reason, salaries]
+      required: [businessDate, rows]
       properties:
-        expectedCurrentParticipantId: {type: integer, format: int64}
-        expectedRouteVersion: {type: integer, minimum: 0}
-        newDriverId: {type: integer, format: int64}
-        outsourcedPlateNo: {type: [string, 'null'], description: 新司机为 OUTSOURCED 时必填真实车牌}
-        newSalary: {$ref: '#/components/schemas/DecimalMoney'}
-        reason: {type: string, minLength: 1}
-        salaries:
+        businessDate: {type: string, format: date}
+        rows:
           type: array
-          description: 所有既有有效 Participant 必须各出现一次，不可遗漏、重复或跨线路
+          minItems: 1
+          items:
+            type: object
+            required: [templateStableCode, driverId]
+            properties:
+              templateStableCode: {type: string}
+              driverId: {type: integer, format: int64}
+              outsourcedPlateNo: {type: [string, 'null'], description: 后端确认司机为 OUTSOURCED 时必填}
+              actualUnitPrice: {$ref: '#/components/schemas/DecimalMoney'}
+              actualInformationFee: {$ref: '#/components/schemas/DecimalMoney'}
+              initialSalary: {$ref: '#/components/schemas/DecimalMoney'}
+              remark: {type: [string, 'null']}
+    DispatchConfirmRequest:
+      type: object
+      required: [previewId, requestKey, batch]
+      properties:
+        previewId: {type: string}
+        requestKey: {type: string}
+        batch: {$ref: '#/components/schemas/DispatchBatchRequest'}
+    TaskTransferRequest:
+      type: object
+      required: [newDriverId, allParticipantSalaries, newSalary, reason, expectedVersion, expectedCurrentParticipantId]
+      properties:
+        newDriverId: {type: integer, format: int64}
+        outsourcedPlateNo: {type: [string, 'null']}
+        allParticipantSalaries:
+          type: array
           items:
             type: object
             required: [participantId, amount]
             properties:
               participantId: {type: integer, format: int64}
               amount: {$ref: '#/components/schemas/DecimalMoney'}
-    ParticipantSalaryAdjustmentRequest:
+        newSalary: {$ref: '#/components/schemas/DecimalMoney'}
+        reason: {type: string}
+        expectedVersion: {type: integer}
+        expectedCurrentParticipantId: {type: integer, format: int64}
+    TaskDepartRequest:
       type: object
-      required: [amount, expectedParticipantVersion, reason]
+      required: [requestKey, expectedVersion]
       properties:
-        amount: {$ref: '#/components/schemas/DecimalMoney'}
-        expectedParticipantVersion: {type: integer, minimum: 0}
-        reason: {type: string, minLength: 1}
-    RouteReasonRequest:
+        requestKey: {type: string}
+        expectedVersion: {type: integer}
+    TaskUnloadRequest:
       type: object
-      required: [reason]
-      properties:
-        reason: {type: string, minLength: 1, description: 作废原因必填且不可只含空白}
-        acknowledgeBusinessImpact: {type: boolean, description: 作废时必须为 true；取消接口不需要}
-    UnloadRequest:
-      type: object
-      required: [grossWeight, tareWeight, evidenceAttachmentIds]
+      required: [grossWeight, tareWeight, ticketAttachmentIds, requestKey]
       properties:
         grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
         tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        evidenceAttachmentIds: {type: array, minItems: 1, uniqueItems: true, items: {type: integer, format: int64}}
-    DriverRoute:
+        ticketAttachmentIds: {type: array, minItems: 1, items: {type: integer, format: int64}}
+        requestKey: {type: string}
+    TaskCancelRequest:
       type: object
-      description: 仅供 DRIVER 角色使用；列表、详情、发车及卸货统一返回该 DTO，不含单价、工资、利润或达标信息。
+      required: [reason, expectedVersion, requestKey]
       properties:
-        id: {type: integer, format: int64}
-        routeNo: {type: string}
-        externalRouteNo: {type: [string, 'null']}
-        tripSequence: {type: [string, 'null']}
-        businessDate: {type: string, format: date}
-        customerId: {type: integer, format: int64}
-        productId: {type: integer, format: int64}
-        direction: {type: string}
-        loadingPlace: {type: string}
-        unloadingPlace: {type: string}
-        assignedDriverId: {type: [integer, 'null'], format: int64}
-        status: {$ref: '#/components/schemas/RouteStatus'}
-        departureDriverId: {type: [integer, 'null'], format: int64}
-        departureVehicleId: {type: [integer, 'null'], format: int64}
-        departureTrailerId: {type: [integer, 'null'], format: int64}
-        departureTime: {type: [string, 'null'], format: date-time}
-        unloadTime: {type: [string, 'null'], format: date-time}
-        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        netWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        currentPlateNo: {type: [string, 'null'], description: 当前 INTERNAL 公司车牌或 OUTSOURCED 当前参与外协车牌}
-    WeightAdjustmentRequest:
+        reason: {type: string}
+        expectedVersion: {type: integer}
+        requestKey: {type: string}
+    TaskWeightAdjustmentRequest:
       type: object
-      required: [grossWeight, tareWeight, reason]
+      required: [grossWeight, tareWeight, reason, expectedVersion]
       properties:
         grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
         tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        reason: {type: string, minLength: 1}
-        attachmentIds: {type: array, items: {type: integer, format: int64}}
-    RouteWeightVersion:
+        reason: {type: string}
+        evidenceAttachmentIds: {type: array, items: {type: integer, format: int64}}
+        expectedVersion: {type: integer}
+    TaskAmountAdjustmentRequest:
       type: object
+      required: [expectedVersion, amountKind, afterAmount, reason]
       properties:
-        id: {type: integer, format: int64}
-        routeId: {type: integer, format: int64}
-        versionNo: {type: integer}
-        grossWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        tareWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        netWeight: {$ref: '#/components/schemas/DecimalWeight'}
-        loadStandardThreshold: {$ref: '#/components/schemas/DecimalWeight'}
-        loadStandardMet: {type: [boolean, 'null'], description: INTERNAL 为达标/未达标；OUTSOURCED 为 null（不适用）}
-        sourceType: {type: string, enum: [UNLOAD, ADJUSTMENT]}
-        operatorId: {type: integer, format: int64}
-        operationTime: {type: string, format: date-time}
-        reason: {type: [string, 'null']}
-        attachmentIds: {type: array, items: {type: integer, format: int64}}
-    ExpenseRequest:
+        expectedVersion: {type: integer}
+        amountKind: {type: string, enum: [UNIT_PRICE, INFORMATION_FEE]}
+        afterAmount: {$ref: '#/components/schemas/DecimalMoney'}
+        reason: {type: string}
+    TaskSalariesConfirmRequest:
       type: object
-      required: [expenseType, businessDate, vehicleId, attributionType, amount, sourceType]
+      required: [salaries, reason, requestKey]
       properties:
-        expenseType: {$ref: '#/components/schemas/ExpenseType'}
-        businessDate: {type: string, format: date}
-        vehicleId: {type: integer, format: int64}
-        attributionType: {$ref: '#/components/schemas/ExpenseAttributionType'}
-        routeId: {type: [integer, 'null'], format: int64}
-        amount: {$ref: '#/components/schemas/DecimalMoney'}
-        sourceType: {type: string, enum: [APPROVAL, MANUAL, IMPORT, SYSTEM]}
-        energyDetail:
-          type: [object, 'null']
-          description: 电费、气费、临时电费明细；后端仅按正式 INTERNAL 参与公司车及整线首次发车至最终卸货闭区间匹配，唯一候选才自动归属，零/多候选待归属。
-          properties:
-            energyType: {type: string, enum: [ELECTRIC, GAS, TEMP_ELECTRIC]}
-            stationId: {type: [integer, 'null'], format: int64}
-            orderNo: {type: [string, 'null']}
-            startTime: {type: string, format: date-time}
-            quantity: {$ref: '#/components/schemas/DecimalWeight'}
+        salaries:
+          type: array
+          items:
+            type: object
+            required: [participantId, amount, expectedVersion]
+            properties:
+              participantId: {type: integer, format: int64}
+              amount: {$ref: '#/components/schemas/DecimalMoney'}
+              expectedVersion: {type: integer}
+        reason: {type: string}
+        requestKey: {type: string}
     PermissionCode:
       type: string
       enum:
@@ -2146,51 +876,22 @@ components:
         - driver:bindVehicle
         - driver:unbindVehicle
         - driver:resetPassword
-        - route:list
-        - route:create
-        - route:edit
-        - route:publish
-        - route:cancel
-        - route:delete
-        - route:depart
-        - route:unload
-        - route:void
-        - route:reactivate
-        - route:transfer
-        - route:salary:adjust
-        - route:weight:adjust
-        - expense:list
-        - expense:add
-        - expense:edit
-        - expense:delete
-        - expense:attribution:edit
-        - expense:reversal
-        - expense:approval:view
-        - approval:create
-        - approval:process
-        - approval:return
-        - approval:history:view
-        - approval:flow:manage
-        - tire:list
-        - tire:import
-        - tire:request
-        - tire:approval:view
-        - import:preview
-        - import:commit
-        - import:history
-        - import:failure:export
+        - template:view
+        - template:manage
+        - task:view
+        - task:participants:view
+        - task:weight:view
+        - task:create
+        - task:publish
+        - task:cancel
+        - task:transfer
+        - task:depart
+        - task:unload
+        - task:weight:adjust
+        - task:amount:adjust
         - salary:view
-        - salary:manage
+        - salary:adjust
         - salary:mine
-        - report:dashboard
-        - report:profit
-        - report:vehicle
-        - report:driver
-        - report:attendance
-        - report:energy
-        - settlement:view
-        - settlement:generate
-        - settlement:diff:view
         - user:manage
         - role:manage
         - permission:manage

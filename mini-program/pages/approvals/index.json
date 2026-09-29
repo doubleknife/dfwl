@@ -1,4 +1,0 @@
-{
-  "navigationBarTitleText": "审批中心",
-  "usingComponents": {"feedback-state": "../../components/feedback-state/index"}
-}

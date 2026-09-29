@@ -15,6 +15,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -58,6 +59,12 @@ public class GlobalExceptionHandler {
                         ErrorCode.AUTH_003.name(),
                         ErrorCode.AUTH_003.defaultMessage(),
                         RequestIdHolder.get()));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingEndpoint(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.failure(ErrorCode.DATA_001.name(), "接口不存在", RequestIdHolder.get()));
     }
 
     @ExceptionHandler(Exception.class)

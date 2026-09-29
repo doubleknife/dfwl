@@ -20,19 +20,19 @@ assert.equal(canAdjustWeight({ status: 'COMPLETED' }, true), true);
 assert.equal(canAdjustWeight({ status: 'IN_TRANSIT' }, true), false);
 assert.equal(canAdjustWeight({ status: 'COMPLETED' }, false), false);
 const uploadBody = weightAdjustUploadBody(7, new Blob(['image'], { type: 'image/png' }));
-assert.equal(uploadBody.get('ownerType'), 'ROUTE');
+assert.equal(uploadBody.get('ownerType'), 'TASK');
 assert.equal(uploadBody.get('ownerId'), '7');
 assert.equal(uploadBody.get('purpose'), 'WEIGHT_ADJUST');
-assert.deepEqual(weightAdjustmentBody({ grossWeight: '31', tareWeight: '5', reason: '  复核磅单  ' }, [{ id: 9 }, { id: 10 }]), {
-  grossWeight: '31', tareWeight: '5', reason: '复核磅单', attachmentIds: [9, 10]
+assert.deepEqual(weightAdjustmentBody({ grossWeight: '31', tareWeight: '5', reason: '  复核磅单  ' }, [{ id: 9 }, { id: 10 }], 4), {
+  grossWeight: '31', tareWeight: '5', reason: '复核磅单', evidenceAttachmentIds: [9, 10], expectedVersion: 4
 });
 assert.equal(maskedPhone('13912345678'), '139****5678');
 assert.deepEqual(operatorIdentity(8, [{ id: 8, phone: '13912345678', roleName: '司机' }], [{ userId: 8, name: '张司机', phone: '13912345678' }]), { name: '张司机', phone: '139****5678' });
 assert.deepEqual(operatorIdentity(1, [{ id: 1, phone: '13900000001', roleName: '管理员' }]), { name: '管理员', phone: '139****0001' });
 assert.deepEqual(operatorIdentity(999), { name: '操作人姓名未记录', phone: '' });
-const routeView = readFileSync(new URL('../src/views/RoutesSampleView.vue', import.meta.url), 'utf8');
-assert.match(routeView, /<div v-if="detailTab === 'weights'"[\s\S]*?<button v-if="mayAdjustWeight"[^>]*>重量纠错<\/button>/);
+const routeView = readFileSync(new URL('../src/views/TransportTasksV3View.vue', import.meta.url), 'utf8');
+assert.match(routeView, /<button v-if="selected\.status === 'COMPLETED' && can\('task:weight:adjust'\)"[^>]*>重量纠错<\/button>/);
 assert.match(routeView, /<FormDialog :open="adjusting"[^>]*>[\s\S]*?<RouteWeightImageUpload/);
 assert.doesNotMatch(routeView, /证据附件 ID|逗号分隔|operation = 'adjust'/);
-assert.match(routeView, /await detail\(route, true\)/);
+assert.match(routeView, /await openTask\(selected\.value\)/);
 console.log('route weight evidence presentation tests passed');

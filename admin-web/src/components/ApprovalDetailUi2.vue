@@ -30,7 +30,7 @@ async function loadNames() {
   const requests = [];
   if (can('vehicle:view')) for (const id of vehicles) requests.push(masterApi.vehicle(id).then((row) => { vehicleNames.value[id] = row.plateNo; }).catch(() => {}));
   if (can('driver:view')) for (const id of drivers) requests.push(masterApi.driver(id).then((row) => { driverNames.value[id] = `${row.name} · ${row.phone}`; }).catch(() => {}));
-  if (can('route:list')) for (const id of routes) requests.push(routeApi.detail(id).then((row) => { routeNames.value[id] = row.routeNo; }).catch(() => {}));
+  if (can('task:view')) for (const id of routes) requests.push(routeApi.detail(id).then((row) => { routeNames.value[id] = row.taskNo; }).catch(() => {}));
   await Promise.all(requests);
 }
 watch(() => props.detail.approval.id, () => { vehicleNames.value = {}; driverNames.value = {}; routeNames.value = {}; loadNames(); }, { immediate: true });

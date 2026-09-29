@@ -2,8 +2,6 @@ package com.dfwl.fleet.master.repository;
 
 import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.master.dto.response.BindingHistoryResponse;
-import com.dfwl.fleet.master.dto.request.CustomerRequest;
-import com.dfwl.fleet.master.dto.response.CustomerResponse;
 import com.dfwl.fleet.master.dto.request.DriverRequest;
 import com.dfwl.fleet.master.dto.response.DriverResponse;
 import com.dfwl.fleet.master.dto.request.ProductRequest;
@@ -33,99 +31,39 @@ public class MasterDataRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public PageResponse<CustomerResponse> listCustomers(int pageNo, int pageSize) {
-        long total = count("customer", "1 = 1");
-        List<CustomerResponse> records = jdbcTemplate.query("""
-                SELECT id, customer_code, customer_name, status, remark
-                FROM customer
-                ORDER BY id DESC
-                LIMIT ? OFFSET ?
-                """, (rs, rowNum) -> new CustomerResponse(
-                rs.getLong("id"),
-                rs.getString("customer_code"),
-                rs.getString("customer_name"),
-                rs.getInt("status"),
-                rs.getString("remark")), pageSize, offset(pageNo, pageSize));
-        return new PageResponse<>(pageNo, pageSize, total, records);
-    }
-
-    public Optional<CustomerResponse> findCustomer(long id) {
-        return jdbcTemplate.query("""
-                SELECT id, customer_code, customer_name, status, remark
-                FROM customer WHERE id = ?
-                """, (rs, rowNum) -> new CustomerResponse(
-                rs.getLong("id"),
-                rs.getString("customer_code"),
-                rs.getString("customer_name"),
-                rs.getInt("status"),
-                rs.getString("remark")), id).stream().findFirst();
-    }
-
-    public long createCustomer(CustomerRequest request) {
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update(connection -> {
-            PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO customer (customer_code, customer_name, status, remark)
-                    VALUES (?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, request.customerCode());
-            ps.setString(2, request.customerName());
-            ps.setInt(3, request.status());
-            ps.setString(4, request.remark());
-            return ps;
-        }, keyHolder);
-        return keyHolder.getKey().longValue();
-    }
-
-    public boolean updateCustomer(long id, CustomerRequest request) {
-        return jdbcTemplate.update("""
-                UPDATE customer SET customer_code = ?, customer_name = ?, status = ?, remark = ? WHERE id = ?
-                """, request.customerCode(), request.customerName(), request.status(), request.remark(), id) == 1;
-    }
-
-    public boolean updateCustomerStatus(long id, int status) {
-        return jdbcTemplate.update("UPDATE customer SET status = ? WHERE id = ?", status, id) == 1;
-    }
-
     public PageResponse<ProductResponse> listProducts(int pageNo, int pageSize) {
         long total = count("product", "1 = 1");
         List<ProductResponse> records = jdbcTemplate.query("""
-                SELECT id, product_code, product_name, status, remark
+                SELECT id, name, enabled, version
                 FROM product
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
                 """, (rs, rowNum) -> new ProductResponse(
                 rs.getLong("id"),
-                rs.getString("product_code"),
-                rs.getString("product_name"),
-                rs.getInt("status"),
-                rs.getString("remark")), pageSize, offset(pageNo, pageSize));
+                rs.getString("name"), rs.getInt("enabled") == 1,
+                rs.getInt("version")), pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
     public Optional<ProductResponse> findProduct(long id) {
         return jdbcTemplate.query("""
-                SELECT id, product_code, product_name, status, remark
+                SELECT id, name, enabled, version
                 FROM product WHERE id = ?
                 """, (rs, rowNum) -> new ProductResponse(
                 rs.getLong("id"),
-                rs.getString("product_code"),
-                rs.getString("product_name"),
-                rs.getInt("status"),
-                rs.getString("remark")), id).stream().findFirst();
+                rs.getString("name"), rs.getInt("enabled") == 1,
+                rs.getInt("version")), id).stream().findFirst();
     }
 
     public long createProduct(ProductRequest request) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO product (product_code, product_name, status, remark)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO product (name, enabled)
+                    VALUES (?, ?)
                     """, new String[]{"id"});
-            ps.setString(1, request.productCode());
-            ps.setString(2, request.productName());
-            ps.setInt(3, request.status());
-            ps.setString(4, request.remark());
+            ps.setString(1, request.name().trim());
+            ps.setInt(2, request.enabled() ? 1 : 0);
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -133,12 +71,13 @@ public class MasterDataRepository {
 
     public boolean updateProduct(long id, ProductRequest request) {
         return jdbcTemplate.update("""
-                UPDATE product SET product_code = ?, product_name = ?, status = ?, remark = ? WHERE id = ?
-                """, request.productCode(), request.productName(), request.status(), request.remark(), id) == 1;
+                UPDATE product SET name = ?, enabled = ?, version = version + 1 WHERE id = ? AND version = ?
+                """, request.name().trim(), request.enabled() ? 1 : 0, id, request.expectedVersion()) == 1;
     }
 
     public boolean updateProductStatus(long id, int status) {
-        return jdbcTemplate.update("UPDATE product SET status = ? WHERE id = ?", status, id) == 1;
+        return jdbcTemplate.update("UPDATE product SET enabled = ?, version = version + 1 WHERE id = ?",
+                status, id) == 1;
     }
 
     public PageResponse<DriverResponse> listDrivers(int pageNo, int pageSize) {
@@ -260,14 +199,9 @@ public class MasterDataRepository {
                 request.birthDate() == null ? null : Date.valueOf(request.birthDate()), request.status(), id) == 1;
     }
 
-    public boolean hasDriverRouteOrSalaryHistory(long driverId) {
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT
-                  (SELECT COUNT(*) FROM route_task WHERE assigned_driver_id = ? OR departure_driver_id = ?)
-                + (SELECT COUNT(*) FROM route_participant WHERE driver_id = ?)
-                + (SELECT COUNT(*) FROM driver_salary_entry WHERE driver_id = ?)
-                + (SELECT COUNT(*) FROM driver_salary_history WHERE driver_id = ?)
-                """, Integer.class, driverId, driverId, driverId, driverId, driverId);
+    public boolean hasDriverTaskHistory(long driverId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM transport_participant WHERE driver_id = ?", Integer.class, driverId);
         return count != null && count > 0;
     }
 
@@ -319,9 +253,10 @@ public class MasterDataRepository {
                 SELECT COUNT(DISTINCT v.id)
                 FROM vehicle v
                 LEFT JOIN driver_vehicle_current dvc ON dvc.vehicle_id = v.id
-                LEFT JOIN route_task r ON r.departure_vehicle_id = v.id AND r.departure_driver_id = ? AND r.deleted_at IS NULL
+                LEFT JOIN transport_participant p ON p.company_vehicle_id = v.id
+                    AND p.driver_id = ? AND p.status <> 'CANCELLED'
                 WHERE v.deleted_at IS NULL
-                  AND (dvc.driver_id = ? OR r.id IS NOT NULL)
+                  AND (dvc.driver_id = ? OR p.id IS NOT NULL)
                 """, Long.class, driverId, driverId);
         List<VehicleResponse> records = jdbcTemplate.query("""
                 SELECT DISTINCT v.*, dvc.driver_id AS current_driver_id, vtc.trailer_id AS current_trailer_id,
@@ -331,9 +266,10 @@ public class MasterDataRepository {
                 LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id = v.id
                 LEFT JOIN trailer ct ON ct.id = vtc.trailer_id
                 LEFT JOIN driver cd ON cd.id = dvc.driver_id
-                LEFT JOIN route_task r ON r.departure_vehicle_id = v.id AND r.departure_driver_id = ? AND r.deleted_at IS NULL
+                LEFT JOIN transport_participant p ON p.company_vehicle_id = v.id
+                    AND p.driver_id = ? AND p.status <> 'CANCELLED'
                 WHERE v.deleted_at IS NULL
-                  AND (dvc.driver_id = ? OR r.id IS NOT NULL)
+                  AND (dvc.driver_id = ? OR p.id IS NOT NULL)
                 ORDER BY v.id DESC
                 LIMIT ? OFFSET ?
                 """, (rs, rowNum) -> new VehicleResponse(
@@ -362,8 +298,9 @@ public class MasterDataRepository {
                       WHERE dvc.driver_id = ? AND dvc.vehicle_id = v.id
                     )
                     OR EXISTS (
-                      SELECT 1 FROM route_task r
-                      WHERE r.departure_driver_id = ? AND r.departure_vehicle_id = v.id AND r.deleted_at IS NULL
+                      SELECT 1 FROM transport_participant p
+                      WHERE p.driver_id = ? AND p.company_vehicle_id = v.id
+                        AND p.status <> 'CANCELLED'
                     )
                   )
                 """, Integer.class, vehicleId, driverId, driverId);
@@ -614,27 +551,22 @@ public class MasterDataRepository {
     public boolean hasInTransitDriverOrVehicle(long driverId, long vehicleId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task r
-                WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
-                  AND (r.assigned_driver_id = ? OR r.departure_driver_id = ?
-                       OR r.departure_vehicle_id = ?
-                       OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
-                                  AND p.status IN ('ASSIGNED', 'IN_TRANSIT')
-                                  AND (p.driver_id = ? OR p.company_vehicle_id = ?)))
-                """, Integer.class, driverId, driverId, vehicleId, driverId, vehicleId);
+                FROM transport_task t JOIN transport_participant p ON p.task_id = t.id
+                WHERE t.status IN ('IN_TRANSIT', 'TRANSFER_PENDING') AND t.deleted_at IS NULL
+                  AND p.status <> 'CANCELLED'
+                  AND (p.driver_id = ? OR p.company_vehicle_id = ?)
+                """, Integer.class, driverId, vehicleId);
         return count != null && count > 0;
     }
 
     public boolean hasInTransitVehicleOrTrailer(long vehicleId, long trailerId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
-                FROM route_task r
-                WHERE r.status IN ('IN_TRANSIT', 'TRANSFER_PENDING')
-                  AND (r.departure_vehicle_id = ? OR r.departure_trailer_id = ?
-                       OR EXISTS (SELECT 1 FROM route_participant p WHERE p.route_id = r.id
-                                  AND p.status IN ('ASSIGNED', 'IN_TRANSIT')
-                                  AND p.company_vehicle_id = ?))
-                """, Integer.class, vehicleId, trailerId, vehicleId);
+                FROM transport_task t JOIN transport_participant p ON p.task_id = t.id
+                WHERE t.status IN ('IN_TRANSIT', 'TRANSFER_PENDING') AND t.deleted_at IS NULL
+                  AND p.status <> 'CANCELLED'
+                  AND (p.company_vehicle_id = ? OR p.trailer_id = ?)
+                """, Integer.class, vehicleId, trailerId);
         return count != null && count > 0;
     }
 

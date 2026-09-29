@@ -18,12 +18,12 @@ Page({
     this.setData({ loading: true, error: '' });
     try {
       const [route, user] = await Promise.all([
-        request({ url: `/routes/${this.data.id}` }), request({ url: '/me' })
+        request({ url: `/driver/transport-tasks/${this.data.id}` }), request({ url: '/me' })
       ]);
       const safe = routePresentation(sanitizeRoute(route));
       this.setData({
         route: safe,
-        canUnload: hasPermission(user, 'route:unload') && user.driverId === safe.assignedDriverId,
+        canUnload: hasPermission(user, 'task:unload') && !!safe.currentParticipant,
         grossWeight: this._hasInput ? this.data.grossWeight : (safe.grossWeight || ''),
         tareWeight: this._hasInput ? this.data.tareWeight : (safe.tareWeight || ''),
         resultUnknown: false,
@@ -31,7 +31,7 @@ Page({
       });
       this.recalculate();
       if (safe.status === 'COMPLETED') {
-        const evidence = await request({ url: `/attachments?ownerType=ROUTE&ownerId=${this.data.id}&purpose=ROUTE_UNLOAD_WEIGHT_TICKET` });
+        const evidence = await request({ url: `/attachments?ownerType=TASK&ownerId=${this.data.id}&purpose=ROUTE_UNLOAD_WEIGHT_TICKET` });
         const tickets = await Promise.all((evidence || []).map(async (item) => ({
           id: item.id, path: await downloadAttachment(item.id), uploadedAt: item.uploadedAt
         })));
@@ -75,7 +75,7 @@ Page({
           try {
             const attachment = await uploadFile({
               url: '/attachments', filePath: path,
-              formData: { ownerType: 'ROUTE', ownerId: this.data.id, purpose: 'ROUTE_UNLOAD_WEIGHT_TICKET' },
+              formData: { ownerType: 'TASK', ownerId: this.data.id, purpose: 'ROUTE_UNLOAD_WEIGHT_TICKET' },
               onProgress: (percent) => this.setData({ uploadProgress: percent })
             });
             this.setData({ tickets: this.data.tickets.concat({ id: attachment.id, path }) });
@@ -118,10 +118,13 @@ Page({
         if (!res.confirm) { this.setData({ confirming: false }); return; }
         this.setData({ busy: true, error: '' });
         try {
+          this._unloadKey = this._unloadKey || `unload-${this.data.id}-${Date.now()}`;
           const completed = await request({
-            url: `/routes/${this.data.id}/unload`, method: 'POST',
-            data: { grossWeight, tareWeight, evidenceAttachmentIds }
+            url: `/transport-tasks/${this.data.id}/unload`, method: 'POST',
+            data: { grossWeight, tareWeight, ticketAttachmentIds: evidenceAttachmentIds,
+              requestKey: this._unloadKey }
           });
+          this._unloadKey = null;
           this.setData({ route: routePresentation(sanitizeRoute(completed)) });
           wx.showToast({ title: '卸货已完成' });
         } catch (error) {

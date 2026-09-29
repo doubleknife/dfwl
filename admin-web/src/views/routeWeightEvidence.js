@@ -37,21 +37,22 @@ export function canAdjustWeight(route, permitted) {
   return Boolean(permitted && route?.status === 'COMPLETED');
 }
 
-export function weightAdjustUploadBody(routeId, file) {
+export function weightAdjustUploadBody(taskId, file) {
   const body = new FormData();
-  body.append('ownerType', 'ROUTE');
-  body.append('ownerId', String(routeId));
+  body.append('ownerType', 'TASK');
+  body.append('ownerId', String(taskId));
   body.append('purpose', 'WEIGHT_ADJUST');
   body.append('file', file);
   return body;
 }
 
-export function weightAdjustmentBody(form, images) {
+export function weightAdjustmentBody(form, images, expectedVersion) {
   return {
     grossWeight: form.grossWeight,
     tareWeight: form.tareWeight,
     reason: form.reason.trim(),
-    attachmentIds: images.map((file) => file.id)
+    evidenceAttachmentIds: images.map((file) => file.id),
+    expectedVersion
   };
 }
 

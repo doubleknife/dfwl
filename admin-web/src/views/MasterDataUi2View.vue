@@ -13,8 +13,7 @@ const tabs = [
   { key: 'vehicles', label: '车辆', permission: 'vehicle:list' },
   { key: 'trailers', label: '车挂', permission: 'trailer:list' },
   { key: 'binding', label: '绑定', permission: 'vehicle:bindingHistory' },
-  { key: 'customers', label: '客户', permission: 'route:list' },
-  { key: 'products', label: '产品', permission: 'route:list' }
+  { key: 'products', label: '货物', permission: 'template:view' }
 ];
 const tab = ref(tabs.find((item) => can(item.permission))?.key || 'drivers');
 const drivers = ref([]);
@@ -45,6 +44,6 @@ onMounted(() => { if (tab.value === 'drivers') loadDrivers(); });
     <ErrorState v-if="error && tab === 'drivers'" :message="error" @retry="loadDrivers" />
     <DriverManagementSample v-if="tab === 'drivers' && can('driver:list')" :drivers="drivers" :vehicles="vehicles" :loading="loading" @refresh="loadDrivers" />
     <BindingManagement v-if="tab === 'binding'" />
-    <MasterCatalogUi2 v-if="['vehicles', 'trailers', 'customers', 'products'].includes(tab)" :key="tab" :type="tab" />
+    <MasterCatalogUi2 v-if="['vehicles', 'trailers', 'products'].includes(tab)" :key="tab" :type="tab" />
   </div>
 </template>

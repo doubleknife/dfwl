@@ -4,8 +4,6 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.master.dto.response.BindingHistoryResponse;
-import com.dfwl.fleet.master.dto.request.CustomerRequest;
-import com.dfwl.fleet.master.dto.response.CustomerResponse;
 import com.dfwl.fleet.master.dto.request.DriverRequest;
 import com.dfwl.fleet.master.dto.response.DriverResponse;
 import com.dfwl.fleet.master.dto.request.ProductRequest;
@@ -46,39 +44,6 @@ public class MasterDataService {
         this.driverAccounts = driverAccounts;
     }
 
-    public PageResponse<CustomerResponse> listCustomers(int pageNo, int pageSize) {
-        return repository.listCustomers(pageNo, normalizePageSize(pageSize));
-    }
-
-    public CustomerResponse findCustomer(long id) {
-        return repository.findCustomer(id).orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));
-    }
-
-    @Transactional
-    public CustomerResponse createCustomer(CustomerRequest request) {
-        try {
-            return findCustomer(repository.createCustomer(request));
-        } catch (DataIntegrityViolationException ex) {
-            throw new BusinessException(ErrorCode.DATA_002);
-        }
-    }
-
-    @Transactional
-    public CustomerResponse updateCustomer(long id, CustomerRequest request) {
-        if (!repository.updateCustomer(id, request)) {
-            throw new BusinessException(ErrorCode.DATA_001);
-        }
-        return findCustomer(id);
-    }
-
-    @Transactional
-    public CustomerResponse updateCustomerStatus(long id, int status) {
-        if (!repository.updateCustomerStatus(id, status)) {
-            throw new BusinessException(ErrorCode.DATA_001);
-        }
-        return findCustomer(id);
-    }
-
     public PageResponse<ProductResponse> listProducts(int pageNo, int pageSize) {
         return repository.listProducts(pageNo, normalizePageSize(pageSize));
     }
@@ -98,6 +63,7 @@ public class MasterDataService {
 
     @Transactional
     public ProductResponse updateProduct(long id, ProductRequest request) {
+        if (request.expectedVersion() == null) throw new BusinessException(ErrorCode.SYS_002);
         if (!repository.updateProduct(id, request)) {
             throw new BusinessException(ErrorCode.DATA_001);
         }
@@ -166,7 +132,7 @@ public class MasterDataService {
             throw new BusinessException(ErrorCode.SYS_002);
         }
         if (!before.driverType().equals(request.driverType())
-                && (before.currentVehicleId() != null || repository.hasDriverRouteOrSalaryHistory(id))) {
+                && (before.currentVehicleId() != null || repository.hasDriverTaskHistory(id))) {
             throw new BusinessException(ErrorCode.BIND_003);
         }
         if (!repository.updateDriver(id, request)) {

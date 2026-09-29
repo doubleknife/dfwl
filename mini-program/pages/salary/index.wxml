@@ -15,11 +15,11 @@
   <feedback-state wx:if="{{loading}}" kind="loading" message="正在加载工资单" />
   <feedback-state wx:elif="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
   <block wx:else>
-    <view class="salary-subheading">线路明细</view>
+    <view class="salary-subheading">运输任务明细</view>
     <feedback-state wx:if="{{records.length === 0}}" kind="empty" message="这个月暂无工资记录" />
-    <view wx:for="{{records}}" wx:key="id" class="salary-entry">
-      <view class="salary-entry-line"><text>{{item.routeNo || '线路工资'}}</text><text class="salary-entry-amount">¥ {{item.salaryAmount}}</text></view>
-      <view class="salary-entry-note">{{item.businessDate}} · {{item.sourceType === 'IMPORT' ? '导入' : '人工录入'}}</view>
+    <view wx:for="{{records}}" wx:key="participantId" class="salary-entry">
+      <view class="salary-entry-line"><text>{{item.taskNo || '参与工资'}}</text><text class="salary-entry-amount">¥ {{item.salaryAmount}}</text></view>
+      <view class="salary-entry-note">{{item.businessDate}} · 参与顺序 {{item.sequenceNo}}</view>
     </view>
     <button wx:if="{{hasMore}}" class="salary-more" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">{{loadingMore ? '加载中…' : '加载更多明细'}}</button>
   </block>

@@ -42,7 +42,11 @@ class MasterDataApiTests {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM route_task");
+        jdbcTemplate.update("DELETE FROM departure_event");
+        jdbcTemplate.update("DELETE FROM transport_participant");
+        jdbcTemplate.update("DELETE FROM transport_task");
+        jdbcTemplate.update("DELETE FROM route_template");
+        jdbcTemplate.update("DELETE FROM product");
         jdbcTemplate.update("DELETE FROM vehicle_trailer_history");
         jdbcTemplate.update("DELETE FROM vehicle_trailer_current");
         jdbcTemplate.update("DELETE FROM driver_vehicle_history");
@@ -145,7 +149,7 @@ class MasterDataApiTests {
     }
 
     @Test
-    void inTransitRouteBlocksDriverVehicleUnbind() throws Exception {
+    void inTransitTaskBlocksDriverVehicleUnbind() throws Exception {
         long driverId = createDriver("李四", "13810000001");
         long vehicleId = createVehicle("京A10002");
         mockMvc.perform(post("/api/v1/drivers/%d/bind-vehicle".formatted(driverId))
@@ -156,11 +160,25 @@ class MasterDataApiTests {
                                 """.formatted(vehicleId)))
                 .andExpect(status().isOk());
 
+        jdbcTemplate.update("INSERT INTO product (id, name, enabled) VALUES (1, '砂石', 1)");
         jdbcTemplate.update("""
-                INSERT INTO route_task (route_no, business_unique_key, business_date, customer_id, product_id, direction,
-                                        loading_place, unloading_place, tax_unit_price, assigned_driver_id,
-                                        departure_vehicle_id, status, created_by)
-                VALUES ('R001', 'K001', CURRENT_DATE, 1, 1, 'OUT', 'A', 'B', 1.0000, ?, ?, 'IN_TRANSIT', 1)
+                INSERT INTO route_template (id, stable_code, name, customer_name, product_id,
+                    loading_place, unloading_place, default_unit_price, default_information_fee,
+                    default_driver_salary, created_by, updated_by)
+                VALUES (1, 'T-001', '验收线路', '客户', 1, 'A', 'B', 1.00, 0.00, 0.00, 1, 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO transport_task (id, task_no, template_id, business_date,
+                    template_code_snapshot, template_name_snapshot, customer_name_snapshot,
+                    product_name_snapshot, loading_place_snapshot, unloading_place_snapshot,
+                    actual_unit_price, actual_information_fee, status, created_by)
+                VALUES (1, 'TASK-001', 1, CURRENT_DATE, 'T-001', '验收线路', '客户',
+                    '砂石', 'A', 'B', 1.00, 0.00, 'IN_TRANSIT', 1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO transport_participant (task_id, sequence_no, driver_id, driver_type_snapshot,
+                    company_vehicle_id, vehicle_plate_snapshot, source_type, status, salary_amount, is_current)
+                VALUES (1, 1, ?, 'INTERNAL', ?, '京A10002', 'INITIAL', 'IN_TRANSIT', 0.00, 1)
                 """, driverId, vehicleId);
 
         mockMvc.perform(post("/api/v1/drivers/%d/unbind-vehicle".formatted(driverId))

@@ -4,11 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/generate-approval-options.mjs",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "node scripts/generate-approval-options.mjs",
     "build": "vite build",
-    "pretest": "node scripts/generate-approval-options.mjs",
     "test": "node test/run-tests.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },

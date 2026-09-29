@@ -62,8 +62,8 @@ public class FileAttachmentRepository {
 
     public boolean canCurrentDriverUploadUnloadTicket(long routeId, long userId, String phone) {
         Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM route_task r
-                JOIN route_participant p ON p.id = r.current_participant_id AND p.route_id = r.id
+                SELECT COUNT(*) FROM transport_task r
+                JOIN transport_participant p ON p.id = r.current_participant_id AND p.task_id = r.id
                 JOIN driver d ON d.id = p.driver_id
                 WHERE r.id = ? AND r.deleted_at IS NULL AND r.status = 'IN_TRANSIT'
                   AND p.status = 'IN_TRANSIT' AND d.deleted_at IS NULL AND d.status = 1
@@ -74,9 +74,9 @@ public class FileAttachmentRepository {
 
     public boolean canDriverReadUnloadTicket(long routeId, long userId, String phone) {
         Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM route_participant p
+                SELECT COUNT(*) FROM transport_participant p
                 JOIN driver d ON d.id = p.driver_id
-                JOIN route_task r ON r.id = p.route_id
+                JOIN transport_task r ON r.id = p.task_id
                 WHERE r.id = ? AND r.deleted_at IS NULL AND d.deleted_at IS NULL
                   AND (d.user_id = ? OR (d.user_id IS NULL AND d.phone = ?))
                 """, Integer.class, routeId, userId, phone);
@@ -175,7 +175,7 @@ public class FileAttachmentRepository {
             return true;
         }
         return switch (ownerType) {
-            case "ROUTE" -> exists("route_task", ownerId, "deleted_at IS NULL");
+            case "TASK" -> exists("transport_task", ownerId, "deleted_at IS NULL");
             case "TIRE", "TIRE_OCR" -> exists("tire", ownerId, "deleted_at IS NULL");
             case "APPROVAL", "APPROVAL_APPLICATION" -> exists("approval_instance", ownerId, null);
             case "APPROVAL_ACTION" -> exists("approval_action", ownerId, null);
