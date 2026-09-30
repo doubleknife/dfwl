@@ -4,19 +4,48 @@ import { readFileSync } from 'node:fs';
 const source = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const calls = [];
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
-const { masterApi, routeApi, routeTemplateApi, salaryApi, systemApi, attachmentApi } = await import('../src/api/modules.js');
+const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
+  salaryApi, systemApi, attachmentApi } = await import('../src/api/modules.js');
+const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
   return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ code: '0', data: { records: [] } }) };
 };
 
 const tests = [
-  ['active navigation contains only V3-A pages', () => {
+  ['active navigation contains current V3-A and V3-B pages', () => {
     const router = source('router/routes.js');
-    for (const key of ['master', 'routes', 'salaries', 'system']) assert.match(router, new RegExp(`key: '${key}'`));
+    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'system'])
+      assert.match(router, new RegExp(`key: '${key}'`));
     for (const key of ['dashboard', 'imports', 'expenses', 'approvals', 'approvalFlows', 'tires', 'reports', 'settlements']) {
       assert.doesNotMatch(router, new RegExp(`key: '${key}'`));
     }
+  }],
+  ['dispatch draft preserves one task per row and only selected amount changes', () => {
+    const template = { stableCode: 'TPL-01', name: '砂石运输', customerName: '中文客户',
+      loadingPlace: '昆明', unloadingPlace: '曲靖', defaultUnitPrice: '100.00',
+      defaultInformationFee: '10.00', defaultDriverSalary: '20.00' };
+    const driver = { id: 11, name: '司机甲', driverType: 'INTERNAL', currentVehiclePlateNo: '云A001' };
+    const two = appendDispatchRows([], template, [driver, driver], 1);
+    assert.equal(two.length, 2);
+    assert.notEqual(two[0].localKey, two[1].localKey);
+    const changed = updateSelectedAmounts(two, [2], 'initialSalary', '0.00');
+    assert.equal(changed[0].initialSalary, '20.00');
+    assert.equal(changed[1].initialSalary, '0.00');
+    assert.equal(template.defaultDriverSalary, '20.00');
+    assert.equal(dispatchBody('2026-09-30', changed).rows.length, 2);
+    assert.throws(() => updateSelectedAmounts(two, [1], 'initialSalary', '-1'));
+  }],
+  ['dispatch and fixed import use distinct official APIs', async () => {
+    calls.length = 0;
+    await dispatchApi.preview({ businessDate: '2026-09-30', rows: [] });
+    await dispatchApi.confirm({ previewId: 'p', requestKey: 'k', batch: {} });
+    await taskImportApi.history();
+    assert.match(calls[0].url, /\/dispatch-batches\/preview$/);
+    assert.match(calls[1].url, /\/dispatch-batches\/confirm$/);
+    assert.match(calls[2].url, /\/task-imports\?pageNo=1&pageSize=20$/);
+    assert.match(source('views/DispatchWorkbenchV3View.vue'), /确认整批发布/);
+    assert.match(source('views/TaskImportsV3View.vue'), /逐行结果/);
   }],
   ['task API has one final resource and no legacy route writes', async () => {
     calls.length = 0;
@@ -67,6 +96,6 @@ const tests = [
 ];
 
 for (const [name, run] of tests) { await run(); console.log(`ok - ${name}`); }
-console.log(`${tests.length} active V3-A admin tests passed`);
+console.log(`${tests.length} active V3-A/B admin tests passed`);
 await import('./ui1Tests.mjs');
 await import('./routeWeightEvidenceTests.mjs');

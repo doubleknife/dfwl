@@ -31,7 +31,7 @@ public class DispatchBatchController {
     }
 
     @PostMapping("/preview")
-    @PreAuthorize("hasAuthority('task:create')")
+    @PreAuthorize("hasAuthority('dispatch:batch')")
     public ApiResponse<DispatchPreviewResponse> preview(@AuthenticationPrincipal AuthenticatedUser user,
                                                          @Valid @RequestBody DispatchBatchRequest request) {
         users.denyAllDrivers(user);
@@ -39,7 +39,7 @@ public class DispatchBatchController {
     }
 
     @PostMapping("/confirm")
-    @PreAuthorize("hasAuthority('task:publish')")
+    @PreAuthorize("hasAuthority('dispatch:batch')")
     public ApiResponse<DispatchBatchResponse> confirm(@AuthenticationPrincipal AuthenticatedUser user,
                                                        @Valid @RequestBody DispatchConfirmRequest request) {
         users.denyAllDrivers(user);
@@ -47,7 +47,7 @@ public class DispatchBatchController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('task:view')")
+    @PreAuthorize("hasAuthority('dispatch:view')")
     public ApiResponse<DispatchBatchResponse> find(@AuthenticationPrincipal AuthenticatedUser user,
                                                     @PathVariable long id) {
         users.denyAllDrivers(user);

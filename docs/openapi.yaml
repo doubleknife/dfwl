@@ -14,6 +14,7 @@ tags:
   - {name: Vehicles}
   - {name: Trailers}
   - {name: RouteTemplates}
+  - {name: TaskImports}
   - {name: TransportTasks}
   - {name: DriverSalaries}
   - {name: Notifications}
@@ -371,20 +372,69 @@ paths:
     post:
       tags: [TransportTasks]
       summary: 对全部调度行预校验；失败不产生正式任务
-      x-permission: task:create
+      x-permission: dispatch:batch
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchBatchRequest'}}}}
       responses: {'200': {description: OK}}
   /dispatch-batches/confirm:
     post:
       tags: [TransportTasks]
       summary: 再次全量校验后整批原子发布，requestKey 幂等
-      x-permission: task:publish
+      x-permission: dispatch:batch
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchConfirmRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /dispatch-batches/{id}:
     get:
       tags: [TransportTasks]
-      x-permission: task:view
+      x-permission: dispatch:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /task-imports/template:
+    get:
+      tags: [TaskImports]
+      summary: 下载固定版本运输任务 Excel 模板
+      x-permission: task:import:view
+      responses: {'200': {description: Excel 文件}}
+  /task-imports/preview:
+    post:
+      tags: [TaskImports]
+      summary: 上传真实固定模板，保存逐行预览和文件历史；不生成任务
+      x-permission: task:import:submit
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [requestKey, file]
+              properties:
+                requestKey: {type: string}
+                file: {type: string, format: binary}
+      responses: {'200': {description: 逐行预览}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /task-imports/{id}/confirm:
+    post:
+      tags: [TaskImports]
+      summary: 逐行正式重验并发布，每行结果与导入历史持久保存
+      x-permission: task:import:submit
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 逐行正式结果}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /task-imports:
+    get:
+      tags: [TaskImports]
+      summary: 任务导入历史分页
+      x-permission: task:import:view
+      responses: {'200': {description: OK}}
+  /task-imports/{id}:
+    get:
+      tags: [TaskImports]
+      summary: 查看导入批次与逐行结果
+      x-permission: task:import:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: OK}}
+  /task-imports/{id}/rows:
+    get:
+      tags: [TaskImports]
+      summary: 查看导入逐行结果
+      x-permission: task:import:view
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks:
@@ -704,7 +754,7 @@ components:
       enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]
     AttachmentPurpose:
       type: string
-      enum: [WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET]
+      enum: [WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, IMPORT_FILE]
     Attachment:
       type: object
       required: [id, ownerType, ownerId, purpose, storageKey, originalFilename, fileSize, fileHash, uploadedBy, uploadedAt]
@@ -881,8 +931,10 @@ components:
         - task:view
         - task:participants:view
         - task:weight:view
-        - task:create
-        - task:publish
+        - dispatch:view
+        - dispatch:batch
+        - task:import:view
+        - task:import:submit
         - task:cancel
         - task:transfer
         - task:depart

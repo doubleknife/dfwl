@@ -27,9 +27,10 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Small V3 foundation: publish a validated batch atomically. The dispatch workbench belongs to V3-B. */
+/** Shared validation and task publication for atomic dispatch and row-based task imports. */
 @Service
 public class DispatchBatchService {
     private final JdbcTemplate jdbc;
@@ -52,7 +53,7 @@ public class DispatchBatchService {
         previews.entrySet().removeIf(entry -> entry.getValue().createdAt().isBefore(Instant.now().minusSeconds(1800)));
         List<ValidatedRow> validated = validate(batch);
         String previewId = UUID.randomUUID().toString();
-        previews.put(previewId, new Preview(actor, batch, Instant.now()));
+        previews.put(previewId, new Preview(actor, batch, List.copyOf(validated), Instant.now()));
         return new DispatchPreviewResponse(previewId, validated.stream().allMatch(row -> row.errors().isEmpty()),
                 validated.stream().map(row -> new DispatchPreviewResponse.Row(row.rowNo(),
                         row.template() == null ? null : row.template().id(),
@@ -64,35 +65,43 @@ public class DispatchBatchService {
                         row.unitPrice(), row.informationFee(), row.salary(), row.errors())).toList());
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public DispatchBatchResponse confirm(DispatchConfirmRequest request, long actor) {
         if (request == null || request.batch() == null || request.requestKey() == null
                 || request.requestKey().isBlank() || request.requestKey().length() > 128)
-            throw new BusinessException(ErrorCode.SYS_002);
-        Preview preview = previews.get(request.previewId());
-        if (preview == null || preview.actor() != actor || !preview.batch().equals(request.batch()))
             throw new BusinessException(ErrorCode.SYS_002);
         String digest = digest(request.batch());
         String requestKey = request.requestKey().trim();
         List<StoredBatch> existing = storedBatch(requestKey);
         if (!existing.isEmpty()) {
-            if (!existing.getFirst().digest().equals(digest)) throw new BusinessException(ErrorCode.DATA_002);
+            if (!existing.getFirst().digest().equals(digest) || existing.getFirst().actor() != actor)
+                throw new BusinessException(ErrorCode.DATA_002);
             return find(existing.getFirst().id());
         }
+        Preview preview = previews.get(request.previewId());
+        if (preview == null || preview.actor() != actor || !preview.batch().equals(request.batch()))
+            throw new BusinessException(ErrorCode.SYS_002);
+        lockPublicationReferences(request.batch());
         List<ValidatedRow> rows = validate(request.batch());
-        if (rows.stream().anyMatch(row -> !row.errors().isEmpty())) throw new BusinessException(ErrorCode.SYS_002);
+        if (rows.stream().anyMatch(row -> !row.errors().isEmpty()))
+            throw new BusinessException("DISPATCH_VALIDATION_FAILED", rows.stream()
+                    .filter(row -> !row.errors().isEmpty())
+                    .map(row -> "第" + row.rowNo() + "行：" + String.join("；", row.errors()))
+                    .reduce((left, right) -> left + "；" + right).orElse("调度行校验失败"));
+        if (!rows.equals(preview.validated()))
+            throw new BusinessException("DISPATCH_PREVIEW_STALE", "模板、司机绑定或车辆状态已变化，请重新预览整批任务");
         long batchId;
         try { batchId = insertBatch(request, digest, actor); }
         catch (DataIntegrityViolationException duplicate) {
             List<StoredBatch> raced = jdbc.query(
-                    "SELECT id, request_digest FROM dispatch_batch WHERE request_key = ? FOR UPDATE",
-                    (rs, row) -> new StoredBatch(rs.getLong("id"), rs.getString("request_digest")), requestKey);
-            if (raced.isEmpty() || !raced.getFirst().digest().equals(digest))
+                    "SELECT id, request_digest, created_by FROM dispatch_batch WHERE request_key = ? FOR UPDATE",
+                    (rs, row) -> new StoredBatch(rs.getLong("id"), rs.getString("request_digest"), rs.getLong("created_by")), requestKey);
+            if (raced.isEmpty() || !raced.getFirst().digest().equals(digest) || raced.getFirst().actor() != actor)
                 throw new BusinessException(ErrorCode.DATA_002);
             return find(raced.getFirst().id());
         }
         for (ValidatedRow row : rows) {
-            long taskId = insertTask(row, request.batch(), actor);
+            long taskId = insertTask(row, request.batch(), actor, null);
             long participantId = insertParticipant(taskId, row, actor);
             jdbc.update("UPDATE transport_task SET current_participant_id = ? WHERE id = ? AND current_participant_id IS NULL",
                     participantId, taskId);
@@ -126,8 +135,65 @@ public class DispatchBatchService {
     }
 
     private List<StoredBatch> storedBatch(String requestKey) {
-        return jdbc.query("SELECT id, request_digest FROM dispatch_batch WHERE request_key = ?",
-                (rs, row) -> new StoredBatch(rs.getLong("id"), rs.getString("request_digest")), requestKey);
+        return jdbc.query("SELECT id, request_digest, created_by FROM dispatch_batch WHERE request_key = ?",
+                (rs, row) -> new StoredBatch(rs.getLong("id"), rs.getString("request_digest"), rs.getLong("created_by")), requestKey);
+    }
+
+    /** Import preview and confirm use exactly the same driver, vehicle, template and amount rules. */
+    public DispatchPreviewResponse.Row validateImportRow(java.time.LocalDate date, DispatchBatchRequest.Row input) {
+        ValidatedRow row = validate(new DispatchBatchRequest(date, List.of(input))).getFirst();
+        return new DispatchPreviewResponse.Row(row.rowNo(), row.template() == null ? null : row.template().id(),
+                row.template() == null ? null : row.template().name(), input.driverId(),
+                row.driver() == null ? null : row.driver().driverType(),
+                row.driver() == null ? null : "OUTSOURCED".equals(row.driver().driverType())
+                        ? row.driver().outsourcedPlate() : row.driver().vehiclePlate(),
+                row.unitPrice(), row.informationFee(), row.salary(), row.errors());
+    }
+
+    /** Caller supplies a per-row transaction; the unique business key prevents repeat imports. */
+    public long publishImportedRow(java.time.LocalDate date, DispatchBatchRequest.Row input,
+                                   long actor, String businessKey) {
+        DispatchBatchRequest batch = new DispatchBatchRequest(date, List.of(input));
+        lockPublicationReferences(batch);
+        ValidatedRow row = validate(batch).getFirst();
+        if (!row.errors().isEmpty())
+            throw new BusinessException("IMPORT_ROW_INVALID", String.join("；", row.errors()));
+        long taskId = insertTask(row, batch, actor, businessKey);
+        long participantId = insertParticipant(taskId, row, actor);
+        jdbc.update("UPDATE transport_task SET current_participant_id = ? WHERE id = ?", participantId, taskId);
+        jdbc.update("INSERT INTO task_status_history (task_id, from_status, to_status, operator_id, reason) "
+                + "VALUES (?, NULL, 'PUBLISHED', ?, '固定任务导入')", taskId, actor);
+        audit.write("DISPATCH", "TRANSPORT_TASK", taskId, "IMPORT_PUBLISH", null,
+                Map.of("businessKey", businessKey), actor, null);
+        return taskId;
+    }
+
+    private void lockPublicationReferences(DispatchBatchRequest batch) {
+        batch.rows().stream().filter(java.util.Objects::nonNull)
+                .map(DispatchBatchRequest.Row::templateStableCode).filter(java.util.Objects::nonNull)
+                .distinct().sorted().forEach(code -> {
+                    List<Long> products = jdbc.queryForList(
+                            "SELECT product_id FROM route_template WHERE stable_code = ? FOR UPDATE",
+                            Long.class, code.trim());
+                    for (Long productId : products)
+                        jdbc.queryForList("SELECT id FROM product WHERE id = ? FOR UPDATE", Long.class, productId);
+                });
+        batch.rows().stream().filter(java.util.Objects::nonNull)
+                .map(DispatchBatchRequest.Row::driverId).filter(java.util.Objects::nonNull)
+                .distinct().sorted().forEach(id -> {
+                    jdbc.queryForList("SELECT id FROM driver WHERE id = ? FOR UPDATE", Long.class, id);
+                    List<Long> vehicles = jdbc.queryForList(
+                            "SELECT vehicle_id FROM driver_vehicle_current WHERE driver_id = ? FOR UPDATE",
+                            Long.class, id);
+                    for (Long vehicleId : vehicles) {
+                        jdbc.queryForList("SELECT id FROM vehicle WHERE id = ? FOR UPDATE", Long.class, vehicleId);
+                        List<Long> trailers = jdbc.queryForList(
+                                "SELECT trailer_id FROM vehicle_trailer_current WHERE vehicle_id = ? FOR UPDATE",
+                                Long.class, vehicleId);
+                        for (Long trailerId : trailers)
+                            jdbc.queryForList("SELECT id FROM trailer WHERE id = ? FOR UPDATE", Long.class, trailerId);
+                    }
+                });
     }
 
     private List<ValidatedRow> validate(DispatchBatchRequest batch) {
@@ -183,7 +249,7 @@ public class DispatchBatchService {
         return key.getKey().longValue();
     }
 
-    private long insertTask(ValidatedRow row, DispatchBatchRequest batch, long actor) {
+    private long insertTask(ValidatedRow row, DispatchBatchRequest batch, long actor, String importBusinessKey) {
         String taskNo = "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
         String productName = jdbc.queryForObject("SELECT name FROM product WHERE id = ?", String.class,
                 row.template().productId());
@@ -192,8 +258,9 @@ public class DispatchBatchService {
             PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO transport_task (task_no, template_id, template_code_snapshot, template_name_snapshot,
                         customer_name_snapshot, product_name_snapshot, loading_place_snapshot, unloading_place_snapshot,
-                        actual_unit_price, actual_information_fee, business_date, status, created_by, updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED', ?, ?)
+                        actual_unit_price, actual_information_fee, business_date, status, created_by, updated_by,
+                        import_business_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED', ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, taskNo);
             ps.setLong(2, row.template().id());
@@ -208,6 +275,7 @@ public class DispatchBatchService {
             ps.setObject(11, batch.businessDate());
             ps.setLong(12, actor);
             ps.setLong(13, actor);
+            ps.setString(14, importBusinessKey);
             return ps;
         }, key);
         return key.getKey().longValue();
@@ -247,8 +315,8 @@ public class DispatchBatchService {
         }
     }
 
-    private record Preview(long actor, DispatchBatchRequest batch, Instant createdAt) {}
-    private record StoredBatch(long id, String digest) {}
+    private record Preview(long actor, DispatchBatchRequest batch, List<ValidatedRow> validated, Instant createdAt) {}
+    private record StoredBatch(long id, String digest, long actor) {}
     private record ValidatedRow(int rowNo, DispatchBatchRequest.Row input, RouteTemplateResponse template,
                                 DriverSnapshot driver, BigDecimal unitPrice, BigDecimal informationFee,
                                 BigDecimal salary, List<String> errors) {}

@@ -238,10 +238,11 @@ public class AttachmentService {
     }
 
     private void requireUploadPermission(AttachmentPurpose purpose, AuthenticatedUser user) {
-        // Until the V3 approval, tire and fixed-import workflows are rebuilt, only
-        // task evidence has a live owner workflow. Do not accept orphan legacy uploads.
+        // Approval and tire workflows remain retired until their V3 stages;
+        // task evidence and the fixed task workbook are active.
         if (purpose != AttachmentPurpose.WEIGHT_ADJUST
-                && purpose != AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET) {
+                && purpose != AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET
+                && purpose != AttachmentPurpose.IMPORT_FILE) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {
@@ -250,7 +251,7 @@ public class AttachmentService {
             case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "task:unload");
             case APPROVAL_APPLICATION -> has(user, "approval:create");
             case APPROVAL_ACTION -> hasAny(user, "approval:process", "approval:return");
-            case IMPORT_FILE -> hasAny(user, "import:preview", "import:history");
+            case IMPORT_FILE -> has(user, "task:import:submit");
         };
         if (!allowed) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
@@ -300,7 +301,7 @@ public class AttachmentService {
         boolean allowed = switch (purpose) {
             case WEIGHT_ADJUST -> !"DRIVER".equalsIgnoreCase(user.roleCode())
                     && hasAny(user, "task:weight:view", "task:weight:adjust");
-            case IMPORT_FILE -> has(user, "import:history");
+            case IMPORT_FILE -> has(user, "task:import:view");
             default -> false;
         };
         if (!allowed) {

@@ -58,6 +58,25 @@ export const routeTemplateApi = {
   setEnabled: (id, enabled, expectedVersion) => apiClient.post(`/route-templates/${id}/${enabled ? 'enable' : 'disable'}`, { expectedVersion })
 };
 
+export const dispatchApi = {
+  preview: (batch) => apiClient.post('/dispatch-batches/preview', batch),
+  confirm: (body) => apiClient.post('/dispatch-batches/confirm', body),
+  detail: (id) => apiClient.get(`/dispatch-batches/${id}`)
+};
+
+export const taskImportApi = {
+  template: () => apiClient.download('/task-imports/template'),
+  preview: (file, requestKey) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('requestKey', requestKey);
+    return apiClient.upload('/task-imports/preview', form);
+  },
+  confirm: (id) => apiClient.post(`/task-imports/${id}/confirm`, {}),
+  history: (pageNo = 1, pageSize = 20) => apiClient.get(`/task-imports?pageNo=${pageNo}&pageSize=${pageSize}`),
+  detail: (id) => apiClient.get(`/task-imports/${id}`)
+};
+
 export const expenseApi = {
   list: (pageNo = 1, pageSize = 100, filters = {}) => {
     const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });

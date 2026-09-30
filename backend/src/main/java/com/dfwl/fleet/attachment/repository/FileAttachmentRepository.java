@@ -156,7 +156,7 @@ public class FileAttachmentRepository {
     public boolean importTaskMatches(long taskId, long attachmentId, long operatorId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM import_task
-                WHERE id = ? AND original_file_id = ? AND uploaded_by = ?
+                WHERE id = ? AND source_attachment_id = ? AND created_by = ?
                 """, Integer.class, taskId, attachmentId, operatorId);
         return count != null && count == 1;
     }

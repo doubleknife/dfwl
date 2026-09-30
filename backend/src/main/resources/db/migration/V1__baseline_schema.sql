@@ -207,6 +207,7 @@ CREATE TABLE dispatch_batch_row (
 
 CREATE TABLE transport_task (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  import_business_key CHAR(64) NULL,
   task_no VARCHAR(64) NOT NULL,
   template_id BIGINT UNSIGNED NOT NULL,
   template_code_snapshot VARCHAR(64) NOT NULL,
@@ -231,6 +232,7 @@ CREATE TABLE transport_task (
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   deleted_at DATETIME(3) NULL,
   UNIQUE KEY uk_task_no (task_no),
+  UNIQUE KEY uk_task_import_business_key (import_business_key),
   KEY idx_task_status_date (status, business_date),
   KEY idx_task_template_date (template_id, business_date),
   KEY idx_task_current_participant (current_participant_id),
@@ -776,8 +778,10 @@ VALUES
   ('task:view', '查看运输任务', 'API'),
   ('task:participants:view', '查看任务参与人', 'API'),
   ('task:weight:view', '查看任务重量证据', 'API'),
-  ('task:create', '创建运输任务', 'API'),
-  ('task:publish', '发布运输任务', 'API'),
+  ('dispatch:view', '查看调度工作台', 'API'),
+  ('dispatch:batch', '批量确认发布任务', 'API'),
+  ('task:import:view', '查看任务导入', 'API'),
+  ('task:import:submit', '提交任务导入', 'API'),
   ('task:cancel', '取消未发车任务', 'API'),
   ('task:transfer', '转派运输任务', 'API'),
   ('task:depart', '确认发车', 'API'),

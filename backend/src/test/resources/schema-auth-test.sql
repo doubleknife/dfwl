@@ -197,6 +197,7 @@ CREATE TABLE dispatch_batch_row (
 
 CREATE TABLE transport_task (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  import_business_key CHAR(64) NULL,
   task_no VARCHAR(64) NOT NULL,
   template_id BIGINT NOT NULL,
   template_code_snapshot VARCHAR(64) NOT NULL,
@@ -221,6 +222,7 @@ CREATE TABLE transport_task (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
   CONSTRAINT uk_task_no UNIQUE (task_no),
+  CONSTRAINT uk_task_import_business_key UNIQUE (import_business_key),
   CONSTRAINT fk_task_template FOREIGN KEY (template_id) REFERENCES route_template(id),
   CONSTRAINT chk_task_amounts CHECK (actual_unit_price >= 0 AND actual_information_fee >= 0),
   CONSTRAINT chk_task_status CHECK (status IN ('UNPUBLISHED', 'PUBLISHED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'COMPLETED', 'CANCELLED'))
@@ -727,8 +729,10 @@ VALUES
   ('task:view', '查看运输任务', 'API'),
   ('task:participants:view', '查看任务参与人', 'API'),
   ('task:weight:view', '查看任务重量证据', 'API'),
-  ('task:create', '创建运输任务', 'API'),
-  ('task:publish', '发布运输任务', 'API'),
+  ('dispatch:view', '查看调度工作台', 'API'),
+  ('dispatch:batch', '批量确认发布任务', 'API'),
+  ('task:import:view', '查看任务导入', 'API'),
+  ('task:import:submit', '提交任务导入', 'API'),
   ('task:cancel', '取消未发车任务', 'API'),
   ('task:transfer', '转派运输任务', 'API'),
   ('task:depart', '确认发车', 'API'),
