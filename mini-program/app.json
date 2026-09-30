@@ -5,6 +5,8 @@
     "pages/routes/index",
     "pages/route-detail/index",
     "pages/weight/index",
+    "pages/expense-apply/index",
+    "pages/approvals/index",
     "pages/salary/index",
     "pages/profile/index",
     "pages/notifications/index"

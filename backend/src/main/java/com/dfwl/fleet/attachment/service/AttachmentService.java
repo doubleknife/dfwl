@@ -238,11 +238,12 @@ public class AttachmentService {
     }
 
     private void requireUploadPermission(AttachmentPurpose purpose, AuthenticatedUser user) {
-        // Approval and tire workflows remain retired until their V3 stages;
-        // task evidence and the fixed task workbook are active.
+        // V3-D activates approval evidence; tire OCR remains retired until V3-F.
         if (purpose != AttachmentPurpose.WEIGHT_ADJUST
                 && purpose != AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET
-                && purpose != AttachmentPurpose.IMPORT_FILE) {
+                && purpose != AttachmentPurpose.IMPORT_FILE
+                && purpose != AttachmentPurpose.APPROVAL_APPLICATION
+                && purpose != AttachmentPurpose.APPROVAL_ACTION) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {

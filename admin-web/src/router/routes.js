@@ -5,6 +5,8 @@ import DispatchWorkbench from '../views/DispatchWorkbenchV3View.vue';
 import TaskImports from '../views/TaskImportsV3View.vue';
 import SalariesView from '../views/SalaryLedgerV3View.vue';
 import MonthlyOperationsView from '../views/MonthlyOperationsV3View.vue';
+import ApprovalCenterView from '../views/ApprovalCenterV3View.vue';
+import ExpenseApplicationView from '../views/ExpenseApplicationV3View.vue';
 import SystemView from '../views/SystemUi1View.vue';
 import { canAny } from '../stores/auth.js';
 
@@ -13,6 +15,8 @@ export const routes = [
   { key: 'routes', label: '运输任务', permission: 'task:view', component: RoutesView },
   { key: 'dispatch', label: '调度工作台', permission: 'dispatch:view', component: DispatchWorkbench },
   { key: 'task-imports', label: '任务导入', permission: 'task:import:view', component: TaskImports },
+  { key: 'expense-apply', label: '发起费用申请', permission: 'approval:create', component: ExpenseApplicationView },
+  { key: 'approvals', label: '审批中心', permission: ['approval:create', 'approval:process', 'approval:return', 'approval:history:view', 'approval:flow:manage'], component: ApprovalCenterView },
   { key: 'salaries', label: '工资管理', permission: 'salary:view', component: SalariesView },
   { key: 'attendance', label: '司机出勤', permission: 'attendance:view', component: MonthlyOperationsView, props: { scope: 'ATTENDANCE' } },
   { key: 'dispatch-internal', label: '自有车辆月账', permission: 'dispatch:ledger:view', component: MonthlyOperationsView, props: { scope: 'INTERNAL' } },

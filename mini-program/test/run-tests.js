@@ -40,11 +40,11 @@ const tests = [
     assert.equal(cards.includes('salary'), true);
     assert.equal(cards.includes('tire'), false);
   }],
-  ['retired approval workflows stay out of the active driver menu', () => {
+  ['approval and expense workflows require internal driver and permission', () => {
     const user = { permissions: ['approval:create', 'approval:history:view', 'approval:process'] };
-    const cards = visibleHomeCards(user, null).map((item) => item.key);
-    assert.equal(cards.includes('expenseApply'), false);
-    assert.equal(cards.includes('approvals'), false);
+    const { visibleHomeActions } = require('../utils/permissions');
+    assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }).map((item) => item.key), ['expense', 'approval']);
+    assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }).map((item) => item.key), []);
   }],
   ['weight validation blocks gross less than or equal tare', () => {
     assert.equal(validateWeights('10', '10').ok, false);
@@ -78,9 +78,11 @@ const tests = [
     assert.equal(sensitive.test(routeList), false);
     assert.equal(sensitive.test(routeDetail), false);
   }],
-  ['retired pages are not listed in the active mini-program package', () => {
+  ['V3-D approval and expense pages are active while tire remains retired', () => {
     const pages = readJson('app.json').pages;
-    for (const retired of ['pages/tire-request/index', 'pages/expense-apply/index', 'pages/approvals/index', 'pages/approval-detail/index']) {
+    assert.equal(pages.includes('pages/expense-apply/index'), true);
+    assert.equal(pages.includes('pages/approvals/index'), true);
+    for (const retired of ['pages/tire-request/index', 'pages/approval-detail/index']) {
       assert.equal(pages.includes(retired), false);
     }
   }]

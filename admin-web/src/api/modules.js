@@ -122,6 +122,35 @@ export const approvalTemplateApi = {
   publish: (flowId) => apiClient.post(`/approval-flows/${flowId}/publish`, {})
 };
 
+export const v3ApprovalApi = {
+  list: (scope, pageNo = 1) => apiClient.get(`/approvals?scope=${scope}&pageNo=${pageNo}&pageSize=20`),
+  detail: (id) => apiClient.get(`/approvals/${id}`),
+  available: () => apiClient.get('/approval-templates/available'),
+  templates: () => apiClient.get('/approval-templates'),
+  options: () => apiClient.get('/approval-templates/options'),
+  flow: (id) => apiClient.get(`/approval-flows/${id}`),
+  createTemplate: (body) => apiClient.post('/approval-templates', body),
+  nextVersion: (id, body) => apiClient.post(`/approval-templates/${id}/versions`, body),
+  publish: (id) => apiClient.post(`/approval-flows/${id}/publish`, {}),
+  create: (body) => apiClient.post('/approvals', body),
+  resubmit: (id, body) => apiClient.post(`/approvals/${id}/resubmit`, body),
+  approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
+  returnStep: (id, body) => apiClient.post(`/approvals/${id}/return-step`, body),
+  returnApplicant: (id, body) => apiClient.post(`/approvals/${id}/return-applicant`, body),
+  expenseOptions: () => apiClient.get('/expense-applications/options'),
+  taskCandidates: (driverId) => apiClient.get(`/expense-applications/task-candidates?driverId=${driverId}`),
+  dailyTemplate: () => apiClient.download('/expense-applications/daily-template'),
+  dailyPreview: (file) => {
+    const form = new FormData(); form.append('file', file);
+    return apiClient.upload('/expense-applications/daily-preview', form);
+  },
+  dailySubmit: (file, templateId, requestKey) => {
+    const form = new FormData(); form.append('file', file); form.append('templateId', templateId);
+    form.append('requestKey', requestKey);
+    return apiClient.upload('/expense-applications/daily-submit', form);
+  }
+};
+
 export const attachmentApi = {
   list: (ownerType, ownerId, purpose) => apiClient.get(`/attachments?${new URLSearchParams({ ownerType, ownerId: String(ownerId), purpose })}`),
   upload: (formData) => apiClient.upload('/attachments', formData),

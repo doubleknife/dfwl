@@ -48,16 +48,19 @@ class RouteApiTests {
     }
 
     @Test
-    void laterStageV2ModulesHaveNoReachableHttpEntry() throws Exception {
+    void remainingRetiredV2ModulesHaveNoReachableHttpEntry() throws Exception {
         String token = token("ADMIN", Set.of("task:view", "expense:list", "approval:process", "tire:list"));
         for (String path : new String[] {
-                "/api/v1/expenses", "/api/v1/approvals", "/api/v1/approval-templates",
+                "/api/v1/expenses",
                 "/api/v1/tires", "/api/v1/tire-requests", "/api/v1/reports/profit",
                 "/api/v1/settlements/2026-09/versions", "/api/v1/imports"
         }) {
             mvc.perform(get(path).header("Authorization", "Bearer " + token))
                     .andExpect(status().isNotFound());
         }
+        mvc.perform(get("/api/v1/approval-templates")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
     }
 
     private String token(String role, Set<String> permissions) {

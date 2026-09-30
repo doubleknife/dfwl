@@ -447,6 +447,7 @@ CREATE TABLE approval_template (
   stable_code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   business_type VARCHAR(32) NOT NULL,
+  expense_type VARCHAR(32) NULL,
   enabled TINYINT UNSIGNED NOT NULL DEFAULT 1,
   version INT UNSIGNED NOT NULL DEFAULT 0,
   UNIQUE KEY uk_approval_template_code (stable_code),
@@ -478,6 +479,14 @@ CREATE TABLE approval_flow_node (
   UNIQUE KEY uk_flow_node_order (flow_id, node_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE approval_flow_initiator_role (
+  flow_id BIGINT UNSIGNED NOT NULL,
+  role_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (flow_id, role_id),
+  CONSTRAINT fk_approval_initiator_flow FOREIGN KEY (flow_id) REFERENCES approval_flow(id),
+  CONSTRAINT fk_approval_initiator_role FOREIGN KEY (role_id) REFERENCES sys_role(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 
 CREATE TABLE approval_instance (
@@ -488,12 +497,15 @@ CREATE TABLE approval_instance (
   business_type VARCHAR(32) NOT NULL,
   application_scope VARCHAR(16) NULL,
   applicant_user_id BIGINT UNSIGNED NOT NULL,
+  request_key VARCHAR(128) NOT NULL,
+  request_digest CHAR(64) NOT NULL,
   status VARCHAR(32) NOT NULL,
   current_node_id BIGINT UNSIGNED NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   completed_at DATETIME(3) NULL,
   version INT UNSIGNED NOT NULL DEFAULT 0,
   UNIQUE KEY uk_approval_no (approval_no),
+  UNIQUE KEY uk_approval_applicant_request (applicant_user_id, request_key),
   KEY idx_approval_type_status (business_type, status),
   CONSTRAINT chk_approval_application_scope CHECK (application_scope IS NULL OR application_scope IN ('DAILY', 'TASK')),
   CONSTRAINT fk_approval_instance_template FOREIGN KEY (template_id) REFERENCES approval_template(id),
@@ -541,6 +553,7 @@ CREATE TABLE approval_action (
 CREATE TABLE approval_expense_item (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   instance_id BIGINT UNSIGNED NOT NULL,
+  submission_version_id BIGINT UNSIGNED NOT NULL,
   item_no INT UNSIGNED NOT NULL,
   expense_type VARCHAR(32) NOT NULL,
   business_date DATE NOT NULL,
@@ -553,9 +566,10 @@ CREATE TABLE approval_expense_item (
   remark VARCHAR(1000) NULL,
   station_name VARCHAR(128) NULL,
   target_task_id BIGINT UNSIGNED NULL,
-  UNIQUE KEY uk_approval_expense_item (instance_id, item_no),
+  UNIQUE KEY uk_approval_expense_item (submission_version_id, item_no),
   CONSTRAINT chk_approval_expense_positive CHECK (amount > 0),
-  CONSTRAINT fk_approval_expense_instance FOREIGN KEY (instance_id) REFERENCES approval_instance(id)
+  CONSTRAINT fk_approval_expense_instance FOREIGN KEY (instance_id) REFERENCES approval_instance(id),
+  CONSTRAINT fk_approval_expense_submission FOREIGN KEY (submission_version_id) REFERENCES approval_submission_version(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE file_attachment (
@@ -572,6 +586,16 @@ CREATE TABLE file_attachment (
   uploaded_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY idx_file_owner (owner_type, owner_id, purpose),
   KEY idx_file_hash (file_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE approval_submission_attachment (
+  submission_version_id BIGINT UNSIGNED NOT NULL,
+  attachment_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (submission_version_id, attachment_id),
+  UNIQUE KEY uk_approval_submission_attachment (attachment_id),
+  CONSTRAINT fk_approval_attachment_submission FOREIGN KEY (submission_version_id)
+    REFERENCES approval_submission_version(id),
+  CONSTRAINT fk_approval_attachment_file FOREIGN KEY (attachment_id) REFERENCES file_attachment(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- BIZ-1D: immutable association from an original unload weight version to each ticket.
@@ -646,6 +670,7 @@ CREATE TABLE tire_request (
   confirmed_tire_no VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_tire_request_approval (approval_instance_id),
   KEY idx_tire_request_driver_status (applicant_driver_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -803,6 +828,11 @@ VALUES
   ('attendance:export', '导出司机出勤', 'API'),
   ('dispatch:ledger:view', '查看车辆调度月账', 'API'),
   ('dispatch:ledger:export', '导出车辆调度月账', 'API'),
+  ('approval:create', '发起审批与费用申请', 'API'),
+  ('approval:process', '处理审批', 'API'),
+  ('approval:return', '打回审批', 'API'),
+  ('approval:history:view', '查看审批记录', 'API'),
+  ('approval:flow:manage', '维护审批流程', 'API'),
   ('user:manage', '用户管理', 'API'),
   ('role:manage', '角色管理', 'API'),
   ('permission:manage', '权限管理', 'API'),
@@ -818,7 +848,7 @@ WHERE r.role_code = 'ADMIN';
 INSERT IGNORE INTO sys_role_permission (role_id, permission_id)
 SELECT r.id, p.id FROM sys_role r CROSS JOIN sys_permission p
 WHERE r.role_code = 'DRIVER'
-  AND p.permission_code IN ('task:view', 'task:depart', 'task:unload', 'salary:mine');
+  AND p.permission_code IN ('task:view', 'task:depart', 'task:unload', 'salary:mine', 'approval:create');
 
 -- V7：只供当前用户查看的站内通知；事件键保证同一用户不会收到重复业务通知。
 CREATE TABLE in_app_notification (

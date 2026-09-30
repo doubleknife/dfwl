@@ -201,14 +201,14 @@ public class FileAttachmentRepository {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM approval_submission_attachment e
                 JOIN approval_submission_version s ON s.id = e.submission_version_id
-                JOIN approval_instance i ON i.id = s.approval_instance_id
+                JOIN approval_instance i ON i.id = s.instance_id
                 WHERE e.attachment_id = ? AND (
                     ? = 1 OR i.applicant_user_id = ? OR EXISTS (
                         SELECT 1 FROM approval_task t
-                        WHERE t.approval_instance_id = i.id AND t.approver_user_id = ?
+                        WHERE t.instance_id = i.id AND t.approver_user_id = ?
                     ) OR EXISTS (
                         SELECT 1 FROM approval_action a JOIN approval_task t ON t.id = a.task_id
-                        WHERE t.approval_instance_id = i.id AND a.operator_id = ?
+                        WHERE t.instance_id = i.id AND a.operator_id = ?
                     )
                 )
                 """, Integer.class, attachmentId, canViewAll ? 1 : 0, userId, userId, userId);
@@ -220,10 +220,10 @@ public class FileAttachmentRepository {
                 SELECT COUNT(*) FROM approval_instance i
                 WHERE i.id = ? AND (? = 1 OR i.applicant_user_id = ? OR EXISTS (
                     SELECT 1 FROM approval_task t
-                    WHERE t.approval_instance_id = i.id AND t.approver_user_id = ?
+                    WHERE t.instance_id = i.id AND t.approver_user_id = ?
                 ) OR EXISTS (
                     SELECT 1 FROM approval_action a JOIN approval_task t ON t.id = a.task_id
-                    WHERE t.approval_instance_id = i.id AND a.operator_id = ?
+                    WHERE t.instance_id = i.id AND a.operator_id = ?
                 ))
                 """, Integer.class, instanceId, canViewAll ? 1 : 0, userId, userId, userId);
         return count != null && count > 0;
@@ -233,13 +233,13 @@ public class FileAttachmentRepository {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM approval_action a
                 JOIN approval_task t ON t.id = a.task_id
-                JOIN approval_instance i ON i.id = t.approval_instance_id
+                JOIN approval_instance i ON i.id = t.instance_id
                 WHERE a.id = ? AND (? = 1 OR i.applicant_user_id = ? OR EXISTS (
                     SELECT 1 FROM approval_task visible
-                    WHERE visible.approval_instance_id = i.id AND visible.approver_user_id = ?
+                    WHERE visible.instance_id = i.id AND visible.approver_user_id = ?
                 ) OR EXISTS (
                     SELECT 1 FROM approval_action own JOIN approval_task task ON task.id = own.task_id
-                    WHERE task.approval_instance_id = i.id AND own.operator_id = ?
+                    WHERE task.instance_id = i.id AND own.operator_id = ?
                 ))
                 """, Integer.class, actionId, canViewAll ? 1 : 0, userId, userId, userId);
         return count != null && count > 0;

@@ -1,0 +1,22 @@
+@import "../../design/tokens.wxss";
+.expense-page { min-height: 100vh; padding: 28rpx; padding-bottom: 70rpx; background: #f4f8f7; color: #173b36; }
+.title { font-size: 40rpx; font-weight: 700; margin: 16rpx 0 26rpx; }
+.expense-card { background: #fff; padding: 28rpx; border-radius: 22rpx; border: 1rpx solid #dfe9e5; margin-bottom: 20rpx; }
+.section-title { font-size: 32rpx; font-weight: 700; margin-bottom: 22rpx; }
+.scopes { display: flex; gap: 18rpx; }
+.scope { flex: 1; text-align: center; padding: 24rpx 8rpx; border-radius: 16rpx; background: #edf3f0; font-size: 29rpx; }
+.scope.active { background: #d7ede5; color: #0b6d60; font-weight: 700; }
+.hint { font-size: 26rpx; color: #546f68; line-height: 1.55; margin: 16rpx 0; }
+.label { font-size: 27rpx; font-weight: 650; margin: 24rpx 0 10rpx; }
+.field { box-sizing: border-box; min-height: 92rpx; width: 100%; display: flex; align-items: center; padding: 20rpx;
+  font-size: 29rpx; border-radius: 14rpx; border: 1rpx solid #cbdcd5; background: #fff; }
+.readonly { color: #365d52; background: #f3f7f5; }
+.summary-row { display: flex; justify-content: space-between; gap: 18rpx; padding: 16rpx 0;
+  border-bottom: 1rpx solid #e6efeb; font-size: 28rpx; }
+.summary-row text { font-weight: 600; text-align: right; }
+.amount { font-size: 32rpx; font-weight: 700; }
+.primary,.secondary { min-height: 96rpx; line-height: 96rpx; border-radius: 16rpx; font-size: 30rpx; margin: 18rpx 0; }
+.primary { background: #147769; color: #fff; }
+.secondary { background: #e3f0eb; color: #116f60; }
+.feedback { background: #fff; border-radius: 16rpx; padding: 28rpx; margin-bottom: 20rpx; font-size: 27rpx; color: #536e67; }
+.error { color: #b43d35; }

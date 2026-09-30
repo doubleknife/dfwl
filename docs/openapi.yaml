@@ -19,6 +19,8 @@ tags:
   - {name: DriverSalaries}
   - {name: Notifications}
   - {name: Attachments}
+  - {name: Approvals}
+  - {name: ExpenseApplications}
   - {name: System}
 paths:
   /auth/login:
@@ -782,6 +784,162 @@ paths:
       responses:
         '409': {$ref: '#/components/responses/BusinessConflict'}
 
+  /approval-templates:
+    get:
+      tags: [Approvals]
+      summary: 流程管理员查看审批模板及版本
+      x-permission: approval:flow:manage
+      responses: {'200': {description: 模板列表}}
+    post:
+      tags: [Approvals]
+      summary: 创建 EXPENSE/GENERAL/TIRE_REPLACEMENT 稳定业务模板及草稿流程
+      x-permission: approval:flow:manage
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalTemplateInput'}}}
+      responses: {'200': {description: 草稿流程}}
+  /approval-templates/available:
+    get:
+      tags: [Approvals]
+      summary: 当前角色可发起的已发布模板
+      x-permission: approval:create
+      responses: {'200': {description: 模板列表}}
+  /approval-templates/options:
+    get:
+      tags: [Approvals]
+      summary: 流程配置角色与审批人选择项
+      x-permission: approval:flow:manage
+      responses: {'200': {description: 选择项}}
+  /approval-templates/{id}/versions:
+    post:
+      tags: [Approvals]
+      summary: 创建冻结模板的下一草稿流程版本；有在途实例时拒绝
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalTemplateInput'}}}
+      responses: {'200': {description: 新草稿流程}}
+  /approval-flows/{id}:
+    get:
+      tags: [Approvals]
+      summary: 查看流程版本及稳定 flowNodeId
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 流程版本}}
+  /approval-flows/{id}/publish:
+    post:
+      tags: [Approvals]
+      summary: 发布草稿流程版本
+      x-permission: approval:flow:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 已发布流程}}
+  /approvals:
+    get:
+      tags: [Approvals]
+      summary: 待我处理、我的申请或审批记录
+      parameters:
+        - {name: scope, in: query, schema: {type: string, enum: [TODO, MINE, HISTORY]}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1}}
+      responses: {'200': {description: 审批分页}}
+    post:
+      tags: [Approvals]
+      summary: 发起单笔 DAILY/TASK 费用、普通审批或换胎审批
+      x-permission: approval:create
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalApplication'}}}
+      responses: {'200': {description: 审批实例、冻结流程与首次 Submission}}
+  /approvals/{id}:
+    get:
+      tags: [Approvals]
+      summary: 审批详情、明细、Submission、时间线和附件
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 审批详情}}
+  /approvals/{id}/returnable-steps:
+    get:
+      tags: [Approvals]
+      summary: 当前实例实际合法可返回步骤及稳定 flowNodeId
+      x-permission: approval:return
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 合法步骤列表；无中间步骤时为空}}
+  /approvals/{id}/approve:
+    post:
+      tags: [Approvals]
+      summary: 通过当前步骤；费用终审按明细幂等生成 ExpenseEntry
+      x-permission: approval:process
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
+      responses: {'200': {description: 新审批状态}}
+  /approvals/{id}/return-step:
+    post:
+      tags: [Approvals]
+      summary: 返回冻结流程中已实际经过的指定步骤
+      x-permission: approval:return
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
+      responses: {'200': {description: 新 Submission 与重新执行的目标步骤}}
+  /approvals/{id}/return-applicant:
+    post:
+      tags: [Approvals]
+      summary: 打回原申请人修改
+      x-permission: approval:return
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
+      responses: {'200': {description: 已打回申请人}}
+  /approvals/{id}/resubmit:
+    post:
+      tags: [Approvals]
+      summary: 原申请人修改后形成新 Submission Version
+      x-permission: approval:create
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalResubmission'}}}}
+      responses: {'200': {description: 重新进入冻结流程}}
+  /expense-applications/options:
+    get:
+      tags: [ExpenseApplications]
+      summary: 日常/任务费用的正式司机、公司车辆选择项
+      x-permission: approval:create
+      responses: {'200': {description: 司机与公司车辆；外协司机拒绝}}
+  /expense-applications/task-candidates:
+    get:
+      tags: [ExpenseApplications]
+      summary: 指定司机正式参与的任务候选；司机账号只能查本人
+      x-permission: approval:create
+      parameters: [{name: driverId, in: query, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 任务候选}}
+  /expense-applications/daily-template:
+    get:
+      tags: [ExpenseApplications]
+      summary: 下载唯一固定 DAILY Excel 模板
+      x-permission: approval:create
+      responses: {'200': {description: XLSX 文件}}
+  /expense-applications/daily-preview:
+    post:
+      tags: [ExpenseApplications]
+      summary: 预览全部行、金额合计和错误；不产生审批
+      x-permission: approval:create
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}
+      responses: {'200': {description: 行级校验结果}}
+  /expense-applications/daily-submit:
+    post:
+      tags: [ExpenseApplications]
+      summary: 服务端重新解析固定 Excel；N 条明细形成一个审批实例
+      x-permission: approval:create
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, templateId, requestKey]
+              properties:
+                file: {type: string, format: binary}
+                templateId: {type: integer, format: int64}
+                requestKey: {type: string}
+      responses: {'200': {description: 单一审批实例}}
+
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -795,6 +953,63 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/ApiResponse'}
   schemas:
+    ApprovalTemplateInput:
+      type: object
+      required: [stableCode, name, businessType, initiatorRoleIds, nodes]
+      properties:
+        stableCode: {type: string}
+        name: {type: string}
+        businessType: {type: string, enum: [EXPENSE, GENERAL, TIRE_REPLACEMENT]}
+        expenseType: {type: string, nullable: true}
+        initiatorRoleIds: {type: array, items: {type: integer, format: int64}}
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [name, approverUserId]
+            properties:
+              name: {type: string}
+              approverUserId: {type: integer, format: int64}
+              allowReturn: {type: boolean}
+    ApprovalExpenseItem:
+      type: object
+      required: [businessDate, vehicleId, driverId, amount]
+      properties:
+        businessDate: {type: string, format: date}
+        vehicleId: {type: integer, format: int64}
+        driverId: {type: integer, format: int64}
+        targetTaskId: {type: integer, format: int64, nullable: true}
+        amount: {type: number, exclusiveMinimum: 0, multipleOf: 0.01}
+        description: {type: string, nullable: true}
+        receiptNo: {type: string, nullable: true}
+        invoiceNo: {type: string, nullable: true}
+        remark: {type: string, nullable: true}
+        stationName: {type: string, nullable: true}
+    ApprovalApplication:
+      type: object
+      required: [templateId, requestKey]
+      properties:
+        templateId: {type: integer, format: int64}
+        requestKey: {type: string}
+        applicationScope: {type: string, enum: [DAILY, TASK], nullable: true}
+        items: {type: array, items: {$ref: '#/components/schemas/ApprovalExpenseItem'}}
+        generalSnapshot: {type: object, additionalProperties: true}
+        tireRequestId: {type: integer, format: int64, nullable: true}
+        attachmentIds: {type: array, items: {type: integer, format: int64}}
+    ApprovalAction:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: {type: integer}
+        comment: {type: string}
+        targetFlowNodeId: {type: integer, format: int64, nullable: true}
+        attachmentIds: {type: array, items: {type: integer, format: int64}}
+    ApprovalResubmission:
+      type: object
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/ApprovalExpenseItem'}}
+        generalSnapshot: {type: object, additionalProperties: true}
+        attachmentIds: {type: array, items: {type: integer, format: int64}}
     ApiResponse:
       type: object
       required: [code, message]
@@ -1062,6 +1277,11 @@ components:
         - attendance:export
         - dispatch:ledger:view
         - dispatch:ledger:export
+        - approval:create
+        - approval:process
+        - approval:return
+        - approval:history:view
+        - approval:flow:manage
         - user:manage
         - role:manage
         - permission:manage

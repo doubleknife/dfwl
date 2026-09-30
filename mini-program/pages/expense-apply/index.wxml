@@ -1,0 +1,72 @@
+<view class="expense-page">
+  <view class="title">{{resubmitId?'修改费用并重新提交':'发起费用申请'}}</view>
+  <view wx:if="{{error}}" class="feedback error">{{error}} <text bindtap="load">重试</text></view>
+  <view wx:if="{{loading}}" class="feedback">正在准备费用申请…</view>
+  <block wx:if="{{denied}}"><view class="expense-card">当前账号没有费用申请权限。</view></block>
+  <block wx:elif="{{step===1}}">
+    <view class="expense-card">
+      <view class="section-title">1. 选择申请来源</view>
+      <view wx:if="{{resubmitId}}" class="hint">申请来源保持原样；修改后会形成新的提交版本。</view>
+      <view class="scopes">
+        <view class="scope {{scope==='DAILY'?'active':''}}" data-scope="DAILY" bindtap="onScope">日常费用</view>
+        <view class="scope {{scope==='TASK'?'active':''}}" data-scope="TASK" bindtap="onScope">任务费用</view>
+      </view>
+      <view class="hint">{{scope==='DAILY'?'审批通过后先计公司费用，可后续归属任务。':'先选择本人正式参与的任务。'}}</view>
+      <view class="label">费用大类</view>
+      <picker mode="selector" range="{{templates}}" range-key="name" disabled="{{resubmitId}}" bindchange="onTemplate">
+        <view class="field">{{templateIndex>=0?templates[templateIndex].name:'请选择费用大类'}}</view>
+      </picker>
+    </view>
+    <view class="expense-card">
+      <view class="section-title">2. 填写费用信息</view>
+      <view class="label">司机</view><view class="field readonly">{{driverName || '正在读取本人信息'}}</view>
+      <view wx:if="{{scope==='TASK'}}">
+        <view class="label">本人参与的运输任务</view>
+        <picker mode="selector" range="{{tasks}}" range-key="taskNo" bindchange="onTask">
+          <view class="field">{{taskIndex>=0?tasks[taskIndex].taskNo:'请选择任务'}}</view>
+        </picker>
+        <view wx:if="{{!tasks.length}}" class="hint">暂无可申请费用的参与任务</view>
+      </view>
+      <view class="label">公司车牌</view>
+      <picker wx:if="{{scope==='DAILY'}}" mode="selector" range="{{vehicles}}" range-key="plateNo" bindchange="onVehicle">
+        <view class="field">{{vehicleIndex>=0?vehicles[vehicleIndex].plateNo:'请选择公司车辆'}}</view>
+      </picker>
+      <view wx:else class="field readonly">{{vehicleIndex>=0?vehicles[vehicleIndex].plateNo:'先选择参与任务'}}</view>
+      <view class="label">业务日期</view>
+      <picker mode="date" value="{{businessDate}}" bindchange="onDate"><view class="field">{{businessDate}}</view></picker>
+      <view class="label">金额（元）</view>
+      <input class="field" type="digit" value="{{amount}}" data-field="amount" bindinput="onField" placeholder="请输入大于 0 的金额" />
+      <view class="label">明细（选填）</view>
+      <input class="field" value="{{description}}" data-field="description" bindinput="onField" placeholder="例如：维修项目" />
+      <view class="label">票据号（选填）</view>
+      <input class="field" value="{{receiptNo}}" data-field="receiptNo" bindinput="onField" />
+      <view class="label">发票号（选填）</view>
+      <input class="field" value="{{invoiceNo}}" data-field="invoiceNo" bindinput="onField" />
+      <view class="label">站点名称（选填）</view>
+      <input class="field" value="{{stationName}}" data-field="stationName" bindinput="onField" />
+      <view class="label">备注（选填）</view>
+      <input class="field" value="{{remark}}" data-field="remark" bindinput="onField" />
+    </view>
+    <button class="primary" bindtap="review">核对申请摘要</button>
+  </block>
+  <block wx:elif="{{step===2}}">
+    <view class="expense-card">
+      <view class="section-title">3. 提交前核对</view>
+      <view class="summary-row">申请来源 <text>{{scope==='DAILY'?'日常费用':'任务费用'}}</text></view>
+      <view class="summary-row">费用大类 <text>{{templates[templateIndex].name}}</text></view>
+      <view class="summary-row">司机 <text>{{driverName}}</text></view>
+      <view class="summary-row">公司车牌 <text>{{vehicles[vehicleIndex].plateNo}}</text></view>
+      <view wx:if="{{scope==='TASK'}}" class="summary-row">运输任务 <text>{{tasks[taskIndex].taskNo}}</text></view>
+      <view class="summary-row">业务日期 <text>{{businessDate}}</text></view>
+      <view class="summary-row amount">金额 <text>¥{{amount}}</text></view>
+      <view wx:if="{{description}}" class="hint">明细：{{description}}</view>
+    </view>
+    <button class="secondary" disabled="{{busy}}" bindtap="edit">返回修改</button>
+    <button class="primary" disabled="{{busy}}" bindtap="submit">{{busy?'提交中…':'确认提交审批'}}</button>
+  </block>
+  <view wx:else class="expense-card">
+    <view class="section-title">申请已提交</view>
+    <view class="hint">审批编号：{{submittedNo}}</view>
+    <button class="primary" bindtap="openApprovals">查看我的申请</button>
+  </view>
+</view>

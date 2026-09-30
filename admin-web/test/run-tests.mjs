@@ -5,7 +5,7 @@ const source = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url)
 const calls = [];
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
-  salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi } = await import('../src/api/modules.js');
+  salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi, v3ApprovalApi } = await import('../src/api/modules.js');
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
@@ -13,11 +13,11 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const tests = [
-  ['active navigation contains current V3-A/B/C pages', () => {
+  ['active navigation contains current V3-A/B/C/D pages', () => {
     const router = source('router/routes.js');
-    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'system'])
+    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'expense-apply', 'approvals', 'system'])
       assert.match(router, new RegExp(`key: '${key}'`));
-    for (const key of ['dashboard', 'imports', 'expenses', 'approvals', 'approvalFlows', 'tires', 'reports', 'settlements']) {
+    for (const key of ['dashboard', 'imports', 'expenses', 'approvalFlows', 'tires', 'reports', 'settlements']) {
       assert.doesNotMatch(router, new RegExp(`key: '${key}'`));
     }
   }],
@@ -46,6 +46,20 @@ const tests = [
     assert.match(calls[2].url, /\/task-imports\?pageNo=1&pageSize=20$/);
     assert.match(source('views/DispatchWorkbenchV3View.vue'), /确认整批发布/);
     assert.match(source('views/TaskImportsV3View.vue'), /逐行结果/);
+  }],
+  ['V3-D approval and DAILY Excel use one active contract and stable return target', async () => {
+    calls.length = 0;
+    await v3ApprovalApi.available();
+    await v3ApprovalApi.create({ templateId: 1, requestKey: 'k' });
+    await v3ApprovalApi.returnStep(3, { targetFlowNodeId: 12, expectedVersion: 0 });
+    await v3ApprovalApi.resubmit(3, { items: [] });
+    assert.match(calls[0].url, /\/approval-templates\/available$/);
+    assert.match(calls[1].url, /\/approvals$/);
+    assert.match(calls[2].url, /\/approvals\/3\/return-step$/);
+    assert.match(calls[3].url, /\/approvals\/3\/resubmit$/);
+    assert.match(source('views/ApprovalCenterV3View.vue'), /targetFlowNodeId/);
+    assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /targetNodeOrder/);
+    assert.match(source('views/ExpenseApplicationV3View.vue'), /dailyPreview/);
   }],
   ['task API has one final resource and no legacy route writes', async () => {
     calls.length = 0;

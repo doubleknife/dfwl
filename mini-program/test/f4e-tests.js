@@ -46,17 +46,17 @@ module.exports = [
       currentVehicleId: null, permissions: [] })).vehicle, null);
     assert.equal((await homeData({ driverId: null, permissions: [] })).driver, null);
   }],
-  ['home only exposes V3-A task and salary capabilities', () => {
+  ['home exposes V3-D expense and approval only to eligible internal drivers', () => {
     const user = { permissions: ['task:view', 'tire:request', 'salary:mine', 'approval:create'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((card) => card.key),
-      ['routes', 'salary']);
+      ['routes', 'expense', 'approval', 'salary']);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((card) => card.key),
       ['routes']);
   }],
-  ['retired approval and tire permissions cannot restore old home entries', () => {
+  ['retired tire permissions cannot restore tire entry', () => {
     const user = { permissions: ['task:view', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((item) => item.key),
-      ['routes', 'salary']);
+      ['routes', 'expense', 'approval', 'salary']);
     assert.equal(visibleHomeActions(user, { driverType: 'INTERNAL' }, []).some((item) => item.key === 'launchApproval'), false);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((item) => item.key), ['routes']);
   }],

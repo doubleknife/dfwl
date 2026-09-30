@@ -40,6 +40,9 @@ function visibleHomeCards(user, driver) {
 function visibleHomeActions(user, driver) {
   const actions = [];
   if (hasPermission(user, 'task:view')) actions.push({ key: 'routes', title: '我的线路', icon: '线', url: '/pages/routes/index' });
+  if (isInternalDriver(driver) && hasPermission(user, 'approval:create')) actions.push({ key: 'expense', title: '发起费用', icon: '费', url: '/pages/expense-apply/index' });
+  if (isInternalDriver(driver) && hasAnyPermission(user, ['approval:create', 'approval:process', 'approval:return']))
+    actions.push({ key: 'approval', title: '审批中心', icon: '审', url: '/pages/approvals/index' });
   if (isInternalDriver(driver) && hasPermission(user, 'salary:mine')) actions.push({ key: 'salary', title: '工资单', icon: '薪', url: '/pages/salary/index' });
   return actions;
 }

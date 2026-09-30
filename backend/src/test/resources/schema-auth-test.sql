@@ -413,6 +413,7 @@ CREATE TABLE approval_template (
   stable_code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   business_type VARCHAR(32) NOT NULL,
+  expense_type VARCHAR(32) NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   version INT NOT NULL DEFAULT 0,
   CONSTRAINT uk_approval_template_code UNIQUE (stable_code),
@@ -445,6 +446,14 @@ CREATE TABLE approval_flow_node (
 
 
 
+CREATE TABLE approval_flow_initiator_role (
+  flow_id BIGINT NOT NULL,
+  role_id BIGINT NOT NULL,
+  PRIMARY KEY (flow_id, role_id),
+  CONSTRAINT fk_approval_initiator_flow FOREIGN KEY (flow_id) REFERENCES approval_flow(id),
+  CONSTRAINT fk_approval_initiator_role FOREIGN KEY (role_id) REFERENCES sys_role(id)
+);
+
 CREATE TABLE approval_instance (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   approval_no VARCHAR(64) NOT NULL,
@@ -453,12 +462,15 @@ CREATE TABLE approval_instance (
   business_type VARCHAR(32) NOT NULL,
   application_scope VARCHAR(16) NULL,
   applicant_user_id BIGINT NOT NULL,
+  request_key VARCHAR(128) NOT NULL,
+  request_digest CHAR(64) NOT NULL,
   status VARCHAR(32) NOT NULL,
   current_node_id BIGINT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TIMESTAMP NULL,
   version INT NOT NULL DEFAULT 0,
   CONSTRAINT uk_approval_no UNIQUE (approval_no),
+  CONSTRAINT uk_approval_applicant_request UNIQUE (applicant_user_id, request_key),
   CONSTRAINT chk_approval_application_scope CHECK (application_scope IS NULL OR application_scope IN ('DAILY', 'TASK')),
   CONSTRAINT fk_approval_instance_template FOREIGN KEY (template_id) REFERENCES approval_template(id),
   CONSTRAINT fk_approval_instance_flow FOREIGN KEY (flow_id) REFERENCES approval_flow(id)
@@ -502,6 +514,7 @@ CREATE TABLE approval_action (
 CREATE TABLE approval_expense_item (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   instance_id BIGINT NOT NULL,
+  submission_version_id BIGINT NOT NULL,
   item_no INT NOT NULL,
   expense_type VARCHAR(32) NOT NULL,
   business_date DATE NOT NULL,
@@ -514,9 +527,10 @@ CREATE TABLE approval_expense_item (
   remark VARCHAR(1000) NULL,
   station_name VARCHAR(128) NULL,
   target_task_id BIGINT NULL,
-  CONSTRAINT uk_approval_expense_item UNIQUE (instance_id, item_no),
+  CONSTRAINT uk_approval_expense_item UNIQUE (submission_version_id, item_no),
   CONSTRAINT chk_approval_expense_positive CHECK (amount > 0),
-  CONSTRAINT fk_approval_expense_instance FOREIGN KEY (instance_id) REFERENCES approval_instance(id)
+  CONSTRAINT fk_approval_expense_instance FOREIGN KEY (instance_id) REFERENCES approval_instance(id),
+  CONSTRAINT fk_approval_expense_submission FOREIGN KEY (submission_version_id) REFERENCES approval_submission_version(id)
 );
 
 CREATE TABLE file_attachment (
@@ -532,6 +546,15 @@ CREATE TABLE file_attachment (
   uploaded_by BIGINT NOT NULL,
   uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE approval_submission_attachment (
+  submission_version_id BIGINT NOT NULL,
+  attachment_id BIGINT NOT NULL,
+  PRIMARY KEY (submission_version_id, attachment_id),
+  CONSTRAINT uk_approval_submission_attachment UNIQUE (attachment_id),
+  CONSTRAINT fk_approval_attachment_submission FOREIGN KEY (submission_version_id) REFERENCES approval_submission_version(id),
+  CONSTRAINT fk_approval_attachment_file FOREIGN KEY (attachment_id) REFERENCES file_attachment(id)
+);
+
 CREATE TABLE task_unload_evidence (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   task_id BIGINT NOT NULL,
@@ -596,7 +619,8 @@ CREATE TABLE tire_request (
   vehicle_id BIGINT NOT NULL,
   confirmed_tire_no VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uk_tire_request_approval UNIQUE (approval_instance_id)
 );
 
 
@@ -747,6 +771,11 @@ VALUES
   ('attendance:export', '导出司机出勤', 'API'),
   ('dispatch:ledger:view', '查看车辆调度月账', 'API'),
   ('dispatch:ledger:export', '导出车辆调度月账', 'API'),
+  ('approval:create', '发起审批与费用申请', 'API'),
+  ('approval:process', '处理审批', 'API'),
+  ('approval:return', '打回审批', 'API'),
+  ('approval:history:view', '查看审批记录', 'API'),
+  ('approval:flow:manage', '维护审批流程', 'API'),
   ('user:manage', '用户管理', 'API'),
   ('role:manage', '角色管理', 'API'),
   ('permission:manage', '权限管理', 'API'),
@@ -760,7 +789,7 @@ WHERE r.role_code = 'ADMIN';
 INSERT INTO sys_role_permission (role_id, permission_id)
 SELECT r.id, p.id FROM sys_role r CROSS JOIN sys_permission p
 WHERE r.role_code = 'DRIVER'
-  AND p.permission_code IN ('task:view', 'task:depart', 'task:unload', 'salary:mine');
+  AND p.permission_code IN ('task:view', 'task:depart', 'task:unload', 'salary:mine', 'approval:create');
 CREATE TABLE in_app_notification (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,

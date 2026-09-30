@@ -92,7 +92,7 @@ class AttachmentApiTests {
     }
 
     @Test
-    void authorizedWeightEvidenceIsIndependentAndLegacyModuleUploadsAreRetired() throws Exception {
+    void authorizedWeightEvidenceIsIndependentAndV3ApprovalEvidenceIsActive() throws Exception {
         String admin = token(1, "13900000001", "ADMIN", "task:weight:adjust", "task:weight:view", "approval:create");
         for (int i = 0; i < 2; i++) {
             mvc.perform(multipart("/api/v1/attachments")
@@ -105,9 +105,15 @@ class AttachmentApiTests {
         assertThat(jdbc.queryForObject("SELECT COUNT(DISTINCT storage_key) FROM file_attachment", Integer.class))
                 .isEqualTo(2);
         mvc.perform(multipart("/api/v1/attachments")
-                        .file(new MockMultipartFile("file", "old.png", "image/png", new byte[]{1}))
+                        .file(new MockMultipartFile("file", "approval.png", "image/png", new byte[]{1}))
                         .param("ownerType", "APPROVAL_UPLOAD").param("ownerId", "1")
                         .param("purpose", "APPROVAL_APPLICATION")
+                        .header("Authorization", "Bearer " + admin))
+                .andExpect(status().isOk());
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "ocr.png", "image/png", new byte[]{1}))
+                        .param("ownerType", "TIRE_OCR").param("ownerId", "1")
+                        .param("purpose", "TIRE_OCR")
                         .header("Authorization", "Bearer " + admin))
                 .andExpect(status().isForbidden());
     }
