@@ -24,6 +24,8 @@ import com.dfwl.fleet.route.service.RouteTemplateService;
 import com.dfwl.fleet.route.service.TaskAmountService;
 import com.dfwl.fleet.route.service.TransportTaskService;
 import com.dfwl.fleet.salary.service.DriverSalaryService;
+import com.dfwl.fleet.salary.service.MonthlyOperationsService;
+import com.dfwl.fleet.salary.service.SalaryLedgerService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.TokenAuthenticationService;
 import java.math.BigDecimal;
@@ -52,6 +54,8 @@ class V3TaskFoundationTests {
     @Autowired TransportTaskService tasks;
     @Autowired TaskAmountService amounts;
     @Autowired DriverSalaryService salaries;
+    @Autowired SalaryLedgerService salaryLedger;
+    @Autowired MonthlyOperationsService monthlyOperations;
     @Autowired MasterDataRepository masterData;
     @Autowired MockMvc mvc;
     @Autowired TokenAuthenticationService tokens;
@@ -222,7 +226,8 @@ class V3TaskFoundationTests {
                 "最终工资核定", "salary-1"), 1);
         assertThat(salaryResult).extracting(item -> item.salary()).containsExactly(money("0.00"), money("0.00"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM participant_salary_history", Integer.class)).isEqualTo(2);
-        var salaryPage = salaries.list(null, "2026-09", 1, 20);
+        var salaryPage = salaryLedger.list(new SalaryLedgerService.Filter("2026-09", null,
+                null, null, null, null), 1, 20);
         assertThat(salaryPage.total()).isEqualTo(2);
         assertThat(salaryPage.records()).extracting(item -> item.salaryAmount()).containsExactly(money("0.00"), money("0.00"));
         assertThat(salaries.history(participants.get(0).id())).hasSize(2);
@@ -256,6 +261,187 @@ class V3TaskFoundationTests {
         mvc.perform(post("/api/v1/imports/preview").header("Authorization", "Bearer " + driverToken)
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void salaryLedgerUsesEveryParticipantAndTransferChainWithMatchingExport() throws Exception {
+        var request = batch(false);
+        long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "salary-ledger", request), 1).rows().getFirst().taskId();
+        var first = tasks.participants(id, true).getFirst();
+        tasks.depart(id, new TaskDepartRequest("ledger-depart", tasks.find(id).version()),
+                new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机", Set.of()));
+        tasks.transfer(id, new TaskTransferRequest(12L, "外协A002",
+                List.of(new TaskTransferRequest.SalaryDecision(first.id(), money("10.00"))), money("0.00"),
+                "临时转派", tasks.find(id).version(), first.id()), 1);
+        var filter = new SalaryLedgerService.Filter("2026-09", null, null, null, null, true);
+        var page = salaryLedger.list(filter, 1, 20);
+        assertThat(page.records()).hasSize(2);
+        assertThat(page.records()).allMatch(SalaryLedgerService.Row::transferTask);
+        assertThat(page.records()).extracting(SalaryLedgerService.Row::salaryAmount)
+                .containsExactly(money("10.00"), money("0.00"));
+        assertThat(salaryLedger.summary(filter).salaryTotal()).isEqualByComparingTo("10.00");
+        assertThat(salaryLedger.summary(filter).transferTaskCount()).isEqualTo(1);
+        assertThat(salaryLedger.drivers(filter, 1, 20).records()).hasSize(2);
+        assertThat(salaryLedger.list(new SalaryLedgerService.Filter("2026-09", null,
+                "OUTSOURCED", null, null, true), 1, 20).total()).isEqualTo(1);
+        assertThat(salaryLedger.options("DRIVER", "外协", "2026-09", 1, 20).records())
+                .extracting(SalaryLedgerService.FilterOption::label).containsExactly("外协司机");
+        assertThat(salaryLedger.options("TEMPLATE", "昆明", "2026-09", 1, 20).total()).isEqualTo(1);
+        assertThat(salaryLedger.options("TASK", "", "2026-09", 1, 20).total()).isEqualTo(1);
+        assertThatThrownBy(() -> salaryLedger.options("OTHER", "", "2026-09", 1, 20))
+                .isInstanceOf(BusinessException.class);
+        assertThat(monthlyOperations.attendanceDrivers("自有", 1, 20).total()).isEqualTo(1);
+        assertThat(monthlyOperations.attendanceDrivers("外协", 1, 20).total()).isZero();
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                new java.io.ByteArrayInputStream(salaryLedger.export(filter)))) {
+            assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(2);
+            assertThat(book.getSheetAt(0).getRow(2).getCell(6).getStringCellValue()).isEqualTo("外协司机");
+        }
+        String driverToken = tokens.issueToken(new AuthenticatedUser(501L, "13911111111", 2L,
+                "DRIVER", "司机", Set.of("salary:view", "salary:export", "attendance:view",
+                        "attendance:export", "dispatch:ledger:view", "dispatch:ledger:export")));
+        for (String path : List.of("/api/v1/driver-salaries?month=2026-09", "/api/v1/attendance?month=2026-09",
+                "/api/v1/dispatch-ledger/internal?month=2026-09",
+                "/api/v1/driver-salaries/export?month=2026-09",
+                "/api/v1/attendance/export?month=2026-09",
+                "/api/v1/dispatch-ledger/export?month=2026-09&scope=INTERNAL")) {
+            mvc.perform(get(path).header("Authorization", "Bearer " + driverToken)).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void attendanceCountsActualDepartureDayOnceAndLedgersCountEachHistoricalVehicle() throws Exception {
+        var request = batch(false);
+        long firstTask = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "month-1", request), 1).rows().getFirst().taskId();
+        long secondTask = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "month-2", request), 1).rows().getFirst().taskId();
+        var driver = new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机", Set.of());
+        tasks.depart(firstTask, new TaskDepartRequest("month-depart-1", tasks.find(firstTask).version()), driver);
+        jdbc.update("""
+                INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key,
+                    original_filename, content_type, file_size, uploaded_by)
+                VALUES (120, 'TASK', ?, 'ROUTE_UNLOAD_WEIGHT_TICKET', 'test/month.png',
+                    'month.png', 'image/png', 12, 501)
+                """, firstTask);
+        tasks.unload(firstTask, new TaskUnloadRequest(money("30"), money("5"), List.of(120L), "month-unload"), driver);
+        tasks.depart(secondTask, new TaskDepartRequest("month-depart-2", tasks.find(secondTask).version()), driver);
+        jdbc.update("UPDATE transport_participant SET departed_at='2026-09-18 10:00:00', ended_at='2026-09-19 08:00:00' WHERE task_id=?", firstTask);
+        jdbc.update("UPDATE transport_participant SET departed_at='2026-09-18 14:00:00' WHERE task_id=?", secondTask);
+        var attendance = monthlyOperations.attendance("2026-09", null, 1, 20);
+        assertThat(attendance.records()).hasSize(1);
+        assertThat(attendance.records().getFirst().monthlyTotal()).isEqualTo(1);
+        assertThat(attendance.records().getFirst().days().get(17).tasks()).hasSize(2);
+        assertThat(attendance.records().getFirst().days().get(18).count()).isZero();
+        var vehicle = monthlyOperations.ledger("2026-09", false, 1, 20);
+        assertThat(vehicle.records()).hasSize(1);
+        assertThat(vehicle.records().getFirst().plate()).isEqualTo("云A001");
+        assertThat(vehicle.records().getFirst().days().get(17).count()).isEqualTo(2);
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                new java.io.ByteArrayInputStream(monthlyOperations.exportAttendance("2026-09", null)))) {
+            assertThat(book.getSheetAt(0).getRow(1).getCell(2 + 17).getNumericCellValue()).isEqualTo(1);
+        }
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                new java.io.ByteArrayInputStream(monthlyOperations.exportLedger("2026-09", false)))) {
+            assertThat(book.getSheetAt(0).getRow(1).getCell(3 + 17).getNumericCellValue()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void outsourcedDispatchUsesActualPlateAndNeverCreatesCompanyVehicle() throws Exception {
+        var first = batch(true);
+        long taskId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(first, 1).previewId(),
+                "external-month", first), 1).rows().getFirst().taskId();
+        var externalDriver = new AuthenticatedUser(502L, "13922222222", 2L, "DRIVER", "司机", Set.of());
+        tasks.depart(taskId, new TaskDepartRequest("external-depart", tasks.find(taskId).version()), externalDriver);
+        jdbc.update("""
+                INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key,
+                    original_filename, content_type, file_size, uploaded_by)
+                VALUES (122, 'TASK', ?, 'ROUTE_UNLOAD_WEIGHT_TICKET', 'test/external.png',
+                    'external.png', 'image/png', 12, 502)
+                """, taskId);
+        tasks.unload(taskId, new TaskUnloadRequest(money("30"), money("5"), List.of(122L), "external-unload"), externalDriver);
+        var second = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
+                new DispatchBatchRequest.Row("TEMP-001", 12L, "外协B002", null, null, money("0.00"), null)));
+        long secondId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(second, 1).previewId(),
+                "external-month-second", second), 1).rows().getFirst().taskId();
+        tasks.depart(secondId, new TaskDepartRequest("external-depart-two", tasks.find(secondId).version()), externalDriver);
+        var month = java.time.YearMonth.now().toString();
+        var external = monthlyOperations.ledger(month, true, 1, 20);
+        assertThat(external.records()).hasSize(2);
+        assertThat(external.records()).extracting(MonthlyOperationsService.MonthlyRow::plate)
+                .containsExactlyInAnyOrder("外协A001", "外协B002");
+        assertThat(external.monthTotal()).isEqualTo(2);
+        assertThat(monthlyOperations.attendance(month, null, 1, 20).monthTotal()).isZero();
+        assertThat(monthlyOperations.ledger(month, false, 1, 20).monthTotal()).isZero();
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                new java.io.ByteArrayInputStream(monthlyOperations.exportLedger(month, true)))) {
+            assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void salaryConfirmationSkipsNoOpAndRejectsStaleOrNegativeAmounts() {
+        var request = batch(false);
+        long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "salary-confirm-c", request), 1).rows().getFirst().taskId();
+        var participant = tasks.participants(id, true).getFirst();
+        var unchanged = new TaskSalariesConfirmRequest(List.of(new TaskSalariesConfirmRequest.SalaryDecision(
+                participant.id(), participant.salary(), participant.version())), "月末核对", "same-salary");
+        tasks.confirmParticipantSalaries(id, unchanged, 1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM participant_salary_history", Integer.class)).isZero();
+        assertThat(tasks.participants(id, true).getFirst().version()).isEqualTo(participant.version());
+        var changed = new TaskSalariesConfirmRequest(List.of(new TaskSalariesConfirmRequest.SalaryDecision(
+                participant.id(), money("0.00"), participant.version())), "按实际参与核定", "zero-salary");
+        tasks.confirmParticipantSalaries(id, changed, 1);
+        tasks.confirmParticipantSalaries(id, changed, 1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM participant_salary_history", Integer.class)).isEqualTo(1);
+        assertThatThrownBy(() -> tasks.confirmParticipantSalaries(id, new TaskSalariesConfirmRequest(
+                List.of(new TaskSalariesConfirmRequest.SalaryDecision(participant.id(), money("1.00"),
+                        participant.version())), "旧版本不可覆盖", "stale-salary"), 1))
+                .isInstanceOf(BusinessException.class);
+        var current = tasks.participants(id, true).getFirst();
+        assertThatThrownBy(() -> tasks.confirmParticipantSalaries(id, new TaskSalariesConfirmRequest(
+                List.of(new TaskSalariesConfirmRequest.SalaryDecision(participant.id(), money("-1.00"),
+                        current.version())), "工资不能为负", "negative-salary"), 1))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void oneCompanyPlateWithDifferentDriversKeepsBothActualHistoricalRows() {
+        var request = batch(false);
+        long firstTask = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "same-car-first", request), 1).rows().getFirst().taskId();
+        var firstDriver = new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机", Set.of());
+        tasks.depart(firstTask, new TaskDepartRequest("same-car-depart-1", tasks.find(firstTask).version()), firstDriver);
+        jdbc.update("UPDATE transport_participant SET trailer_plate_snapshot='挂A' WHERE task_id=?", firstTask);
+        jdbc.update("""
+                INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key,
+                    original_filename, content_type, file_size, uploaded_by)
+                VALUES (121, 'TASK', ?, 'ROUTE_UNLOAD_WEIGHT_TICKET', 'test/car.png',
+                    'car.png', 'image/png', 12, 501)
+                """, firstTask);
+        tasks.unload(firstTask, new TaskUnloadRequest(money("30"), money("5"), List.of(121L), "same-car-unload"), firstDriver);
+        jdbc.update("DELETE FROM driver_vehicle_current WHERE driver_id=11");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) VALUES (13, 503, 'INTERNAL', '第二司机', '13933333333', 1)");
+        jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (13, 10, CURRENT_TIMESTAMP, 1)");
+        var second = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
+                new DispatchBatchRequest.Row("TEMP-001", 13L, null, null, null, null, null)));
+        long secondTask = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(second, 1).previewId(),
+                "same-car-second", second), 1).rows().getFirst().taskId();
+        tasks.depart(secondTask, new TaskDepartRequest("same-car-depart-2", tasks.find(secondTask).version()),
+                new AuthenticatedUser(503L, "13933333333", 2L, "DRIVER", "司机", Set.of()));
+        var month = java.time.YearMonth.now().toString();
+        var ledger = monthlyOperations.ledger(month, false, 1, 20);
+        assertThat(ledger.records()).hasSize(2);
+        assertThat(ledger.records()).extracting(MonthlyOperationsService.MonthlyRow::plate)
+                .containsOnly("云A001");
+        assertThat(ledger.records()).extracting(MonthlyOperationsService.MonthlyRow::driverName)
+                .containsExactlyInAnyOrder("自有司机", "第二司机");
+        assertThat(ledger.records()).extracting(MonthlyOperationsService.MonthlyRow::trailerPlate)
+                .containsExactlyInAnyOrder("挂A", null);
+        assertThat(monthlyOperations.attendance(month, null, 1, 20).monthTotal()).isEqualTo(2);
     }
 
     private DispatchBatchRequest batch(boolean outsourced) {

@@ -62,7 +62,7 @@ public class TransportTaskController {
     }
 
     @GetMapping("/{id}/participants")
-    @PreAuthorize("hasAuthority('task:participants:view')")
+    @PreAuthorize("hasAnyAuthority('task:participants:view', 'salary:view')")
     public ApiResponse<List<TransportParticipantResponse>> participants(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);

@@ -5,7 +5,7 @@ const source = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url)
 const calls = [];
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
-  salaryApi, systemApi, attachmentApi } = await import('../src/api/modules.js');
+  salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi } = await import('../src/api/modules.js');
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
@@ -13,9 +13,9 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const tests = [
-  ['active navigation contains current V3-A and V3-B pages', () => {
+  ['active navigation contains current V3-A/B/C pages', () => {
     const router = source('router/routes.js');
-    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'system'])
+    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'system'])
       assert.match(router, new RegExp(`key: '${key}'`));
     for (const key of ['dashboard', 'imports', 'expenses', 'approvals', 'approvalFlows', 'tires', 'reports', 'settlements']) {
       assert.doesNotMatch(router, new RegExp(`key: '${key}'`));
@@ -67,15 +67,25 @@ const tests = [
     assert.match(taskView, /defaultUnitPrice/);
     assert.match(taskView, /actualUnitPrice|amountHistory/);
   }],
-  ['participant salary is read from the final task participant', async () => {
+  ['salary, attendance and dispatch month views use distinct official read contracts', async () => {
     calls.length = 0;
-    await salaryApi.list(1, 3, '2026-09', 20);
+    await salaryApi.list({ month: '2026-09', driverId: 3, transferOnly: true }, 1, 20);
+    await salaryApi.summary({ month: '2026-09' });
+    await salaryApi.options('DRIVER', '张', '2026-09');
     await salaryApi.history(11);
-    assert.match(calls[0].url, /\/driver-salaries\?pageNo=1&pageSize=20&driverId=3&month=2026-09$/);
-    assert.match(calls[1].url, /\/driver-salaries\/11\/history$/);
-    const view = source('views/ParticipantSalariesV3View.vue');
-    assert.match(view, /participantId/);
+    await attendanceApi.list({ month: '2026-09' });
+    await dispatchLedgerApi.list('OUTSOURCED', { month: '2026-09' });
+    assert.match(calls[0].url, /\/driver-salaries\?pageNo=1&pageSize=20&month=2026-09&driverId=3&transferOnly=true$/);
+    assert.match(calls[1].url, /\/driver-salaries\/summary\?month=2026-09$/);
+    assert.match(calls[2].url, /\/driver-salaries\/filter-options\?pageNo=1&pageSize=20&kind=DRIVER&search=/);
+    assert.match(calls[3].url, /\/driver-salaries\/11\/history$/);
+    assert.match(calls[4].url, /\/attendance\?pageNo=1&pageSize=20&month=2026-09$/);
+    assert.match(calls[5].url, /\/dispatch-ledger\/outsourced\?pageNo=1&pageSize=20&month=2026-09$/);
+    const view = source('views/SalaryLedgerV3View.vue');
+    assert.match(view, /转派工资核对/);
+    assert.match(view, /confirmSalaries/);
     assert.doesNotMatch(view, /salaryApi\.create|salaryApi\.update/);
+    assert.match(source('views/MonthlyOperationsV3View.vue'), /月合计/);
   }],
   ['master data and binding use final live APIs', async () => {
     calls.length = 0;
@@ -96,6 +106,6 @@ const tests = [
 ];
 
 for (const [name, run] of tests) { await run(); console.log(`ok - ${name}`); }
-console.log(`${tests.length} active V3-A/B admin tests passed`);
+console.log(`${tests.length} active V3-A/B/C admin tests passed`);
 await import('./ui1Tests.mjs');
 await import('./routeWeightEvidenceTests.mjs');

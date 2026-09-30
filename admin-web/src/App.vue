@@ -17,6 +17,6 @@ onMounted(async () => {
 <template>
   <LoginView v-if="!authStore.token" />
   <AppLayout v-else>
-    <component :is="currentComponent" :key="routerStore.current" />
+    <component :is="currentComponent" v-bind="activeRoute?.props || {}" :key="routerStore.current" />
   </AppLayout>
 </template>

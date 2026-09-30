@@ -1,10 +1,8 @@
 package com.dfwl.fleet.salary.service;
 
-import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.salary.dto.response.ParticipantSalaryHistoryResponse;
-import com.dfwl.fleet.salary.dto.response.ParticipantSalaryResponse;
 import com.dfwl.fleet.salary.dto.response.SalarySlipResponse;
 import com.dfwl.fleet.salary.repository.DriverSalaryRepository;
 import com.dfwl.fleet.security.AuthenticatedUser;
@@ -25,21 +23,6 @@ public class DriverSalaryService {
     public DriverSalaryService(DriverSalaryRepository repository, CurrentUserService users) {
         this.repository = repository;
         this.users = users;
-    }
-
-    public PageResponse<ParticipantSalaryResponse> list(Long driverId, String month, int pageNo, int pageSize) {
-        if (month != null && !month.isBlank()) parseMonth(month);
-        return repository.list(driverId, month, Math.max(pageNo, 1), Math.min(Math.max(pageSize, 1), 200));
-    }
-
-    public PageResponse<ParticipantSalaryResponse> salaryForDriver(AuthenticatedUser user, long driverId,
-                                                                    String month, int pageNo, int pageSize) {
-        if (users.isDriverUser(user)) {
-            CurrentDriverContext current = users.requireDriver(user);
-            if (current.outsourced() || current.driverId() != driverId)
-                throw new AccessDeniedException("只能查看本人自有司机工资单");
-        }
-        return list(driverId, month, pageNo, pageSize);
     }
 
     public SalarySlipResponse slip(AuthenticatedUser user, String month, int pageNo, int pageSize) {

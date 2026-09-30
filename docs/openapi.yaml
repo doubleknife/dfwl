@@ -546,14 +546,127 @@ paths:
   /driver-salaries:
     get:
       tags: [DriverSalaries]
-      summary: 管理端只读 Participant 工资台账
+      summary: Participant 工资台账；服务端筛选与分页
       x-permission: salary:view
       parameters:
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
         - {name: month, in: query, schema: {type: string}}
+        - {name: driverType, in: query, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+        - {name: templateId, in: query, schema: {type: integer, format: int64}}
+        - {name: taskId, in: query, schema: {type: integer, format: int64}}
+        - {name: transferOnly, in: query, schema: {type: boolean}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
-        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
       responses: {'200': {description: OK}}
+  /driver-salaries/summary:
+    get:
+      tags: [DriverSalaries]
+      summary: 与工资台账相同筛选口径的全量汇总
+      x-permission: salary:view
+      parameters:
+        - {name: month, in: query, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: driverType, in: query, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+        - {name: templateId, in: query, schema: {type: integer, format: int64}}
+        - {name: taskId, in: query, schema: {type: integer, format: int64}}
+        - {name: transferOnly, in: query, schema: {type: boolean}}
+      responses: {'200': {description: OK}}
+  /driver-salaries/filter-options:
+    get:
+      tags: [DriverSalaries]
+      summary: 工资域司机、模板与任务可搜索筛选选项；无需额外主数据权限
+      x-permission: salary:view
+      parameters:
+        - {name: kind, in: query, required: true, schema: {type: string, enum: [DRIVER, TEMPLATE, TASK]}}
+        - {name: search, in: query, schema: {type: string}}
+        - {name: month, in: query, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /driver-salaries/drivers:
+    get:
+      tags: [DriverSalaries]
+      summary: 按司机汇总 Participant 工资，可用同一组台账筛选条件
+      x-permission: salary:view
+      parameters:
+        - {name: month, in: query, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: driverType, in: query, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+        - {name: templateId, in: query, schema: {type: integer, format: int64}}
+        - {name: taskId, in: query, schema: {type: integer, format: int64}}
+        - {name: transferOnly, in: query, schema: {type: boolean}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /driver-salaries/export:
+    get:
+      tags: [DriverSalaries]
+      summary: 导出完整筛选结果 Excel，非当前分页
+      x-permission: salary:export
+      parameters:
+        - {name: month, in: query, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: driverType, in: query, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+        - {name: templateId, in: query, schema: {type: integer, format: int64}}
+        - {name: taskId, in: query, schema: {type: integer, format: int64}}
+        - {name: transferOnly, in: query, schema: {type: boolean}}
+      responses: {'200': {description: XLSX 文件}}
+  /attendance:
+    get:
+      tags: [MonthlyOperations]
+      summary: 自有司机实际发车日出勤月表，同日多趟计一天
+      x-permission: attendance:view
+      parameters:
+        - {name: month, in: query, required: true, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /attendance/export:
+    get:
+      tags: [MonthlyOperations]
+      summary: 导出与出勤月表相同口径的完整 Excel
+      x-permission: attendance:export
+      responses: {'200': {description: XLSX 文件}}
+  /attendance/drivers:
+    get:
+      tags: [MonthlyOperations]
+      summary: 出勤域自有司机可搜索筛选选项；无需 driver:list
+      x-permission: attendance:view
+      parameters:
+        - {name: search, in: query, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /dispatch-ledger/internal:
+    get:
+      tags: [MonthlyOperations]
+      summary: 公司车辆按历史快照及实际发车次数生成月账
+      x-permission: dispatch:ledger:view
+      parameters:
+        - {name: month, in: query, required: true, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /dispatch-ledger/outsourced:
+    get:
+      tags: [MonthlyOperations]
+      summary: 外协车牌按参与人实际发车次数生成月账
+      x-permission: dispatch:ledger:view
+      parameters:
+        - {name: month, in: query, required: true, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {'200': {description: OK}}
+  /dispatch-ledger/export:
+    get:
+      tags: [MonthlyOperations]
+      summary: 导出自有或外协车辆完整月账
+      x-permission: dispatch:ledger:export
+      parameters:
+        - {name: month, in: query, required: true, schema: {type: string}}
+        - {name: scope, in: query, required: true, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+      responses: {'200': {description: XLSX 文件}}
   /driver-salaries/{participantId}/history:
     get:
       tags: [DriverSalaries]
@@ -674,7 +787,7 @@ components:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: integer, format: int64}}
-    YearMonth: {name: yearMonth, in: path, required: true, schema: {type: string, pattern: '^\\d{4}-\\d{2}$'}}
+    YearMonth: {name: yearMonth, in: path, required: true, schema: {type: string}}
   responses:
     BusinessConflict:
       description: 业务规则冲突
@@ -943,7 +1056,12 @@ components:
         - task:amount:adjust
         - salary:view
         - salary:adjust
+        - salary:export
         - salary:mine
+        - attendance:view
+        - attendance:export
+        - dispatch:ledger:view
+        - dispatch:ledger:export
         - user:manage
         - role:manage
         - permission:manage

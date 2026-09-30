@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const source = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
 const binding = source('components/BindingManagement.vue');
-const salaries = source('views/ParticipantSalariesV3View.vue');
+const salaries = source('views/SalaryLedgerV3View.vue');
 const system = source('views/SystemUi1View.vue');
 const routes = source('router/routes.js');
 
@@ -21,8 +21,8 @@ const tests = [
     assert.doesNotMatch(binding, /aria-label="(?:司机|车辆|车挂) ID"/);
   }],
   ['participant salary view reads the unique salary fact and history', () => {
-    assert.match(salaries, /:load-page="masterApi\.drivers"/);
-    assert.match(salaries, /<DetailDrawer[^>]+title="参与人工资历史"/);
+    assert.match(salaries, /:load-page="loadDriverOptions"/);
+    assert.match(salaries, /<DetailDrawer[^>]+:title=/);
     assert.match(salaries, /salaryApi\.history\(row\.participantId\)/);
     assert.doesNotMatch(salaries, /salaryApi\.create|司机编号/);
   }],
@@ -43,7 +43,8 @@ const tests = [
   }],
   ['V3 task and salary views replace legacy route and salary write pages', () => {
     assert.doesNotMatch(routes, /ExpensesUi1View\.vue/);
-    assert.match(routes, /ParticipantSalariesV3View\.vue/);
+    assert.match(routes, /SalaryLedgerV3View\.vue/);
+    assert.match(routes, /MonthlyOperationsV3View\.vue/);
     assert.match(routes, /SystemUi1View\.vue/);
     assert.match(routes, /TransportTasksV3View\.vue/);
   }]

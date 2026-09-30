@@ -143,13 +143,31 @@ export const tireApi = {
 };
 
 export const salaryApi = {
-  list: (pageNo = 1, driverId = '', month = '', pageSize = 100) => {
-    const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
-    if (driverId) query.set('driverId', String(driverId));
-    if (month) query.set('month', month);
-    return apiClient.get(`/driver-salaries?${query}`);
-  },
+  list: (filters = {}, pageNo = 1, pageSize = 20) => apiClient.get(`/driver-salaries?${query(filters, pageNo, pageSize)}`),
+  options: (kind, search = '', month = '', pageNo = 1, pageSize = 20) => apiClient.get(`/driver-salaries/filter-options?${query({ kind, search, month }, pageNo, pageSize)}`),
+  summary: (filters = {}) => apiClient.get(`/driver-salaries/summary?${query(filters)}`),
+  drivers: (filters = {}, pageNo = 1, pageSize = 20) => apiClient.get(`/driver-salaries/drivers?${query(filters, pageNo, pageSize)}`),
+  export: (filters = {}) => apiClient.download(`/driver-salaries/export?${query(filters)}`),
   history: (participantId) => apiClient.get(`/driver-salaries/${participantId}/history`)
+};
+
+function query(filters = {}, pageNo, pageSize) {
+  const params = new URLSearchParams();
+  if (pageNo != null) params.set('pageNo', String(pageNo));
+  if (pageSize != null) params.set('pageSize', String(pageSize));
+  for (const [key, value] of Object.entries(filters)) if (value !== '' && value != null) params.set(key, String(value));
+  return params;
+}
+
+export const attendanceApi = {
+  list: (filters, pageNo = 1, pageSize = 20) => apiClient.get(`/attendance?${query(filters, pageNo, pageSize)}`),
+  drivers: (pageNo = 1, search = '') => apiClient.get(`/attendance/drivers?${query({ search }, pageNo, 20)}`),
+  export: (filters) => apiClient.download(`/attendance/export?${query(filters)}`)
+};
+
+export const dispatchLedgerApi = {
+  list: (scope, filters, pageNo = 1, pageSize = 20) => apiClient.get(`/dispatch-ledger/${scope === 'OUTSOURCED' ? 'outsourced' : 'internal'}?${query(filters, pageNo, pageSize)}`),
+  export: (scope, filters) => apiClient.download(`/dispatch-ledger/export?${query({ ...filters, scope })}`)
 };
 
 export const reportApi = {
@@ -158,7 +176,6 @@ export const reportApi = {
   routeArchive: (id, expensePageNo = 1, expensePageSize = 20) => apiClient.get(`/reports/completed-routes/${id}?expensePageNo=${expensePageNo}&expensePageSize=${expensePageSize}`),
   vehicle: () => apiClient.get('/reports/vehicle-expense'),
   driver: () => apiClient.get('/reports/driver-expense'),
-  attendance: () => apiClient.get('/reports/attendance'),
   energy: () => apiClient.get('/reports/energy')
 };
 
