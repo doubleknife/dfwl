@@ -6,9 +6,9 @@ import { activeRoute, navigate, routerStore, visibleRoutes } from '../router/rou
 const title = computed(() => activeRoute.value?.label || '');
 const groups = [
   { label: '总览', keys: ['dashboard'] },
-  { label: '业务运营', keys: ['master', 'routes', 'dispatch', 'task-imports', 'expense-apply', 'approvals', 'salaries', 'attendance'] },
+  { label: '业务运营', keys: ['master', 'routes', 'dispatch', 'task-imports', 'expense-apply', 'expense-ledger', 'expense-attribution', 'approvals', 'salaries', 'attendance'] },
   { label: '调度中心', keys: ['dispatch-internal', 'dispatch-outsourced'] },
-  { label: '经营分析', keys: ['reports', 'settlements'] },
+  { label: '经营分析', keys: ['finance-tasks', 'finance-templates', 'finance-company', 'settlements'] },
   { label: '设置', keys: ['system'] }
 ];
 const groupedRoutes = computed(() => groups.map((group) => ({ ...group, routes: visibleRoutes.value.filter((route) => group.keys.includes(route.key)) })).filter((group) => group.routes.length));

@@ -53,7 +53,7 @@ class RouteApiTests {
         for (String path : new String[] {
                 "/api/v1/expenses",
                 "/api/v1/tires", "/api/v1/tire-requests", "/api/v1/reports/profit",
-                "/api/v1/settlements/2026-09/versions", "/api/v1/imports"
+                "/api/v1/imports"
         }) {
             mvc.perform(get(path).header("Authorization", "Bearer " + token))
                     .andExpect(status().isNotFound());
@@ -61,6 +61,25 @@ class RouteApiTests {
         mvc.perform(get("/api/v1/approval-templates")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/settlements/2026-09/versions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void v3FinanceEndpointsEnforcePermissionAndDenyDriverRole() throws Exception {
+        for (String path : new String[] {
+                "/api/v1/expense-ledger", "/api/v1/finance/tasks",
+                "/api/v1/finance/templates", "/api/v1/finance/company?month=2026-10",
+                "/api/v1/settlements/2026-10/versions"
+        }) {
+            mvc.perform(get(path).header("Authorization", "Bearer " + token("ADMIN", Set.of())))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(path).header("Authorization", "Bearer " + token("DRIVER", Set.of(
+                            "expense:ledger:view", "report:task:view", "report:template:view",
+                            "report:company:view", "settlement:view"))))
+                    .andExpect(status().isForbidden());
+        }
     }
 
     private String token(String role, Set<String> permissions) {

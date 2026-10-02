@@ -684,13 +684,15 @@ public class ApprovalWorkflowService {
             jdbc.update("""
                     INSERT INTO expense_entry(expense_no,approval_instance_id,approval_item_no,
                         application_scope,current_task_id,vehicle_id,driver_id,expense_type,business_date,
-                        description,amount,source_type,source_record_key,status,created_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,'APPROVAL',?,'ACTIVE',?)
+                        description,amount,receipt_no,invoice_no,remark,station_name,
+                        source_type,source_record_key,status,created_by)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'APPROVAL',?,'ACTIVE',?)
                     ON DUPLICATE KEY UPDATE id=id
                     """, "E" + UUID.randomUUID().toString().replace("-", ""), instanceId, itemNo,
                     approval.get("application_scope"), item.get("target_task_id"), item.get("vehicle_id"),
                     item.get("driver_id"), item.get("expense_type"), item.get("business_date"),
-                    item.get("description"), item.get("amount"), key, actor);
+                    item.get("description"), item.get("amount"), item.get("receipt_no"),
+                    item.get("invoice_no"), item.get("remark"), item.get("station_name"), key, actor);
         }
         audit.write("EXPENSE", "APPROVAL", instanceId, "POST_ITEMS", null,
                 Map.of("count", items.size(), "submissionId", submissionId), actor, null);

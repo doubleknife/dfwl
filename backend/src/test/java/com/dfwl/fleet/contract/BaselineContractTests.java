@@ -30,8 +30,9 @@ class BaselineContractTests {
     void onlyLaterStageContractsAreAbsentUntilRebuilt() throws IOException {
         String openapi = read("docs/openapi.yaml");
         assertThat(openapi).contains("/approvals:", "/expense-applications/daily-submit:", "targetFlowNodeId");
-        assertThat(openapi).doesNotContain("/expenses:", "/tires:",
-                "/reports/profit:", "/settlements/", "/imports:", "targetNodeOrder");
+        assertThat(openapi).contains("/expense-ledger:", "/finance/tasks:", "/settlements/{month}/versions:");
+        assertThat(openapi).doesNotContain("\n  /expenses:", "\n  /tires:",
+                "/reports/profit:", "/imports:", "targetNodeOrder");
     }
 
     @Test
@@ -50,8 +51,7 @@ class BaselineContractTests {
 
         assertThat(codes).hasSize(PermissionCode.values().length);
         for (String code : codes) {
-            if (code.startsWith("expense:") || code.startsWith("tire:")
-                    || code.startsWith("import:") || code.startsWith("report:") || code.startsWith("settlement:")) {
+            if (code.startsWith("tire:") || code.startsWith("import:")) {
                 assertThat(openapi).doesNotContain("- " + code);
             } else {
                 assertThat(openapi).contains("- " + code);

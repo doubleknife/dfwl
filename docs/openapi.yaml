@@ -21,6 +21,9 @@ tags:
   - {name: Attachments}
   - {name: Approvals}
   - {name: ExpenseApplications}
+  - {name: ExpenseLedger}
+  - {name: Finance}
+  - {name: Settlement}
   - {name: System}
 paths:
   /auth/login:
@@ -940,6 +943,133 @@ paths:
                 requestKey: {type: string}
       responses: {'200': {description: 单一审批实例}}
 
+  /expense-ledger:
+    get:
+      tags: [ExpenseLedger]
+      summary: 正式费用台账，按服务端条件分页
+      description: 申请属性 applicationScope 永久保留；currentTaskId 是当前经营归属。
+      parameters:
+        - {name: month, in: query, schema: {type: string, pattern: '^\\d{4}-\\d{2}$'}}
+        - {name: expenseType, in: query, schema: {type: string}}
+        - {name: applicationScope, in: query, schema: {type: string, enum: [DAILY, TASK]}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
+        - {name: bound, in: query, schema: {type: boolean}}
+        - {name: taskId, in: query, schema: {type: integer, format: int64}}
+        - {name: sourceType, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [ACTIVE, REVERSED, REVERSAL]}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
+      responses: {'200': {description: 费用分页与业务字段, content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}}}
+  /expense-ledger/filter-options:
+    get:
+      tags: [ExpenseLedger]
+      summary: 司机、车辆、匹配参与车辆的任务筛选候选
+      parameters:
+        - {name: kind, in: query, required: true, schema: {type: string, enum: [DRIVER, VEHICLE, TASK]}}
+        - {name: search, in: query, schema: {type: string}}
+        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+      responses: {'200': {description: 业务候选分页}}
+  /expense-ledger/summary:
+    get:
+      tags: [ExpenseLedger]
+      summary: 与费用台账同筛选口径的金额与未归属汇总
+      responses: {'200': {description: 筛选汇总}}
+  /expense-ledger/export:
+    get:
+      tags: [ExpenseLedger]
+      summary: 与费用台账同筛选口径的完整 Excel 导出
+      responses: {'200': {description: Excel 文件, content: {application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {schema: {type: string, format: binary}}}}}
+  /expense-ledger/{id}:
+    get:
+      tags: [ExpenseLedger]
+      summary: 费用事实、原审批、归属历史、冲销关系及审计
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 费用详情}}
+  /expense-ledger/{id}/attribution:
+    post:
+      tags: [ExpenseLedger]
+      summary: 有版本校验的费用任务归属调整；车辆必须匹配正式自有参与车辆
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [reason, expectedVersion], properties: {targetTaskId: {type: integer, format: int64, nullable: true}, reason: {type: string}, expectedVersion: {type: integer}}}}}}
+      responses: {'200': {description: 更新后的费用详情}}
+  /expense-ledger/{id}/reverse:
+    post:
+      tags: [ExpenseLedger]
+      summary: 保留原费用并建立等额负数冲销事实
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [reason, requestKey], properties: {reason: {type: string}, requestKey: {type: string}}}}}}
+      responses: {'200': {description: 原费用及冲销关系}}
+  /finance/task-summaries:
+    get:
+      tags: [Finance]
+      summary: 对任务列表批量返回统一财务投影
+      parameters: [{name: taskIds, in: query, required: true, schema: {type: array, items: {type: integer, format: int64}}}]
+      responses: {'200': {description: 任务经营摘要列表}}
+  /finance/tasks:
+    get:
+      tags: [Finance]
+      summary: 已完成运输任务经营分页
+      responses: {'200': {description: 任务经营分页}}
+  /finance/tasks/{id}:
+    get:
+      tags: [Finance]
+      summary: 任务经营、参与人、归属费用及类型汇总
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 任务经营档案}}
+  /transport-tasks/{id}/expenses:
+    get:
+      tags: [Finance]
+      summary: 运输任务当前归属的正式费用清单
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 费用清单}}
+  /finance/templates:
+    get:
+      tags: [Finance]
+      summary: 线路模板按所属已完成任务聚合经营
+      responses: {'200': {description: 模板经营分页}}
+  /finance/company:
+    get:
+      tags: [Finance]
+      summary: 公司月度总经营，包括未归属任务的正式日常费用
+      parameters: [{name: month, in: query, required: true, schema: {type: string}}]
+      responses: {'200': {description: 月度经营汇总}}
+  /finance/dashboard:
+    get:
+      tags: [Finance]
+      summary: 基于同一经营投影的首页看板与待处理计数
+      parameters: [{name: month, in: query, required: true, schema: {type: string}}]
+      responses: {'200': {description: 看板数据}}
+  /settlements/{month}/versions:
+    get:
+      tags: [Settlement]
+      summary: 某月只读结算版本列表
+      parameters: [{name: month, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: 版本列表}}
+    post:
+      tags: [Settlement]
+      summary: 使用当前正式财务事实生成不可变的新结算版本
+      parameters: [{name: month, in: path, required: true, schema: {type: string}}]
+      responses: {'200': {description: 新版本摘要}}
+  /settlements/versions/{id}:
+    get:
+      tags: [Settlement]
+      summary: 只读结算版本摘要
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 版本摘要}}
+  /settlements/versions/{id}/details:
+    get:
+      tags: [Settlement]
+      summary: 不可变结算事实的服务端分页明细
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 业务明细}}
+  /settlements/versions/{id}/diff:
+    get:
+      tags: [Settlement]
+      summary: 与前一版本的业务化差异、金额影响、原因和操作信息
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 差异分页}}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
@@ -1277,6 +1407,15 @@ components:
         - attendance:export
         - dispatch:ledger:view
         - dispatch:ledger:export
+        - expense:ledger:view
+        - expense:attribution:edit
+        - expense:reversal
+        - expense:export
+        - report:task:view
+        - report:template:view
+        - report:company:view
+        - settlement:view
+        - settlement:generate
         - approval:create
         - approval:process
         - approval:return

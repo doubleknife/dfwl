@@ -5,7 +5,8 @@ const source = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url)
 const calls = [];
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
-  salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi, v3ApprovalApi } = await import('../src/api/modules.js');
+  salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi, v3ApprovalApi,
+  v3ExpenseLedgerApi, v3FinanceApi, v3SettlementApi } = await import('../src/api/modules.js');
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
@@ -13,13 +14,35 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const tests = [
-  ['active navigation contains current V3-A/B/C/D pages', () => {
+  ['active navigation contains current V3-A through E pages', () => {
     const router = source('router/routes.js');
-    for (const key of ['master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'expense-apply', 'approvals', 'system'])
+    for (const key of ['dashboard', 'master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'expense-apply', 'expense-ledger', 'expense-attribution', 'approvals', 'finance-tasks', 'finance-templates', 'finance-company', 'settlements', 'system'])
       assert.match(router, new RegExp(`key: '${key}'`));
-    for (const key of ['dashboard', 'imports', 'expenses', 'approvalFlows', 'tires', 'reports', 'settlements']) {
+    for (const key of ['imports', 'expenses', 'approvalFlows', 'tires', 'reports']) {
       assert.doesNotMatch(router, new RegExp(`key: '${key}'`));
     }
+  }],
+  ['V3-E ledger and finance pages use formal APIs and business fields', async () => {
+    calls.length = 0;
+    await v3ExpenseLedgerApi.list({ month: '2026-10', applicationScope: 'DAILY', bound: false });
+    await v3ExpenseLedgerApi.attribute(8, { targetTaskId: 9, expectedVersion: 0, reason: '归属' });
+    await v3ExpenseLedgerApi.reverse(8, { reason: '冲销', requestKey: 'key' });
+    await v3FinanceApi.task(9);
+    await v3SettlementApi.diff(3);
+    assert.match(calls[0].url, /\/expense-ledger\?/);
+    assert.match(calls[1].url, /\/expense-ledger\/8\/attribution$/);
+    assert.match(calls[2].url, /\/expense-ledger\/8\/reverse$/);
+    assert.match(calls[3].url, /\/finance\/tasks\/9$/);
+    assert.match(calls[4].url, /\/settlements\/versions\/3\/diff\?/);
+    const ledger = source('views/ExpenseLedgerV3View.vue');
+    assert.match(ledger, /申请属性/);
+    assert.match(ledger, /当前经营归属/);
+    assert.doesNotMatch(ledger, /JSON\.stringify|附件 ID/);
+    assert.match(source('views/SettlementV3View.vue'), /与前版差异/);
+    const tasks = source('views/TransportTasksV3View.vue');
+    assert.match(tasks, /income_amount/);
+    assert.match(tasks, /selectedFinance\.expenses/);
+    assert.match(tasks, /归属费用净额/);
   }],
   ['dispatch draft preserves one task per row and only selected amount changes', () => {
     const template = { stableCode: 'TPL-01', name: '砂石运输', customerName: '中文客户',

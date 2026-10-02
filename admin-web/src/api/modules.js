@@ -1,13 +1,5 @@
 import { apiClient } from './client.js';
 
-export const dashboardApi = {
-  summary: () => apiClient.get('/reports/dashboard'),
-  profit: () => apiClient.get('/reports/profit'),
-  expenses: () => apiClient.get('/expenses?pageNo=1&pageSize=20'),
-  approvals: () => apiClient.get('/approvals?pageNo=1&pageSize=20'),
-  routes: () => apiClient.get('/transport-tasks?pageNo=1&pageSize=20')
-};
-
 export const masterApi = {
   drivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=${pageSize}`),
   driver: (id) => apiClient.get(`/drivers/${id}`),
@@ -75,23 +67,6 @@ export const taskImportApi = {
   confirm: (id) => apiClient.post(`/task-imports/${id}/confirm`, {}),
   history: (pageNo = 1, pageSize = 20) => apiClient.get(`/task-imports?pageNo=${pageNo}&pageSize=${pageSize}`),
   detail: (id) => apiClient.get(`/task-imports/${id}`)
-};
-
-export const expenseApi = {
-  list: (pageNo = 1, pageSize = 100, filters = {}) => {
-    const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
-    for (const [key, value] of Object.entries(filters)) if (value != null && value !== '') query.set(key, String(value));
-    return apiClient.get(`/expenses?${query}`);
-  },
-  eligibleRouteVehicles: (routeId) => apiClient.get(`/expenses/eligible-route-vehicles?routeId=${routeId}`),
-  create: (body) => apiClient.post('/expenses', body),
-  update: (id, body) => apiClient.put(`/expenses/${id}`, body),
-  delete: (id) => apiClient.delete(`/expenses/${id}`),
-  reverse: (id, body) => apiClient.post(`/expenses/${id}/reversal`, body),
-  reversalRecord: (id) => apiClient.get(`/expenses/${id}/reversal-record`),
-  attribution: (id, body) => apiClient.put(`/expenses/${id}/attribution`, body),
-  attributionHistory: (id) => apiClient.get(`/expenses/${id}/attribution-history`),
-  approval: (id) => apiClient.get(`/expenses/${id}/approval`)
 };
 
 export const approvalApi = {
@@ -199,22 +174,31 @@ export const dispatchLedgerApi = {
   export: (scope, filters) => apiClient.download(`/dispatch-ledger/export?${query({ ...filters, scope })}`)
 };
 
-export const reportApi = {
-  profit: () => apiClient.get('/reports/profit'),
-  completedRoutes: (pageNo = 1, pageSize = 20, status = '') => apiClient.get(`/reports/completed-routes?pageNo=${pageNo}&pageSize=${pageSize}${status ? `&status=${status}` : ''}`),
-  routeArchive: (id, expensePageNo = 1, expensePageSize = 20) => apiClient.get(`/reports/completed-routes/${id}?expensePageNo=${expensePageNo}&expensePageSize=${expensePageSize}`),
-  vehicle: () => apiClient.get('/reports/vehicle-expense'),
-  driver: () => apiClient.get('/reports/driver-expense'),
-  energy: () => apiClient.get('/reports/energy')
+export const v3ExpenseLedgerApi = {
+  list: (filters, pageNo = 1) => apiClient.get(`/expense-ledger?${query(filters, pageNo, 20)}`),
+  summary: (filters) => apiClient.get(`/expense-ledger/summary?${query(filters)}`),
+  options: (kind, search = '', pageNo = 1, vehicleId = '') => apiClient.get(`/expense-ledger/filter-options?${query({ kind, search, vehicleId, pageNo })}`),
+  detail: (id) => apiClient.get(`/expense-ledger/${id}`),
+  attribute: (id, body) => apiClient.post(`/expense-ledger/${id}/attribution`, body),
+  reverse: (id, body) => apiClient.post(`/expense-ledger/${id}/reverse`, body),
+  export: (filters) => apiClient.download(`/expense-ledger/export?${query(filters)}`)
 };
 
-export const settlementApi = {
-  versions: (month) => apiClient.get(`/settlements/${month}/versions`),
-  generate: (month) => apiClient.post(`/settlements/${month}/versions`, {}),
-  details: (id) => apiClient.get(`/settlements/versions/${id}/details`),
-  diff: (id) => apiClient.get(`/settlements/versions/${id}/diff`),
-  detailsPage: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/details-page?pageNo=${pageNo}&pageSize=${pageSize}`),
-  diffPage: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/diff-page?pageNo=${pageNo}&pageSize=${pageSize}`)
+export const v3FinanceApi = {
+  taskSummaries: (taskIds) => apiClient.get(`/finance/task-summaries?${new URLSearchParams(taskIds.map((id) => ['taskIds', String(id)]))}`),
+  tasks: (filters, pageNo = 1) => apiClient.get(`/finance/tasks?${query(filters, pageNo, 20)}`),
+  task: (id) => apiClient.get(`/finance/tasks/${id}`),
+  templates: (filters, pageNo = 1) => apiClient.get(`/finance/templates?${query(filters, pageNo, 20)}`),
+  company: (month) => apiClient.get(`/finance/company?month=${encodeURIComponent(month)}`),
+  dashboard: (month) => apiClient.get(`/finance/dashboard?month=${encodeURIComponent(month)}`)
+};
+
+export const v3SettlementApi = {
+  versions: (month) => apiClient.get(`/settlements/${encodeURIComponent(month)}/versions`),
+  generate: (month) => apiClient.post(`/settlements/${encodeURIComponent(month)}/versions`, {}),
+  version: (id) => apiClient.get(`/settlements/versions/${id}`),
+  details: (id, pageNo = 1) => apiClient.get(`/settlements/versions/${id}/details?${query({}, pageNo, 20)}`),
+  diff: (id, pageNo = 1) => apiClient.get(`/settlements/versions/${id}/diff?${query({}, pageNo, 20)}`)
 };
 
 export const systemApi = {
