@@ -4,6 +4,7 @@ import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
+import com.dfwl.fleet.system.service.AuditWriteService;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,10 +15,12 @@ import org.springframework.stereotype.Service;
 public class TireApprovalEffect {
     private final JdbcTemplate jdbc;
     private final CurrentUserService users;
+    private final AuditWriteService audit;
 
-    public TireApprovalEffect(JdbcTemplate jdbc, CurrentUserService users) {
+    public TireApprovalEffect(JdbcTemplate jdbc, CurrentUserService users, AuditWriteService audit) {
         this.jdbc = jdbc;
         this.users = users;
+        this.audit = audit;
     }
 
     public void validateRequest(Long requestId, AuthenticatedUser user) {
@@ -25,12 +28,16 @@ public class TireApprovalEffect {
         Map<String, Object> request = request(requestId);
         if (request == null || request.get("approval_instance_id") != null)
             throw invalid("换胎申请不存在或已经提交审批");
-        if (users.isDriverUser(user) && ((Number) request.get("applicant_driver_id")).longValue()
+        if (!users.isDriverUser(user) || users.requireDriver(user).outsourced()
+                || ((Number) request.get("applicant_driver_id")).longValue()
                 != users.requireDriver(user).driverId())
             throw new AccessDeniedException("只能发起本人的换胎申请");
         Long available = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM tire WHERE tire_no=? AND status='AVAILABLE' AND deleted_at IS NULL
-                """, Long.class, request.get("confirmed_tire_no"));
+                SELECT COUNT(*) FROM tire t
+                WHERE t.id=? AND t.status='AVAILABLE' AND t.deleted_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM tire_request r WHERE r.tire_id=t.id
+                    AND r.id<>? AND r.status IN ('PENDING_APPROVAL','APPROVED'))
+                """, Long.class, request.get("tire_id"), requestId);
         if (available == null || available != 1) throw invalid("轮胎不存在或已经申领");
     }
 
@@ -40,6 +47,13 @@ public class TireApprovalEffect {
                 WHERE id=? AND approval_instance_id IS NULL
                 """, instanceId, requestId);
         if (updated != 1) throw invalid("换胎申请已经提交审批");
+        Map<String, Object> request = request(requestId);
+        Map<String, Object> submission = jdbc.queryForList("""
+                SELECT id FROM approval_submission_version WHERE instance_id=? ORDER BY version_no DESC LIMIT 1
+                """, instanceId).stream().findFirst().orElseThrow();
+        jdbc.update("""
+                INSERT INTO approval_submission_attachment(submission_version_id,attachment_id) VALUES(?,?)
+                """, submission.get("id"), request.get("photo_attachment_id"));
     }
 
     public void onReturnedToApplicant(long instanceId) {
@@ -69,6 +83,9 @@ public class TireApprovalEffect {
                 VALUES(?,'status','AVAILABLE','CLAIMED',?,?)
                 """, tireId, "换胎审批通过：" + instanceId, operatorId);
         jdbc.update("UPDATE tire_request SET status='APPROVED' WHERE id=?", request.get("id"));
+        audit.write("TIRE", "TIRE", tireId, "APPROVAL_CLAIM",
+                Map.of("status", "AVAILABLE"), Map.of("status", "CLAIMED"),
+                operatorId, "换胎审批通过");
     }
 
     private Map<String, Object> request(long id) {

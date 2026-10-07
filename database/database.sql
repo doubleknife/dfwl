@@ -651,6 +651,7 @@ CREATE TABLE tire (
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   deleted_at DATETIME(3) NULL,
   UNIQUE KEY uk_tire_no (tire_no),
+  UNIQUE KEY uk_tire_barcode (barcode),
   KEY idx_tire_status (status, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -673,9 +674,13 @@ CREATE TABLE tire_request (
   approval_instance_id BIGINT UNSIGNED NULL,
   vehicle_id BIGINT UNSIGNED NOT NULL,
   confirmed_tire_no VARCHAR(128) NOT NULL,
+  ocr_record_id BIGINT UNSIGNED NOT NULL,
+  photo_attachment_id BIGINT UNSIGNED NOT NULL,
+  tire_id BIGINT UNSIGNED NOT NULL,
   status VARCHAR(32) NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_tire_request_approval (approval_instance_id),
+  KEY idx_tire_request_tire_status (tire_id, status),
   KEY idx_tire_request_driver_status (applicant_driver_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -819,6 +824,12 @@ VALUES
   ('dispatch:batch', '批量确认发布任务', 'API'),
   ('task:import:view', '查看任务导入', 'API'),
   ('task:import:submit', '提交任务导入', 'API'),
+  ('tire:view', '查看轮胎库存', 'API'),
+  ('tire:import', '轮胎入库与导入历史', 'API'),
+  ('tire:manage', '维护轮胎资料', 'API'),
+  ('tire:request:view', '查看换胎申请', 'API'),
+  ('tire:request:create', '发起换胎申请', 'API'),
+  ('tire:request:process', '处理换胎申请', 'API'),
   ('task:cancel', '取消未发车任务', 'API'),
   ('task:transfer', '转派运输任务', 'API'),
   ('task:depart', '确认发车', 'API'),

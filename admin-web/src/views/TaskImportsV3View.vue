@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState.vue';
 import DataTable from '../components/DataTable.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 
+const props = defineProps({ initialTab: { type: String, default: 'upload' } });
 const selectedFile = ref(null);
 const fileInput = ref(null);
 const requestKey = ref('');
@@ -20,7 +21,7 @@ const historyTotal = ref(0);
 const busy = ref(false);
 const loading = ref(false);
 const error = ref('');
-const tab = ref('upload');
+const tab = ref(props.initialTab);
 const stateName = { PREVIEWED: '待确认', CONFIRMING: '正在发布', COMPLETED: '全部发布',
   COMPLETED_WITH_ERRORS: '部分行失败', VALID: '预览通过', INVALID: '预览不通过',
   PUBLISHED: '发布成功', FAILED: '发布失败' };

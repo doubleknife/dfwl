@@ -14,7 +14,8 @@ import ApprovalEvidence from '../components/ApprovalEvidence.vue';
 import RouteWeightImageUpload from '../components/RouteWeightImageUpload.vue';
 import { adjustedNetWeight, operatorIdentity, weightAdjustmentBody, weightEntries, weightText } from './routeWeightEvidence.js';
 
-const section = ref('tasks');
+const props = defineProps({ initialSection: { type: String, default: 'tasks' } });
+const section = ref(props.initialSection);
 const tasks = ref([]);
 const financeByTask = ref({});
 const selectedFinance = ref(null);
@@ -165,7 +166,8 @@ async function setTemplateEnabled(row) {
   finally { saving.value = false; }
 }
 onMounted(async () => {
-  await loadTasks();
+  if (section.value === 'templates') await loadTemplates();
+  else await loadTasks();
   if (can('template:view')) {
     try { const page = await masterApi.products(); products.value = page.records || page || []; }
     catch { /* 产品列表仅用于模板维护，模板列表仍可读取。 */ }
@@ -175,14 +177,10 @@ onMounted(async () => {
 
 <template>
   <main class="ui-page-container">
-    <PageHeader title="运输任务" description="按运输任务查看执行事实；线路模板只保存默认业务信息。">
+    <PageHeader :title="section === 'tasks' ? '运输任务' : '线路模板'" description="按正式业务事实查看；模板只保存默认业务信息。">
       <template #actions><button type="button" @click="section === 'tasks' ? loadTasks(pageNo) : loadTemplates()">刷新</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" />
-    <div class="ui-tabs" role="tablist" aria-label="运输任务与线路模板">
-      <button type="button" :aria-selected="section === 'tasks'" @click="switchSection('tasks')">运输任务</button>
-      <button v-if="can('template:view')" type="button" :aria-selected="section === 'templates'" @click="switchSection('templates')">线路模板</button>
-    </div>
     <template v-if="section === 'tasks'">
       <FilterBar><label>业务日期<input v-model="filters.businessDate" type="date" /></label>
         <label>状态<select v-model="filters.status"><option value="">全部</option><option v-for="(label, value) in statusName" :key="value" :value="value">{{ label }}</option></select></label>

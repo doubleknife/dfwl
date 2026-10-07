@@ -30,12 +30,12 @@ const tests = [
     assert.doesNotMatch(home + profile, /\/drivers\?pageNo=1&pageSize=1/);
   }],
   ['driver menu hides salary and tire for outsourced driver', () => {
-    const user = { permissions: ['task:view', 'salary:mine', 'tire:request', 'approval:create'] };
+    const user = { permissions: ['task:view', 'salary:mine', 'tire:request:create', 'approval:create'] };
     const cards = visibleHomeCards(user, { driverType: 'OUTSOURCED' }).map((item) => item.key);
     assert.deepEqual(cards, ['routes', 'profile']);
   }],
   ['internal driver menu includes the currently available salary capability', () => {
-    const user = { permissions: ['task:view', 'salary:mine', 'tire:request'] };
+    const user = { permissions: ['task:view', 'salary:mine', 'tire:request:create'] };
     const cards = visibleHomeCards(user, { driverType: 'INTERNAL' }).map((item) => item.key);
     assert.equal(cards.includes('salary'), true);
     assert.equal(cards.includes('tire'), false);
@@ -78,13 +78,19 @@ const tests = [
     assert.equal(sensitive.test(routeList), false);
     assert.equal(sensitive.test(routeDetail), false);
   }],
-  ['V3-D approval and expense pages are active while tire remains retired', () => {
+  ['V3-F tire request is the sole driver entry and uses photo, OCR and approval', () => {
     const pages = readJson('app.json').pages;
     assert.equal(pages.includes('pages/expense-apply/index'), true);
     assert.equal(pages.includes('pages/approvals/index'), true);
-    for (const retired of ['pages/tire-request/index', 'pages/approval-detail/index']) {
-      assert.equal(pages.includes(retired), false);
-    }
+    assert.equal(pages.filter((page) => page === 'pages/tire-request/index').length, 1);
+    assert.equal(pages.includes('pages/approval-detail/index'), false);
+    const tire = fs.readFileSync(path.join(root, 'pages/tire-request/index.js'), 'utf8');
+    assert.match(tire, /chooseMedia/);
+    assert.match(tire, /purpose: 'TIRE_OCR'/);
+    assert.match(tire, /\/tire-requests\/ocr/);
+    assert.match(tire, /\/tires\/request-target/);
+    assert.match(tire, /\/tire-requests/);
+    assert.match(tire, /driverType !== 'INTERNAL'/);
   }]
 ];
 

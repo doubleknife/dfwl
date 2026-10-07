@@ -43,15 +43,15 @@ class V3ApprovalWorkflowTests {
             "管理员", Set.of("approval:create","approval:process","approval:return",
             "approval:history:view","approval:flow:manage"));
     private final AuthenticatedUser approver = new AuthenticatedUser(101L, "13900000101", 2L, "ADMIN",
-            "管理员", Set.of("approval:process","approval:return","approval:history:view"));
+            "管理员", Set.of("approval:process","approval:return","approval:history:view","tire:request:process"));
     private final AuthenticatedUser internal = new AuthenticatedUser(102L, "13900000102", 1L, "DRIVER",
-            "司机", Set.of("approval:create"));
+            "司机", Set.of("approval:create","tire:request:create"));
     private final AuthenticatedUser outsourced = new AuthenticatedUser(103L, "13900000103", 1L, "DRIVER",
             "司机", Set.of("approval:create"));
 
     @BeforeEach
     void setUp() {
-        for (String table : List.of("approval_submission_attachment","tire_request","tire_history","tire","expense_entry","approval_expense_item",
+        for (String table : List.of("approval_submission_attachment","tire_request","ocr_record","file_attachment","tire_history","tire","expense_entry","approval_expense_item",
                 "approval_action","approval_task","approval_submission_version","approval_instance",
                 "approval_flow_initiator_role","approval_flow_node","approval_flow","approval_template",
                 "audit_log","transport_participant","transport_task","route_template",
@@ -224,8 +224,18 @@ class V3ApprovalWorkflowTests {
         long templateId = template("TIRE_REPLACEMENT", 1);
         jdbc.update("INSERT INTO tire(id,tire_no,material_description,arrived_at,status,created_by) "
                 + "VALUES(60,'胎-V3D-60','轮胎',CURRENT_TIMESTAMP,'AVAILABLE',100)");
-        jdbc.update("INSERT INTO tire_request(id,applicant_driver_id,vehicle_id,confirmed_tire_no,status) "
-                + "VALUES(61,10,20,'胎-V3D-60','CONFIRMED')");
+        jdbc.update("""
+                INSERT INTO file_attachment(id,owner_type,owner_id,purpose,storage_key,original_filename,
+                    content_type,file_size,file_hash,uploaded_by)
+                VALUES(1,'TIRE_OCR',0,'TIRE_OCR','test/tire.png','tire.png','image/png',1,'test',102)
+                """);
+        jdbc.update("""
+                INSERT INTO ocr_record(id,attachment_id,raw_result_json,ocr_status,confirmed_text)
+                VALUES(1,1,'{}','SUCCESS','胎-V3D-60')
+                """);
+        jdbc.update("INSERT INTO tire_request(id,applicant_driver_id,vehicle_id,confirmed_tire_no,"
+                + "ocr_record_id,photo_attachment_id,tire_id,status) "
+                + "VALUES(61,10,20,'胎-V3D-60',1,1,60,'DRAFT')");
         var current = approvals.create(new Application(templateId, null, "tire-1", null,
                 null, 61L, null), internal);
         long id = approvalId(current);

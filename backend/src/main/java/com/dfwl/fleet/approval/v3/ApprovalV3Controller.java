@@ -39,7 +39,7 @@ public class ApprovalV3Controller {
         return ok(workflows.templates(user, true));
     }
     @GetMapping("/api/v1/approval-templates/available")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @PreAuthorize("hasAnyAuthority('approval:create','tire:request:create')")
     public ApiResponse<List<Map<String, Object>>> available(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.templates(user, false));
     }

@@ -602,7 +602,8 @@ CREATE TABLE tire (
   updated_by BIGINT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
-  CONSTRAINT uk_tire_no UNIQUE (tire_no)
+  CONSTRAINT uk_tire_no UNIQUE (tire_no),
+  CONSTRAINT uk_tire_barcode UNIQUE (barcode)
 );
 
 CREATE TABLE tire_history (
@@ -623,10 +624,15 @@ CREATE TABLE tire_request (
   approval_instance_id BIGINT NULL,
   vehicle_id BIGINT NOT NULL,
   confirmed_tire_no VARCHAR(128) NOT NULL,
+  ocr_record_id BIGINT NOT NULL,
+  photo_attachment_id BIGINT NOT NULL,
+  tire_id BIGINT NOT NULL,
   status VARCHAR(32) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT uk_tire_request_approval UNIQUE (approval_instance_id)
 );
+
+CREATE INDEX idx_tire_request_tire_status ON tire_request(tire_id, status);
 
 
 
@@ -762,6 +768,12 @@ VALUES
   ('dispatch:batch', '批量确认发布任务', 'API'),
   ('task:import:view', '查看任务导入', 'API'),
   ('task:import:submit', '提交任务导入', 'API'),
+  ('tire:view', '查看轮胎库存', 'API'),
+  ('tire:import', '轮胎入库与导入历史', 'API'),
+  ('tire:manage', '维护轮胎资料', 'API'),
+  ('tire:request:view', '查看换胎申请', 'API'),
+  ('tire:request:create', '发起换胎申请', 'API'),
+  ('tire:request:process', '处理换胎申请', 'API'),
   ('task:cancel', '取消未发车任务', 'API'),
   ('task:transfer', '转派运输任务', 'API'),
   ('task:depart', '确认发车', 'API'),

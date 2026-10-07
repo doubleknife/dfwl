@@ -15,6 +15,7 @@ tags:
   - {name: Trailers}
   - {name: RouteTemplates}
   - {name: TaskImports}
+  - {name: Tires}
   - {name: TransportTasks}
   - {name: DriverSalaries}
   - {name: Notifications}
@@ -26,6 +27,115 @@ tags:
   - {name: Settlement}
   - {name: System}
 paths:
+  /tires:
+    get:
+      tags: [Tires]
+      summary: 管理端轮胎库存分页查询
+      x-permission: tire:view
+      parameters:
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: tireNo, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [AVAILABLE, CLAIMED]}}
+      responses: {'200': {description: 轮胎库存与分页信息}}
+  /tires/{id}:
+    get:
+      tags: [Tires]
+      summary: 轮胎详情及维护历史
+      x-permission: tire:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 轮胎详情}}
+    patch:
+      tags: [Tires]
+      summary: 授权维护可用轮胎入库信息并生成历史和审计
+      x-permission: tire:manage
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TireEditRequest'}
+      responses: {'200': {description: 修改后的轮胎详情}}
+  /tires/{id}/history:
+    get:
+      tags: [Tires]
+      summary: 轮胎人工维护与审批生效历史
+      x-permission: tire:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 轮胎历史列表}}
+  /tire-imports/template:
+    get:
+      tags: [Tires]
+      summary: 下载恰好四字段的系统轮胎入库模板
+      x-permission: tire:import
+      responses: {'200': {description: 固定 Excel 模板}}
+  /tire-imports/preview:
+    post:
+      tags: [Tires]
+      summary: 上传真实固定 Excel 并逐行预览
+      x-permission: tire:import
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}
+      responses: {'200': {description: 逐行校验结果}}
+  /tire-imports/{id}/confirm:
+    post:
+      tags: [Tires]
+      summary: 正式重验并逐行入库
+      x-permission: tire:import
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 逐行入库结果}}
+  /tire-imports:
+    get:
+      tags: [Tires]
+      summary: 轮胎入库历史
+      x-permission: tire:import
+      responses: {'200': {description: 分页历史}}
+  /tire-imports/{id}:
+    get:
+      tags: [Tires]
+      summary: 轮胎导入逐行详情
+      x-permission: tire:import
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 导入详情}}
+  /tire-requests/ocr:
+    post:
+      tags: [Tires]
+      summary: 对本人上传的换胎照片 OCR 并保存原始结果
+      x-permission: tire:request:create
+      responses: {'200': {description: OCR 候选与原始记录}}
+  /tire-requests/ocr/{id}/confirm:
+    post:
+      tags: [Tires]
+      summary: 确认本人照片的胎号
+      x-permission: tire:request:create
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 已确认 OCR 记录}}
+  /tires/request-target:
+    get:
+      tags: [Tires]
+      summary: 按确认胎号匹配可用库存
+      x-permission: tire:request:create
+      responses: {'200': {description: 可用轮胎}}
+  /tire-requests:
+    post:
+      tags: [Tires]
+      summary: 司机端提交换胎申请并进入 TIRE_REPLACEMENT 审批
+      x-permission: tire:request:create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TireRequestInput'}
+      responses: {'200': {description: 审批实例详情}}
+  /tire-requests/{id}:
+    get:
+      tags: [Tires]
+      summary: 查看本人换胎申请或授权管理端记录
+      x-permission: tire:request:view
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 换胎申请业务事实与原图引用}}
   /auth/login:
     post:
       tags: [Auth]
@@ -1083,6 +1193,24 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/ApiResponse'}
   schemas:
+    TireEditRequest:
+      type: object
+      required: [tireNo, materialDescription, arrivedAt, expectedVersion, reason]
+      properties:
+        tireNo: {type: string, maxLength: 128}
+        barcode: {type: string, maxLength: 128}
+        materialDescription: {type: string, maxLength: 1000}
+        arrivedAt: {type: string, format: date-time}
+        expectedVersion: {type: integer}
+        reason: {type: string}
+    TireRequestInput:
+      type: object
+      required: [templateId, ocrRecordId, confirmedTireNo, requestKey]
+      properties:
+        templateId: {type: integer, format: int64}
+        ocrRecordId: {type: integer, format: int64}
+        confirmedTireNo: {type: string}
+        requestKey: {type: string}
     ApprovalTemplateInput:
       type: object
       required: [stableCode, name, businessType, initiatorRoleIds, nodes]
@@ -1393,6 +1521,12 @@ components:
         - dispatch:batch
         - task:import:view
         - task:import:submit
+        - tire:view
+        - tire:import
+        - tire:manage
+        - tire:request:view
+        - tire:request:create
+        - tire:request:process
         - task:cancel
         - task:transfer
         - task:depart

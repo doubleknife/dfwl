@@ -11,7 +11,10 @@
 - `pages/weight`：毛重/皮重同页提交。
 - `pages/salary`：自有司机工资单。
 - `pages/profile`：当前账号信息。
-- `pages/notifications`：站内通知。审批、费用和换胎旧页面已从当前包退役，待后续 V3 阶段按最终模型重新实现。
+- `pages/expense-apply`：自有司机的授权费用申请。
+- `pages/approvals`：按本人权限查看申请与审批。
+- `pages/tire-request`：自有司机拍照、OCR、确认胎号、匹配库存并提交换胎审批；外协司机不可发起。
+- `pages/notifications`：站内通知。
 
 接口统一走 `utils/request.js`，默认 `baseUrl` 为 `http://localhost:8080/api/v1`。
 

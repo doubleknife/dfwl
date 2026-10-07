@@ -8,6 +8,7 @@ import ErrorState from '../components/ErrorState.vue';
 import { masterApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 
+const props = defineProps({ initialTab: { type: String, default: 'drivers' } });
 const tabs = [
   { key: 'drivers', label: '司机', permission: 'driver:list' },
   { key: 'vehicles', label: '车辆', permission: 'vehicle:list' },
@@ -15,7 +16,7 @@ const tabs = [
   { key: 'binding', label: '绑定', permission: 'vehicle:bindingHistory' },
   { key: 'products', label: '货物', permission: 'template:view' }
 ];
-const tab = ref(tabs.find((item) => can(item.permission))?.key || 'drivers');
+const tab = ref(props.initialTab);
 const drivers = ref([]);
 const vehicles = ref([]);
 const loading = ref(false);
@@ -39,8 +40,7 @@ onMounted(() => { if (tab.value === 'drivers') loadDrivers(); });
 
 <template>
   <div class="ui-page-container">
-    <PageHeader title="基础资料" description="按业务对象管理资料与当前绑定。" />
-    <div class="ui-subtabs"><button v-for="item in tabs.filter((entry) => can(entry.permission))" :key="item.key" type="button" :class="{ active: tab === item.key }" @click="selectTab(item.key)">{{ item.label }}</button></div>
+    <PageHeader :title="tabs.find((item) => item.key === tab)?.label || '基础资料'" description="按业务对象管理资料与当前绑定。" />
     <ErrorState v-if="error && tab === 'drivers'" :message="error" @retry="loadDrivers" />
     <DriverManagementSample v-if="tab === 'drivers' && can('driver:list')" :drivers="drivers" :vehicles="vehicles" :loading="loading" @refresh="loadDrivers" />
     <BindingManagement v-if="tab === 'binding'" />

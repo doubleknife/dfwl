@@ -31,7 +31,7 @@ class BaselineContractTests {
         String openapi = read("docs/openapi.yaml");
         assertThat(openapi).contains("/approvals:", "/expense-applications/daily-submit:", "targetFlowNodeId");
         assertThat(openapi).contains("/expense-ledger:", "/finance/tasks:", "/settlements/{month}/versions:");
-        assertThat(openapi).doesNotContain("\n  /expenses:", "\n  /tires:",
+        assertThat(openapi).doesNotContain("\n  /expenses:",
                 "/reports/profit:", "/imports:", "targetNodeOrder");
     }
 
@@ -51,7 +51,7 @@ class BaselineContractTests {
 
         assertThat(codes).hasSize(PermissionCode.values().length);
         for (String code : codes) {
-            if (code.startsWith("tire:") || code.startsWith("import:")) {
+            if (code.startsWith("import:")) {
                 assertThat(openapi).doesNotContain("- " + code);
             } else {
                 assertThat(openapi).contains("- " + code);

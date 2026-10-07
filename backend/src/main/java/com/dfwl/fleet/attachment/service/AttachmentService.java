@@ -238,21 +238,21 @@ public class AttachmentService {
     }
 
     private void requireUploadPermission(AttachmentPurpose purpose, AuthenticatedUser user) {
-        // V3-D activates approval evidence; tire OCR remains retired until V3-F.
         if (purpose != AttachmentPurpose.WEIGHT_ADJUST
                 && purpose != AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET
                 && purpose != AttachmentPurpose.IMPORT_FILE
+                && purpose != AttachmentPurpose.TIRE_OCR
                 && purpose != AttachmentPurpose.APPROVAL_APPLICATION
                 && purpose != AttachmentPurpose.APPROVAL_ACTION) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {
-            case TIRE_OCR -> has(user, "tire:request");
+            case TIRE_OCR -> has(user, "tire:request:create");
             case WEIGHT_ADJUST -> has(user, "task:weight:adjust");
             case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "task:unload");
             case APPROVAL_APPLICATION -> has(user, "approval:create");
             case APPROVAL_ACTION -> hasAny(user, "approval:process", "approval:return");
-            case IMPORT_FILE -> has(user, "task:import:submit");
+            case IMPORT_FILE -> hasAny(user, "task:import:submit", "tire:import");
         };
         if (!allowed) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
@@ -272,7 +272,7 @@ public class AttachmentService {
         AttachmentPurpose purpose = normalizePurpose(attachment.purpose());
         boolean history = has(user, "approval:history:view");
         if (purpose == AttachmentPurpose.TIRE_OCR) {
-            if ((attachment.uploadedBy() == user.id() && has(user, "tire:request"))
+            if ((attachment.uploadedBy() == user.id() && has(user, "tire:request:create"))
                     || repository.canViewSubmissionEvidence(attachment.id(), user.id(), history)) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
@@ -302,7 +302,7 @@ public class AttachmentService {
         boolean allowed = switch (purpose) {
             case WEIGHT_ADJUST -> !"DRIVER".equalsIgnoreCase(user.roleCode())
                     && hasAny(user, "task:weight:view", "task:weight:adjust");
-            case IMPORT_FILE -> has(user, "task:import:view");
+            case IMPORT_FILE -> hasAny(user, "task:import:view", "tire:import");
             default -> false;
         };
         if (!allowed) {

@@ -13,7 +13,7 @@ import ErrorState from '../components/ErrorState.vue';
 
 const props = defineProps({ focus: { type: String, default: 'LEDGER' } });
 const today = new Date();
-const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, expenseType: '', applicationScope: props.focus === 'ATTRIBUTION' ? 'DAILY' : '', driverId: '', vehicleId: '', bound: props.focus === 'ATTRIBUTION' ? 'false' : '', taskId: '', sourceType: '', status: '' });
+const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, expenseType: props.focus === 'ENERGY' ? 'ELECTRIC' : '', applicationScope: props.focus === 'ATTRIBUTION' ? 'DAILY' : '', driverId: '', vehicleId: '', bound: props.focus === 'ATTRIBUTION' ? 'false' : '', taskId: '', sourceType: '', status: '' });
 const rows = ref([]); const summary = ref(null); const pageNo = ref(1); const total = ref(0);
 const loading = ref(false); const saving = ref(false); const exporting = ref(false); const error = ref('');
 const detail = ref(null); const dialog = ref(''); const targetTaskId = ref(''); const reason = ref('');
@@ -25,7 +25,8 @@ const cols = [
   { key: 'source_type', label: '来源' }, { key: 'display_status', label: '状态' },
   { key: 'actions', label: '操作' }
 ];
-const names = { REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', TOLL: '过路费', DAILY: '日常费用', TASK: '任务费用', APPROVAL: '审批通过', REVERSAL: '冲销记录', CHARGING: '充电公司' };
+const names = { REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', ELECTRIC: '电费', GAS: '气费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', TOLL: '过路费', DAILY: '日常费用', TASK: '任务费用', APPROVAL: '审批通过', REVERSAL: '冲销记录', CHARGING: '充电公司' };
+const pageTitle = { ATTRIBUTION: '费用归属', VEHICLE: '车辆支出', DRIVER: '司机支出', ENERGY: '能源费用' };
 const label = (value) => names[value] || value || '—';
 const money = (value) => `¥ ${Number(value || 0).toFixed(2)}`;
 const mask = (phone) => String(phone || '').replace(/^(\d{3})\d+(\d{4})$/, '$1****$2') || '系统账号';
@@ -69,18 +70,18 @@ async function download() {
   finally { exporting.value = false; }
 }
 onMounted(() => load());
-watch(() => props.focus, (focus) => { filters.applicationScope = focus === 'ATTRIBUTION' ? 'DAILY' : ''; filters.bound = focus === 'ATTRIBUTION' ? 'false' : ''; load(1); });
+watch(() => props.focus, (focus) => { filters.applicationScope = focus === 'ATTRIBUTION' ? 'DAILY' : ''; filters.bound = focus === 'ATTRIBUTION' ? 'false' : ''; filters.expenseType = focus === 'ENERGY' ? 'ELECTRIC' : ''; filters.vehicleId = ''; filters.driverId = ''; load(1); });
 </script>
 
 <template>
   <main class="ui-page-container">
-    <PageHeader :title="focus === 'ATTRIBUTION' ? '费用归属' : '费用台账'" :description="focus === 'ATTRIBUTION' ? '重点处理已批准但尚未归属任务的日常费用。' : '只展示正式生效的费用事实；申请属性与当前经营归属分别保留。'">
+    <PageHeader :title="pageTitle[focus] || '费用台账'" :description="focus === 'ATTRIBUTION' ? '重点处理已批准但尚未归属任务的日常费用。' : focus === 'ENERGY' ? '按电费、气费等能源费用类型查看正式费用事实；汇总随当前筛选变化。' : '只展示正式生效的费用事实；可按司机、车辆与费用类型查看当前筛选支出。'">
       <template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="can('expense:export')" type="button" :disabled="exporting" @click="download">{{ exporting ? '正在下载…' : '下载当前筛选 Excel' }}</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
     <FilterBar>
       <label>业务月份<input v-model="filters.month" type="month" /></label>
-      <label>费用类型<select v-model="filters.expenseType"><option value="">全部类型</option><option v-for="key in ['REPAIR','PENALTY','WATER','TEMP_ELECTRIC','TEMP_GAS','TOLL']" :key="key" :value="key">{{ label(key) }}</option></select></label>
+      <label>费用类型<select v-model="filters.expenseType"><option v-if="focus !== 'ENERGY'" value="">全部类型</option><option v-for="key in focus === 'ENERGY' ? ['ELECTRIC','GAS','TEMP_ELECTRIC'] : ['REPAIR','PENALTY','WATER','ELECTRIC','GAS','TEMP_ELECTRIC','TOLL']" :key="key" :value="key">{{ label(key) }}</option></select></label>
       <label>申请属性<select v-model="filters.applicationScope"><option value="">全部</option><option value="DAILY">日常费用</option><option value="TASK">任务费用</option></select></label>
       <label>司机<EntityPicker v-model="filters.driverId" remote-search :load-page="optionPage('DRIVER')" :label-of="(item) => `${item.label} · ${mask(item.detail)}`" placeholder="全部司机" /></label>
       <label>公司车辆<EntityPicker v-model="filters.vehicleId" remote-search :load-page="optionPage('VEHICLE')" :label-of="(item) => item.label" placeholder="全部车辆" /></label>

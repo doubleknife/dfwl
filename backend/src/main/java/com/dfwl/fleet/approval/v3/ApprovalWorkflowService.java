@@ -79,15 +79,18 @@ public class ApprovalWorkflowService {
                     ORDER BY t.id DESC
                     """);
         }
-        require(user, "approval:create");
+        requireAny(user, "approval:create", "tire:request:create");
         if (isOutsourced(user)) return List.of();
-        return jdbc.queryForList("""
+        List<Map<String, Object>> available = jdbc.queryForList("""
                 SELECT t.id,t.stable_code,t.name,t.business_type,t.expense_type,
                        f.id flow_id,f.version_no
                 FROM approval_template t JOIN approval_flow f ON f.template_id=t.id AND f.status='ACTIVE'
                 JOIN approval_flow_initiator_role ir ON ir.flow_id=f.id AND ir.role_id=?
                 WHERE t.enabled=1 ORDER BY t.name
                 """, user.roleId());
+        return available.stream().filter(template -> "TIRE_REPLACEMENT".equals(template.get("business_type"))
+                ? user.permissions().contains("tire:request:create")
+                : user.permissions().contains("approval:create")).toList();
     }
 
     @Transactional
@@ -253,7 +256,7 @@ public class ApprovalWorkflowService {
 
     @Transactional
     public Map<String, Object> create(Application input, AuthenticatedUser user) {
-        require(user, "approval:create");
+        requireAny(user, "approval:create", "tire:request:create");
         if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能发起审批或费用申请");
         if (input == null || input.templateId() == null || blank(input.requestKey())
                 || input.requestKey().length() > 128) throw invalid("申请模板和请求标识不能为空");
@@ -280,6 +283,7 @@ public class ApprovalWorkflowService {
                 """, Long.class, flowId, user.roleId());
         if (allowed == null || allowed == 0) throw new AccessDeniedException("无权使用该审批模板");
         String type = (String) template.get("business_type");
+        require(user, "TIRE_REPLACEMENT".equals(type) ? "tire:request:create" : "approval:create");
         String scope = input.applicationScope();
         List<ExpenseItem> items = input.items();
         if ("EXPENSE".equals(type)) {
@@ -455,6 +459,16 @@ public class ApprovalWorkflowService {
                 JOIN approval_submission_version s ON s.id=sa.submission_version_id
                 WHERE s.instance_id=? ORDER BY s.version_no,f.id
                 """, id));
+        if ("TIRE_REPLACEMENT".equals(approval.get("business_type"))) {
+            result.put("tireRequest", one("""
+                    SELECT r.confirmed_tire_no tireNo,r.status,d.name driverName,v.plate_no vehiclePlate,
+                           r.created_at requestedAt,o.recognized_text recognizedText,
+                           r.photo_attachment_id photoAttachmentId
+                    FROM tire_request r JOIN driver d ON d.id=r.applicant_driver_id
+                    JOIN vehicle v ON v.id=r.vehicle_id JOIN ocr_record o ON o.id=r.ocr_record_id
+                    WHERE r.approval_instance_id=?
+                    """, id));
+        }
         result.put("actionAttachments", jdbc.queryForList("""
                 SELECT x.id actionId,f.id attachmentId,f.original_filename filename,f.content_type contentType
                 FROM approval_action x JOIN approval_task k ON k.id=x.task_id
@@ -502,6 +516,7 @@ public class ApprovalWorkflowService {
         else throw invalid("审批动作不合法");
         Map<String, Object> approval = one("SELECT * FROM approval_instance WHERE id=? FOR UPDATE", id);
         if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
+        if ("TIRE_REPLACEMENT".equals(approval.get("business_type"))) require(user, "tire:request:process");
         if (!"PENDING".equals(approval.get("status"))) throw invalid("当前审批不在待处理状态");
         if (input == null || input.expectedVersion() == null
                 || input.expectedVersion() != ((Number) approval.get("version")).intValue())

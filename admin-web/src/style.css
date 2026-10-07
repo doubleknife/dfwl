@@ -469,6 +469,16 @@ h2 {
 .topbar-location { color: var(--ui-text-secondary); font-size: 13px; }
 .topbar-location span { padding: 0 8px; color: #a4b3ae; }
 .sidebar nav { width: 100%; }
+.nav-domain { margin: 7px 0; }
+.sidebar .nav-domain-toggle { display: flex; align-items: center; justify-content: space-between; min-height: 43px; margin: 0; padding: 0 12px; color: #d9ebe6; font-size: 14px; font-weight: 700; letter-spacing: .02em; }
+.sidebar .nav-domain-toggle:hover { background: #294740; }
+.nav-domain-children { padding: 1px 0 8px; border-left: 1px solid #42645c; margin-left: 14px; }
+.sidebar .nav-leaf { min-height: 38px; margin: 1px 0 1px 8px; width: calc(100% - 8px); padding-left: 18px; color: #bed2cb; font-size: 14px; font-weight: 450; }
+.sidebar .nav-leaf.active { color: #fff; background: #2f5b54; font-weight: 650; }
+.nav-subgroup { margin: 6px 0; }
+.nav-subgroup > div { padding: 7px 12px 4px 20px; color: #9ec4b9; font-size: 12px; font-weight: 700; }
+.nav-subgroup > .nav-subgroup-active { color: #e2f3ee; }
+.sidebar .nav-leaf-third { padding-left: 30px; font-size: 13px; }
 .topbar p { display: none; }
 .user-menu { position: relative; }
 .user-menu summary { cursor: pointer; list-style: none; min-height: 36px; display: flex; align-items: center; gap: 8px; }
@@ -544,10 +554,9 @@ h2 {
 @media (max-width: 920px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: block; padding: 12px; }
-  .sidebar nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 4px; max-height: 300px; overflow-y: auto; }
   .brand { width: 100%; margin: 0 0 8px; }
   .sidebar-group { display: none; }
-  .sidebar button { width: auto; }
   .workspace { padding: 0 16px 24px; }
 }
 @media (max-width: 640px) {

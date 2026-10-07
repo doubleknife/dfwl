@@ -49,10 +49,10 @@ class RouteApiTests {
 
     @Test
     void remainingRetiredV2ModulesHaveNoReachableHttpEntry() throws Exception {
-        String token = token("ADMIN", Set.of("task:view", "expense:list", "approval:process", "tire:list"));
+        String token = token("ADMIN", Set.of("task:view", "expense:list", "approval:process", "tire:view"));
         for (String path : new String[] {
                 "/api/v1/expenses",
-                "/api/v1/tires", "/api/v1/tire-requests", "/api/v1/reports/profit",
+                "/api/v1/reports/profit",
                 "/api/v1/imports"
         }) {
             mvc.perform(get(path).header("Authorization", "Bearer " + token))

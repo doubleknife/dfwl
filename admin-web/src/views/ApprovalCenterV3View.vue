@@ -8,8 +8,9 @@ import PaginationBar from '../components/PaginationBar.vue';
 import StatusTag from '../components/StatusTag.vue';
 import ApprovalEvidence from '../components/ApprovalEvidence.vue';
 
-const scope = ref(can('approval:process') ? 'TODO' : 'MINE');
-const tab = ref('list');
+const props = defineProps({ initialScope: { type: String, default: '' }, initialTab: { type: String, default: 'list' } });
+const scope = ref(props.initialScope || (can('approval:process') ? 'TODO' : 'MINE'));
+const tab = ref(props.initialTab);
 const rows = ref([]);
 const page = ref(1);
 const total = ref(0);
@@ -187,22 +188,17 @@ function startNextVersion() {
   }));
   tab.value = 'configure';
 }
-onMounted(() => load());
+onMounted(() => tab.value === 'flows' ? loadTemplates() : load());
 </script>
 
 <template>
   <div class="ui-page-container">
-    <PageHeader title="审批中心" description="处理待办、查看申请与审批记录；流程版本按发布时的步骤保留。">
+    <PageHeader :title="tab === 'flows' || tab === 'configure' ? '流程与模板配置' : scope === 'MINE' ? '我的申请' : scope === 'HISTORY' ? '审批记录' : '待我处理'" description="按正式流程版本处理审批；申请事实与操作历史分别保存。">
       <template #actions><button v-if="can('approval:create')" type="button" @click="startGeneral">发起普通审批</button>
-        <button v-if="can('approval:flow:manage')" type="button" @click="loadTemplates">流程与模板配置</button></template>
+        </template>
     </PageHeader>
     <p v-if="error" class="error" role="alert">{{ error }} <button type="button" @click="tab === 'detail' ? refreshDetail() : load(page)">重试</button></p>
     <section v-if="tab === 'list'">
-      <div class="ui-subtabs">
-        <button v-if="can('approval:process') || can('approval:return')" type="button" :class="{ active: scope === 'TODO' }" @click="scope='TODO';load(1)">待我处理</button>
-        <button type="button" :class="{ active: scope === 'MINE' }" @click="scope='MINE';load(1)">我的申请</button>
-        <button v-if="can('approval:history:view')" type="button" :class="{ active: scope === 'HISTORY' }" @click="scope='HISTORY';load(1)">审批记录</button>
-      </div>
       <DataTable :rows="rows" :loading="loading" empty-text="当前没有审批记录"
         :columns="[{key:'approvalNo',label:'审批编号'},{key:'templateName',label:'业务'},{key:'status',label:'状态'},
           {key:'applicantPhone',label:'申请人'},{key:'currentStepName',label:'当前步骤'},
@@ -231,7 +227,17 @@ onMounted(() => load());
           <template #amount="{value}">{{ money(value) }}</template>
         </DataTable>
         <p v-else-if="detail.approval.business_type === 'GENERAL'">{{ snapshot.content?.description || snapshot.content?.reason || '普通审批内容已提交' }}</p>
-        <p v-else>换胎申请按独立库存业务处理，不生成普通费用。</p>
+        <div v-else-if="detail.approval.business_type === 'TIRE_REPLACEMENT'" class="ui-section-card">
+          <h3>换胎申请事实</h3>
+          <dl v-if="detail.tireRequest" class="ui-detail-grid">
+            <dt>确认胎号</dt><dd>{{ detail.tireRequest.tireNo }}</dd>
+            <dt>申请司机</dt><dd>{{ detail.tireRequest.driverName }}</dd>
+            <dt>公司车辆</dt><dd>{{ detail.tireRequest.vehiclePlate }}</dd>
+            <dt>申请时间</dt><dd>{{ formatTime(detail.tireRequest.requestedAt) }}</dd>
+            <dt>照片识别文字</dt><dd>{{ detail.tireRequest.recognizedText || '未识别出文字，已由司机人工确认胎号' }}</dd>
+          </dl>
+          <p class="muted">审批通过后才正式申领库存轮胎；不生成普通费用。</p>
+        </div>
         <ApprovalEvidence v-if="submissionEvidence.length" title="申请附件" :attachments="submissionEvidence" />
       </div>
       <div v-if="isOwnReturned && detail.approval.business_type !== 'TIRE_REPLACEMENT'" class="ui-section-card">

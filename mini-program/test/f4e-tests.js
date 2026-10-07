@@ -47,16 +47,20 @@ module.exports = [
     assert.equal((await homeData({ driverId: null, permissions: [] })).driver, null);
   }],
   ['home exposes V3-D expense and approval only to eligible internal drivers', () => {
-    const user = { permissions: ['task:view', 'tire:request', 'salary:mine', 'approval:create'] };
+    const user = { permissions: ['task:view', 'tire:request:create', 'salary:mine', 'approval:create'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((card) => card.key),
       ['routes', 'expense', 'approval', 'salary']);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((card) => card.key),
       ['routes']);
   }],
-  ['retired tire permissions cannot restore tire entry', () => {
-    const user = { permissions: ['task:view', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request'] };
+  ['tire request requires internal driver, current company vehicle and permissions', () => {
+    const user = { permissions: ['task:view', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request:create'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((item) => item.key),
       ['routes', 'expense', 'approval', 'salary']);
+    assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL', currentVehicleId: 7 }).map((item) => item.key),
+      ['routes', 'expense', 'approval', 'salary', 'tire']);
+    assert.equal(visibleHomeActions({ permissions: ['tire:request:create'] },
+      { driverType: 'INTERNAL', currentVehicleId: 7 }).some((item) => item.key === 'tire'), true);
     assert.equal(visibleHomeActions(user, { driverType: 'INTERNAL' }, []).some((item) => item.key === 'launchApproval'), false);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((item) => item.key), ['routes']);
   }],

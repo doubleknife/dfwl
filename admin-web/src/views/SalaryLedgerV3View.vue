@@ -10,8 +10,9 @@ import PaginationBar from '../components/PaginationBar.vue';
 import EntityPicker from '../components/EntityPicker.vue';
 import ErrorState from '../components/ErrorState.vue';
 
+const props = defineProps({ initialSituation: { type: String, default: '' } });
 const today = new Date();
-const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, driverId: '', driverType: '', templateId: '', taskId: '', transferOnly: '' });
+const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, driverId: '', driverType: '', templateId: '', taskId: '', transferOnly: props.initialSituation === 'TRANSFER' ? 'true' : '' });
 const mode = ref('ledger');
 const records = ref([]);
 const summary = ref(null);

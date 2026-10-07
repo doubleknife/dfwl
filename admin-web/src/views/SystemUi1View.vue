@@ -15,7 +15,8 @@ import ConfirmDialog from '../components/ConfirmDialog.vue';
 import ErrorState from '../components/ErrorState.vue';
 import AuditLogsUi2 from '../components/AuditLogsUi2.vue';
 
-const tab = ref(can('user:manage') ? 'users' : can('role:manage') ? 'roles' : can('permission:manage') ? 'permissions' : 'audits');
+const props = defineProps({ initialTab: { type: String, default: 'users' } });
+const tab = ref(props.initialTab);
 const users = ref([]);
 const roles = ref([]);
 const permissions = ref([]);
@@ -160,9 +161,8 @@ onMounted(async () => {
 
 <template>
   <div class="ui-page-container">
-    <PageHeader title="系统管理" description="管理用户、角色与权限；操作日志保留完整审计记录。" />
+    <PageHeader :title="{ users: '用户', roles: '角色与权限', permissions: '权限目录', audits: '操作日志' }[tab] || '系统管理'" description="按权限管理账号、角色和审计记录。" />
     <ErrorState v-if="error" :message="error" @retry="changeTab(tab)" />
-    <div class="ui-subtabs"><button v-if="can('user:manage')" type="button" :class="{active:tab==='users'}" @click="changeTab('users')">用户</button><button v-if="can('role:manage')" type="button" :class="{active:tab==='roles'}" @click="changeTab('roles')">角色</button><button v-if="can('permission:manage')" type="button" :class="{active:tab==='permissions'}" @click="changeTab('permissions')">权限目录</button><button v-if="can('audit:view')" type="button" :class="{active:tab==='audits'}" @click="changeTab('audits')">操作日志</button></div>
     <section v-if="tab === 'users' && can('user:manage')">
       <div class="ui-list-heading"><h2>用户列表</h2><button class="primary" type="button" @click="openUser()">＋ 新增用户</button></div>
       <FilterBar><label class="ui-search">手机号<input v-model.trim="filters.user" type="search" placeholder="搜索当前页" /></label><label>角色<select v-model="filters.userRole"><option value="">全部角色</option><option v-for="role in roles" :key="role.id" :value="String(role.id)">{{ role.roleName }}</option></select></label><label>状态<select v-model="filters.userStatus"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label></FilterBar><p class="muted">筛选当前页；角色列表也按页加载。</p>

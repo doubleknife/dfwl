@@ -137,13 +137,18 @@ export const tireApi = {
     const query = new URLSearchParams({ pageNo: String(pageNo), pageSize: String(pageSize) });
     if (filters.tireNo) query.set('tireNo', filters.tireNo);
     if (filters.status) query.set('status', filters.status);
-    if (filters.vehicleId) query.set('vehicleId', String(filters.vehicleId));
     return apiClient.get(`/tires?${query}`);
   },
-  request: (body) => apiClient.post('/tire-requests', body),
-  requestDetail: (id) => apiClient.get(`/tire-requests/${id}`),
-  ocr: (attachmentId) => apiClient.post('/ocr/tire-number', { attachmentId }),
-  confirmOcr: (id, body) => apiClient.post(`/ocr/${id}/confirm`, body)
+  detail: (id) => apiClient.get(`/tires/${id}`),
+  edit: (id, body) => apiClient.patch(`/tires/${id}`, body),
+  template: () => apiClient.download('/tire-imports/template'),
+  preview: (file) => {
+    const form = new FormData(); form.append('file', file);
+    return apiClient.upload('/tire-imports/preview', form);
+  },
+  confirm: (id) => apiClient.post(`/tire-imports/${id}/confirm`, {}),
+  imports: (pageNo = 1) => apiClient.get(`/tire-imports?pageNo=${pageNo}&pageSize=20`),
+  importDetail: (id) => apiClient.get(`/tire-imports/${id}`)
 };
 
 export const salaryApi = {

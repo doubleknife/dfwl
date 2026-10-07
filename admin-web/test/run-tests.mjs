@@ -14,13 +14,17 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const tests = [
-  ['active navigation contains current V3-A through E pages', () => {
+  ['active navigation groups final V3 pages and removes retired flat entries', () => {
     const router = source('router/routes.js');
-    for (const key of ['dashboard', 'master', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'expense-apply', 'expense-ledger', 'expense-attribution', 'approvals', 'finance-tasks', 'finance-templates', 'finance-company', 'settlements', 'system'])
+    for (const key of ['dashboard', 'drivers', 'vehicles', 'trailers', 'binding', 'products', 'templates', 'routes', 'dispatch', 'task-imports', 'salaries', 'attendance', 'dispatch-internal', 'dispatch-outsourced', 'expense-apply', 'expense-ledger', 'expense-attribution', 'approvals-todo', 'approvals-mine', 'finance-tasks', 'finance-templates', 'finance-company', 'settlements', 'users', 'roles', 'audit', 'tires', 'tire-imports'])
       assert.match(router, new RegExp(`key: '${key}'`));
-    for (const key of ['imports', 'expenses', 'approvalFlows', 'tires', 'reports']) {
+    for (const key of ['imports', 'approvalFlows', 'reports']) {
       assert.doesNotMatch(router, new RegExp(`key: '${key}'`));
     }
+    for (const label of ['工作台', '运输调度', '费用管理', '工资管理', '审批中心', '车辆与基础资料', '经营分析', '系统管理'])
+      assert.match(router, new RegExp(label));
+    assert.match(router, /visibleNavigation/);
+    assert.match(router, /navigationTrail/);
   }],
   ['V3-E ledger and finance pages use formal APIs and business fields', async () => {
     calls.length = 0;
