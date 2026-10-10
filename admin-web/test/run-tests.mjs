@@ -8,6 +8,7 @@ const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
   salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi, v3ApprovalApi,
   v3ExpenseLedgerApi, v3FinanceApi, v3SettlementApi } = await import('../src/api/modules.js');
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
+const { appendPreviewRows, dailyItems, emptyExpenseRow } = await import('../src/views/expenseApplicationDraft.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
   return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ code: '0', data: { records: [] } }) };
@@ -87,6 +88,31 @@ const tests = [
     assert.match(source('views/ApprovalCenterV3View.vue'), /targetFlowNodeId/);
     assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /targetNodeOrder/);
     assert.match(source('views/ExpenseApplicationV3View.vue'), /dailyPreview/);
+    assert.doesNotMatch(source('views/ExpenseApplicationV3View.vue'), /dailySubmit|mode==='EXCEL'/);
+    assert.match(source('views/ExpenseApplicationV3View.vue'), /dailyItems\(dailyRows\.value\)/);
+  }],
+  ['DAILY Excel rows and manual rows share one editable final items array', () => {
+    const options = { drivers: [{ id: 10, phone: '13900000100' }], vehicles: [{ id: 20, plateNo: '云A100' }] };
+    const preview = [
+      { rowNo: 2, businessDate: '2026-09-30', driverPhone: '13900000100', plateNo: '云A100', amount: '8.00', description: '导入一' },
+      { rowNo: 3, businessDate: '2026-09-30', driverPhone: '13900000100', plateNo: '云A100', amount: '9.00', description: '导入二' }
+    ];
+    const rows = appendPreviewRows([], preview, options);
+    assert.equal(rows.length, 2);
+    rows[0].amount = '10.00'; // Edit an imported row.
+    rows.splice(1, 1); // Delete another imported row.
+    const manual = emptyExpenseRow();
+    Object.assign(manual, { businessDate: '2026-09-30', driverId: 10, vehicleId: 20, amount: '3.00' });
+    rows.push(manual);
+    const items = dailyItems(rows);
+    assert.deepEqual(items.map((row) => row.amount), ['10.00', '3.00']);
+    assert.equal(items[0].driverId, 10);
+    assert.equal(items[0].vehicleId, 20);
+    assert(items.every((row) => row.targetTaskId === null));
+    assert.throws(() => dailyItems([...rows, { ...manual, amount: '0.00' }]));
+    assert.throws(() => dailyItems([...rows, { ...manual, amount: '-1' }]));
+    assert.throws(() => dailyItems([]));
+    assert.doesNotMatch(source('views/TaskImportsV3View.vue'), /dailyRows/);
   }],
   ['task API has one final resource and no legacy route writes', async () => {
     calls.length = 0;

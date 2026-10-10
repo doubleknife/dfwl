@@ -1035,24 +1035,6 @@ paths:
       x-permission: approval:create
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}
       responses: {'200': {description: 行级校验结果}}
-  /expense-applications/daily-submit:
-    post:
-      tags: [ExpenseApplications]
-      summary: 服务端重新解析固定 Excel；N 条明细形成一个审批实例
-      x-permission: approval:create
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file, templateId, requestKey]
-              properties:
-                file: {type: string, format: binary}
-                templateId: {type: integer, format: int64}
-                requestKey: {type: string}
-      responses: {'200': {description: 单一审批实例}}
-
   /expense-ledger:
     get:
       tags: [ExpenseLedger]

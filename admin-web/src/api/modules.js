@@ -118,11 +118,6 @@ export const v3ApprovalApi = {
   dailyPreview: (file) => {
     const form = new FormData(); form.append('file', file);
     return apiClient.upload('/expense-applications/daily-preview', form);
-  },
-  dailySubmit: (file, templateId, requestKey) => {
-    const form = new FormData(); form.append('file', file); form.append('templateId', templateId);
-    form.append('requestKey', requestKey);
-    return apiClient.upload('/expense-applications/daily-submit', form);
   }
 };
 

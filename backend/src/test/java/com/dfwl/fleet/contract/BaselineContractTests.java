@@ -29,7 +29,8 @@ class BaselineContractTests {
     @Test
     void onlyLaterStageContractsAreAbsentUntilRebuilt() throws IOException {
         String openapi = read("docs/openapi.yaml");
-        assertThat(openapi).contains("/approvals:", "/expense-applications/daily-submit:", "targetFlowNodeId");
+        assertThat(openapi).contains("/approvals:", "/expense-applications/daily-preview:", "targetFlowNodeId");
+        assertThat(openapi).doesNotContain("/expense-applications/daily-submit:");
         assertThat(openapi).contains("/expense-ledger:", "/finance/tasks:", "/settlements/{month}/versions:");
         assertThat(openapi).doesNotContain("\n  /expenses:",
                 "/reports/profit:", "/imports:", "targetNodeOrder");

@@ -1,6 +1,5 @@
 package com.dfwl.fleet.approval.v3;
 
-import com.dfwl.fleet.approval.v3.ApprovalWorkflowService.ExpenseItem;
 import com.dfwl.fleet.common.error.BusinessException;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -25,7 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Fixed DAILY template. Preview and confirm parse the same contract; confirm then revalidates live references. */
+/** Fixed DAILY template used only to fill the editable application draft. */
 @Service
 public class DailyExpenseWorkbook {
     private static final List<String> HEADERS = List.of(
@@ -112,26 +111,6 @@ public class DailyExpenseWorkbook {
         return new Preview(checked, sum, errors);
     }
 
-    public List<ExpenseItem> confirmedItems(MultipartFile file) {
-        Preview preview = preview(file);
-        if (preview.errorCount() != 0) throw invalid("请先修正所有错误行再提交");
-        Map<String, Long> vehicles = lookupAll("vehicle", "plate_no",
-                preview.rows().stream().map(PreviewRow::plateNo).collect(Collectors.toSet()));
-        Map<String, Long> drivers = lookupAll("driver", "phone",
-                preview.rows().stream().map(PreviewRow::driverPhone).collect(Collectors.toSet()));
-        List<ExpenseItem> items = new ArrayList<>();
-        for (PreviewRow row : preview.rows()) {
-            Long vehicleId = vehicles.get(row.plateNo());
-            Long driverId = drivers.get(row.driverPhone());
-            if (vehicleId == null || driverId == null) throw invalid("司机或公司车状态已变化，请重新预览");
-            items.add(new ExpenseItem(LocalDate.parse(row.businessDate()), vehicleId, driverId, null,
-                    nullIfBlank(row.description()), new BigDecimal(row.amount()),
-                    nullIfBlank(row.receiptNo()), nullIfBlank(row.invoiceNo()),
-                    nullIfBlank(row.remark()), nullIfBlank(row.stationName())));
-        }
-        return items;
-    }
-
     private Map<String, Long> lookupAll(String table, String column, Set<String> values) {
         List<String> keys = values.stream().filter(Objects::nonNull).filter(value -> !value.isBlank()).toList();
         if (keys.isEmpty()) return Map.of();
@@ -149,6 +128,5 @@ public class DailyExpenseWorkbook {
             if (!formatter.formatCellValue(row.getCell(i)).trim().isBlank()) return false;
         return true;
     }
-    private String nullIfBlank(String value) { return value == null || value.isBlank() ? null : value; }
     private BusinessException invalid(String message) { return new BusinessException("SYS_002", message); }
 }

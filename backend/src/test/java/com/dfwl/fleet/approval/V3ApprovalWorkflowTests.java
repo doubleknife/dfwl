@@ -125,6 +125,28 @@ class V3ApprovalWorkflowTests {
     }
 
     @Test
+    void dailyFinalSubmittedItemsAreAuthoritativeAfterDraftEdits() {
+        long template = template("EXPENSE", 1);
+        // The uploaded workbook is a draft aid: its original rows never reach this write path.
+        // This is the edited first row plus a manual row; the deleted workbook row is absent.
+        List<ExpenseItem> finalItems = List.of(
+                item(20, new BigDecimal("10.00")), item(21, new BigDecimal("3.00")));
+        assertThatThrownBy(() -> create(template, "DAILY", "bad-final-row", List.of(
+                finalItems.get(0), item(21, BigDecimal.ZERO)))).isInstanceOf(BusinessException.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM approval_instance", Long.class)).isZero();
+        var current = create(template, "DAILY", "edited-final-rows", finalItems);
+        long id = approvalId(current);
+        assertThat(jdbc.queryForList("SELECT amount FROM approval_expense_item WHERE instance_id=? ORDER BY item_no", id))
+                .extracting(row -> (BigDecimal) row.get("amount"))
+                .containsExactly(new BigDecimal("10.00"), new BigDecimal("3.00"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry", Long.class)).isZero();
+        current = decide(id, "APPROVE", current, null);
+        assertThat(jdbc.queryForList("SELECT amount FROM expense_entry WHERE approval_instance_id=? ORDER BY approval_item_no", id))
+                .extracting(row -> (BigDecimal) row.get("amount"))
+                .containsExactly(new BigDecimal("10.00"), new BigDecimal("3.00"));
+    }
+
+    @Test
     void stableReturnTargetIsPreviouslyApprovedNodeNotRoleOrOrder() {
         long template = template("GENERAL", 3);
         var current = approvals.create(new Application(template, null, "general-1", null,
@@ -197,7 +219,8 @@ class V3ApprovalWorkflowTests {
             var file = new MockMultipartFile("file", "daily.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", out.toByteArray());
             assertThat(workbook.preview(file).errorCount()).isZero();
-            assertThat(workbook.confirmedItems(file)).hasSize(1);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM approval_instance", Long.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry", Long.class)).isZero();
             book.getSheetAt(0).getRow(0).getCell(0).setCellValue("任意表头");
             out.reset(); book.write(out);
             var invalid = new MockMultipartFile("file", "bad.xlsx", file.getContentType(), out.toByteArray());

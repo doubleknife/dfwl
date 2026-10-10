@@ -145,13 +145,5 @@ public class ApprovalV3Controller {
         workflows.expenseOptions(user);
         return ok(workbook.preview(file));
     }
-    @PostMapping(value = "/api/v1/expense-applications/daily-submit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('approval:create')")
-    public ApiResponse<Map<String, Object>> submitDaily(@RequestParam MultipartFile file,
-            @RequestParam long templateId, @RequestParam String requestKey,
-            @AuthenticationPrincipal AuthenticatedUser user) {
-        return ok(workflows.create(new Application(templateId, "DAILY", requestKey,
-                workbook.confirmedItems(file), null, null, null), user));
-    }
     private <T> ApiResponse<T> ok(T value) { return ApiResponse.success(value, RequestIdHolder.get()); }
 }
