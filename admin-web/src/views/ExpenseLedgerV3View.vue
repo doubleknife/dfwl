@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue';
-import { v3ExpenseLedgerApi } from '../api/modules.js';
+import { v3ExpenseLedgerApi, chargingApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import PageHeader from '../components/PageHeader.vue';
 import FilterBar from '../components/FilterBar.vue';
@@ -17,6 +17,7 @@ const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMont
 const rows = ref([]); const summary = ref(null); const pageNo = ref(1); const total = ref(0);
 const loading = ref(false); const saving = ref(false); const exporting = ref(false); const error = ref('');
 const detail = ref(null); const dialog = ref(''); const targetTaskId = ref(''); const reason = ref('');
+const chargingSource = ref(null);
 const cols = [
   { key: 'business_date', label: '业务日期' }, { key: 'expense_no', label: '费用编号' },
   { key: 'expense_type', label: '费用类型' }, { key: 'application_scope', label: '申请属性' },
@@ -44,8 +45,22 @@ async function load(page = 1) {
 }
 async function openDetail(id) {
   error.value = '';
-  try { detail.value = await v3ExpenseLedgerApi.detail(id); }
+  chargingSource.value = null;
+  try {
+    detail.value = await v3ExpenseLedgerApi.detail(id);
+    if (detail.value?.entry?.source_type === 'CHARGING')
+      chargingSource.value = await chargingApi.sourceOrder(id);
+  }
   catch (cause) { error.value = cause.message || '费用详情加载失败'; }
+}
+async function openChargingFile() {
+  if (!chargingSource.value || !can('charging:view')) return;
+  try {
+    const blob = await chargingApi.originalFile(chargingSource.value.batch_id);
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = chargingSource.value.original_filename; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (cause) { error.value = cause.message || '原始 Excel 打开失败'; }
 }
 function begin(kind) { dialog.value = kind; reason.value = ''; targetTaskId.value = ''; }
 async function save() {
@@ -87,7 +102,7 @@ watch(() => props.focus, (focus) => { filters.applicationScope = focus === 'ATTR
       <label>公司车辆<EntityPicker v-model="filters.vehicleId" remote-search :load-page="optionPage('VEHICLE')" :label-of="(item) => item.label" placeholder="全部车辆" /></label>
       <label>当前归属<select v-model="filters.bound"><option value="">全部</option><option value="true">已归属任务</option><option value="false">未归属任务</option></select></label>
       <label>运输任务<EntityPicker v-model="filters.taskId" remote-search :load-page="optionPage('TASK')" :label-of="(item) => `${item.label} · ${item.detail || ''}`" placeholder="全部任务" /></label>
-      <label>来源<select v-model="filters.sourceType"><option value="">全部</option><option value="APPROVAL">审批通过</option><option value="REVERSAL">冲销记录</option></select></label>
+      <label>来源<select v-model="filters.sourceType"><option value="">全部</option><option value="APPROVAL">审批通过</option><option value="REVERSAL">冲销记录</option><option value="CHARGING">充电公司</option></select></label>
       <label>状态<select v-model="filters.status"><option value="">全部</option><option value="ACTIVE">有效</option><option value="REVERSED">已冲销</option><option value="REVERSAL">冲销记录</option></select></label>
       <button type="button" @click="load(1)">查询</button>
     </FilterBar>
@@ -111,6 +126,13 @@ watch(() => props.focus, (focus) => { filters.applicationScope = focus === 'ATTR
           <div><dt>站点 / 备注</dt><dd>{{ detail.entry.station_name || '—' }} / {{ detail.entry.remark || '—' }}</dd></div>
           <div><dt>审批来源</dt><dd>{{ detail.entry.approval_no ? `${detail.entry.approval_name || '费用审批'} · ${detail.entry.approval_no}` : '非审批来源' }}</dd></div>
           <div><dt>申请时间 / 批次明细</dt><dd>{{ detail.entry.approval_started_at || '—' }}{{ detail.entry.approval_item_no ? ` · 第 ${detail.entry.approval_item_no} 条明细` : '' }}</dd></div>
+        </dl></section>
+        <section v-if="chargingSource" class="ui-section"><h2>充电原始订单</h2><dl class="ui-detail-list">
+          <div><dt>充电公司</dt><dd>{{ chargingSource.company_name }}</dd></div>
+          <div><dt>原始订单号</dt><dd>{{ chargingSource.original_order_no }}</dd></div>
+          <div><dt>原始位置</dt><dd>{{ chargingSource.sheet_name }} · 第 {{ chargingSource.row_no }} 行</dd></div>
+          <div><dt>充电时间</dt><dd>{{ chargingSource.charged_at }}</dd></div>
+          <div><dt>原始文件</dt><dd>{{ chargingSource.original_filename }} <button v-if="can('charging:view')" type="button" @click="openChargingFile">打开原始 Excel</button></dd></div>
         </dl></section>
         <section class="ui-section"><h2>归属历史</h2><p v-if="!detail.attributionHistory.length" class="muted">尚无归属调整</p><ol v-else><li v-for="(item, index) in detail.attributionHistory" :key="index">{{ item.previous_task_no || '未归属' }} → {{ item.new_task_no || '未归属' }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ item.operated_at }}</li></ol></section>
         <section class="ui-section"><h2>冲销记录</h2><p v-if="!detail.reversal.length" class="muted">没有冲销</p><p v-for="(item, index) in detail.reversal" :key="index">{{ item.original_expense_no }} → {{ item.reversal_expense_no }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ item.created_at }}</p></section>

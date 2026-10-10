@@ -388,6 +388,57 @@ CREATE TABLE expense_entry (
 
 
 
+-- Current charging-company mapping and immutable source file/order evidence.
+CREATE TABLE charging_company (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  company_name VARCHAR(128) NOT NULL UNIQUE,
+  source_system VARCHAR(64) NOT NULL UNIQUE,
+  order_no_type VARCHAR(64) NOT NULL DEFAULT 'ORDER_NO',
+  header_row_no INT,
+  headers_json VARCHAR(4000),
+  mapping_json VARCHAR(4000),
+  enabled TINYINT NOT NULL DEFAULT 1,
+  updated_by BIGINT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE charging_import_batch (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  company_id BIGINT NOT NULL,
+  source_system VARCHAR(64) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  original_storage_key VARCHAR(512) NOT NULL,
+  file_hash CHAR(64) NOT NULL,
+  sheet_name VARCHAR(128) NOT NULL,
+  mapping_json VARCHAR(4000) NOT NULL,
+  confirmed_count INT NOT NULL,
+  imported_count INT NOT NULL,
+  zero_count INT NOT NULL,
+  duplicate_count INT NOT NULL,
+  confirmed_amount DECIMAL(18,2) NOT NULL,
+  imported_amount DECIMAL(18,2) NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_charging_batch_company FOREIGN KEY (company_id) REFERENCES charging_company(id)
+);
+CREATE TABLE charging_source_order (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  batch_id BIGINT NOT NULL,
+  source_system VARCHAR(64) NOT NULL,
+  order_no_type VARCHAR(64) NOT NULL,
+  original_order_no VARCHAR(128) NOT NULL,
+  sheet_name VARCHAR(128) NOT NULL,
+  row_no INT NOT NULL,
+  plate_no VARCHAR(32) NOT NULL,
+  charged_at TIMESTAMP NOT NULL,
+  amount DECIMAL(18,2) NOT NULL,
+  expense_id BIGINT,
+  CONSTRAINT uk_charging_source_order UNIQUE (source_system, order_no_type, original_order_no),
+  CONSTRAINT uk_charging_order_expense UNIQUE (expense_id),
+  CONSTRAINT fk_charging_order_batch FOREIGN KEY (batch_id) REFERENCES charging_import_batch(id),
+  CONSTRAINT fk_charging_order_expense FOREIGN KEY (expense_id) REFERENCES expense_entry(id),
+  CONSTRAINT chk_charging_order_amount CHECK (amount >= 0)
+);
+
 CREATE TABLE expense_attribution_history (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   expense_id BIGINT NOT NULL,
@@ -797,6 +848,9 @@ VALUES
   ('expense:attribution:edit', '调整费用任务归属', 'API'),
   ('expense:reversal', '冲销正式费用', 'API'),
   ('expense:export', '导出费用台账', 'API'),
+  ('charging:company:manage', '管理充电公司模板', 'API'),
+  ('charging:import', '确认充电订单入账', 'API'),
+  ('charging:view', '查看充电导入与原始文件', 'API'),
   ('report:task:view', '查看任务经营', 'API'),
   ('report:template:view', '查看线路模板经营', 'API'),
   ('report:company:view', '查看公司经营', 'API'),

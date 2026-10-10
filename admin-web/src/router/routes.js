@@ -14,6 +14,7 @@ import Settlement from '../views/SettlementV3View.vue';
 import Dashboard from '../views/DashboardV3View.vue';
 import Tires from '../views/TiresUi2View.vue';
 import TireImports from '../views/TireImportsV3View.vue';
+import Charging from '../views/ChargingImportsV3View.vue';
 import { canAny } from '../stores/auth.js';
 
 // All entries are permission-protected leaves; a group without leaves is hidden.
@@ -28,6 +29,9 @@ export const routes = [
   { key: 'expense-apply', label: '费用申请', permission: 'approval:create', component: ExpenseApply },
   { key: 'expense-ledger', label: '费用台账', permission: 'expense:ledger:view', component: Expenses },
   { key: 'expense-attribution', label: '费用归属', permission: 'expense:ledger:view', component: Expenses, props: { focus: 'ATTRIBUTION' } },
+  { key: 'charging-companies', label: '充电公司模板', permission: 'charging:company:manage', component: Charging, props: { initialTab: 'companies' } },
+  { key: 'charging-imports', label: '充电订单导入', permission: 'charging:import', component: Charging, props: { initialTab: 'import' } },
+  { key: 'charging-history', label: '充电导入历史', permission: 'charging:view', component: Charging, props: { initialTab: 'history' } },
   { key: 'salaries', label: '工资台账', permission: 'salary:view', component: Salaries },
   { key: 'salary-transfers', label: '转派工资核对', permission: 'salary:view', component: Salaries, props: { initialSituation: 'TRANSFER' } },
   { key: 'attendance', label: '司机出勤', permission: 'attendance:view', component: Monthly, props: { scope: 'ATTENDANCE' } },
@@ -58,7 +62,7 @@ export const routes = [
 export const navigation = [
   { key: 'workbench', label: '工作台', children: ['dashboard'] },
   { key: 'transport', label: '运输调度', children: ['dispatch', 'routes', 'templates', 'task-imports', { label: '调度中心', children: ['dispatch-internal', 'dispatch-outsourced'] }] },
-  { key: 'expense-domain', label: '费用管理', children: ['expense-apply', 'expense-ledger', 'expense-attribution'] },
+  { key: 'expense-domain', label: '费用管理', children: ['expense-apply', 'expense-ledger', 'expense-attribution', 'charging-companies', 'charging-imports', 'charging-history'] },
   { key: 'wages', label: '工资管理', children: ['salaries', 'salary-transfers', 'attendance'] },
   { key: 'approvals', label: '审批中心', children: ['approvals-todo', 'approvals-mine', 'approvals-history', 'approvals-flows'] },
   { key: 'master', label: '车辆与基础资料', children: ['drivers', 'vehicles', 'trailers', 'binding', 'products', 'tires', 'tire-imports'] },

@@ -176,3 +176,4 @@ for (const [name, run] of tests) { await run(); console.log(`ok - ${name}`); }
 console.log(`${tests.length} active V3-A/B/C admin tests passed`);
 await import('./ui1Tests.mjs');
 await import('./routeWeightEvidenceTests.mjs');
+await import('./chargingWorkbookTests.mjs');

@@ -418,6 +418,63 @@ CREATE TABLE expense_entry (
   CONSTRAINT chk_expense_task_scope CHECK (application_scope = 'DAILY' OR current_task_id IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- One current mapping per charging company; source identity is stable across files.
+CREATE TABLE charging_company (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  company_name VARCHAR(128) NOT NULL,
+  source_system VARCHAR(64) NOT NULL,
+  order_no_type VARCHAR(64) NOT NULL DEFAULT 'ORDER_NO',
+  header_row_no INT UNSIGNED NULL,
+  headers_json JSON NULL,
+  mapping_json JSON NULL,
+  enabled TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  updated_by BIGINT UNSIGNED NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_charging_company_name (company_name),
+  UNIQUE KEY uk_charging_source (source_system)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE charging_import_batch (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  company_id BIGINT UNSIGNED NOT NULL,
+  source_system VARCHAR(64) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  original_storage_key VARCHAR(512) NOT NULL,
+  file_hash CHAR(64) NOT NULL,
+  sheet_name VARCHAR(128) NOT NULL,
+  mapping_json JSON NOT NULL,
+  confirmed_count INT UNSIGNED NOT NULL,
+  imported_count INT UNSIGNED NOT NULL,
+  zero_count INT UNSIGNED NOT NULL,
+  duplicate_count INT UNSIGNED NOT NULL,
+  confirmed_amount DECIMAL(18,2) NOT NULL,
+  imported_amount DECIMAL(18,2) NOT NULL,
+  created_by BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_charging_batch_company (company_id, created_at),
+  CONSTRAINT fk_charging_batch_company FOREIGN KEY (company_id) REFERENCES charging_company(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE charging_source_order (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  batch_id BIGINT UNSIGNED NOT NULL,
+  source_system VARCHAR(64) NOT NULL,
+  order_no_type VARCHAR(64) NOT NULL,
+  original_order_no VARCHAR(128) NOT NULL,
+  sheet_name VARCHAR(128) NOT NULL,
+  row_no INT UNSIGNED NOT NULL,
+  plate_no VARCHAR(32) NOT NULL,
+  charged_at DATETIME(3) NOT NULL,
+  amount DECIMAL(18,2) NOT NULL,
+  expense_id BIGINT UNSIGNED NULL,
+  UNIQUE KEY uk_charging_source_order (source_system, order_no_type, original_order_no),
+  UNIQUE KEY uk_charging_order_expense (expense_id),
+  KEY idx_charging_order_batch (batch_id, row_no),
+  CONSTRAINT fk_charging_order_batch FOREIGN KEY (batch_id) REFERENCES charging_import_batch(id),
+  CONSTRAINT fk_charging_order_expense FOREIGN KEY (expense_id) REFERENCES expense_entry(id),
+  CONSTRAINT chk_charging_order_amount CHECK (amount >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 
 
@@ -853,6 +910,9 @@ VALUES
   ('expense:attribution:edit', '调整费用任务归属', 'API'),
   ('expense:reversal', '冲销正式费用', 'API'),
   ('expense:export', '导出费用台账', 'API'),
+  ('charging:company:manage', '管理充电公司模板', 'API'),
+  ('charging:import', '确认充电订单入账', 'API'),
+  ('charging:view', '查看充电导入与原始文件', 'API'),
   ('report:task:view', '查看任务经营', 'API'),
   ('report:template:view', '查看线路模板经营', 'API'),
   ('report:company:view', '查看公司经营', 'API'),

@@ -33,7 +33,8 @@ class BaselineContractTests {
         assertThat(openapi).doesNotContain("/expense-applications/daily-submit:");
         assertThat(openapi).contains("/expense-ledger:", "/finance/tasks:", "/settlements/{month}/versions:");
         assertThat(openapi).doesNotContain("\n  /expenses:",
-                "/reports/profit:", "/imports:", "targetNodeOrder");
+                "/reports/profit:", "\n  /imports:", "targetNodeOrder");
+        assertThat(openapi).contains("/charging/imports:", "zeroCount");
     }
 
     @Test

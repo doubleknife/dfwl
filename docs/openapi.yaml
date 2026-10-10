@@ -23,6 +23,7 @@ tags:
   - {name: Approvals}
   - {name: ExpenseApplications}
   - {name: ExpenseLedger}
+  - {name: ChargingImports}
   - {name: Finance}
   - {name: Settlement}
   - {name: System}
@@ -1035,6 +1036,60 @@ paths:
       x-permission: approval:create
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}
       responses: {'200': {description: 行级校验结果}}
+  /charging/companies:
+    get:
+      tags: [ChargingImports]
+      summary: 当前充电公司及四字段映射
+      x-permission: charging:view|charging:import|charging:company:manage
+      responses: {'200': {description: 公司配置列表}}
+    post:
+      tags: [ChargingImports]
+      summary: 新增充电公司；表头列位置及四字段映射必须完整
+      x-permission: charging:company:manage
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [companyName, sourceSystem, headerRowNo, headers, mapping], properties: {companyName: {type: string}, sourceSystem: {type: string}, orderNoType: {type: string}, headerRowNo: {type: integer}, headers: {type: array, items: {type: object}}, mapping: {type: object}}}}}}
+      responses: {'200': {description: 保存后的公司配置}}
+  /charging/companies/{id}:
+    put:
+      tags: [ChargingImports]
+      summary: 修改当前映射并立即生效；来源系统标识不可修改
+      x-permission: charging:company:manage
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 保存后的公司配置}}
+  /charging/imports:
+    get:
+      tags: [ChargingImports]
+      summary: 充电原始文件与导入批次历史
+      x-permission: charging:view
+      parameters: [{name: page, in: query, schema: {type: integer, default: 1}}, {name: size, in: query, schema: {type: integer, default: 20, maximum: 100}}]
+      responses: {'200': {description: 服务端分页批次列表，含 total、items、正常入账、零元不入账、重复数量及金额}}
+    post:
+      tags: [ChargingImports]
+      summary: 人工确认只读预览后正式入账；服务端重新核验原始 Excel、四字段、数量、金额和唯一订单
+      description: 零元合法来源订单保留并参与去重，但不生成 ExpenseEntry；空金额、负数和无法解析金额拒绝整批。有效订单数等于正常入账+零元不入账+已存在重复。
+      x-permission: charging:import
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, payload], properties: {file: {type: string, format: binary}, payload: {type: object, description: '包含公司、工作表、表头列位置映射、逐行订单/原始行号、count、zeroCount、totalAmount'}}}}}}
+      responses: {'200': {description: 正式批次及新增来源订单；失败不返回成功}}
+  /charging/imports/{id}:
+    get:
+      tags: [ChargingImports]
+      summary: 批次与新增来源订单明细，零元订单可追溯
+      x-permission: charging:view
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 批次及来源订单}}
+  /charging/imports/{id}/original-file:
+    get:
+      tags: [ChargingImports]
+      summary: 权限校验后下载批次原始 Excel
+      x-permission: charging:view
+      parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 原始 Excel 文件}}
+  /charging/source-orders/by-expense/{expenseId}:
+    get:
+      tags: [ChargingImports]
+      summary: 从正式费用追溯充电原始订单、文件及行号
+      x-permission: charging:view|expense:ledger:view
+      parameters: [{name: expenseId, in: path, required: true, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: 原始订单追溯信息}}
   /expense-ledger:
     get:
       tags: [ExpenseLedger]
@@ -1527,6 +1582,9 @@ components:
         - expense:attribution:edit
         - expense:reversal
         - expense:export
+        - charging:company:manage
+        - charging:import
+        - charging:view
         - report:task:view
         - report:template:view
         - report:company:view

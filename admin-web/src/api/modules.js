@@ -184,6 +184,22 @@ export const v3ExpenseLedgerApi = {
   export: (filters) => apiClient.download(`/expense-ledger/export?${query(filters)}`)
 };
 
+export const chargingApi = {
+  companies: () => apiClient.get('/charging/companies'),
+  createCompany: (body) => apiClient.post('/charging/companies', body),
+  updateCompany: (id, body) => apiClient.put(`/charging/companies/${id}`, body),
+  imports: (page = 1) => apiClient.get(`/charging/imports?page=${page}&size=20`),
+  importDetail: (id) => apiClient.get(`/charging/imports/${id}`),
+  sourceOrder: (expenseId) => apiClient.get(`/charging/source-orders/by-expense/${expenseId}`),
+  originalFile: (batchId) => apiClient.download(`/charging/imports/${batchId}/original-file`),
+  confirm: (file, payload) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('payload', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+    return apiClient.upload('/charging/imports', form);
+  }
+};
+
 export const v3FinanceApi = {
   taskSummaries: (taskIds) => apiClient.get(`/finance/task-summaries?${new URLSearchParams(taskIds.map((id) => ['taskIds', String(id)]))}`),
   tasks: (filters, pageNo = 1) => apiClient.get(`/finance/tasks?${query(filters, pageNo, 20)}`),
