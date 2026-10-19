@@ -1,5 +1,7 @@
 package com.dfwl.fleet.system;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -43,12 +45,18 @@ class SystemManagementContractTests {
     @Autowired
     private TokenAuthenticationService tokenService;
 
+    @Autowired private com.dfwl.fleet.security.FunctionRegistry functionRegistry;
+    @Autowired private com.dfwl.fleet.system.service.SystemManagementService management;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM auth_session");
         jdbcTemplate.update("DELETE FROM audit_log");
         jdbcTemplate.update("DELETE FROM approval_flow_node");
         jdbcTemplate.update("DELETE FROM approval_flow");
         jdbcTemplate.update("DELETE FROM approval_template");
+        jdbcTemplate.update("DELETE FROM driver");
         jdbcTemplate.update("DELETE FROM sys_role_permission");
         jdbcTemplate.update("DELETE FROM sys_permission");
         jdbcTemplate.update("DELETE FROM sys_user");
@@ -57,17 +65,10 @@ class SystemManagementContractTests {
 
         jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (1, 'ADMIN', '管理员', 1)");
         jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name, status) VALUES (2, 'FINANCE', '财务', 1)");
-        jdbcTemplate.update("""
-                INSERT INTO sys_permission (id, permission_code, permission_name, permission_type)
-                VALUES
-                  (1, 'user:manage', '用户管理', 'API'),
-                  (2, 'role:manage', '角色管理', 'API'),
-                  (3, 'permission:manage', '权限管理', 'API'),
-                  (4, 'audit:view', '审计日志查看', 'API'),
-                  (5, 'approval:flow:manage', '审批流程维护', 'API'),
-                  (6, 'template:view', '线路模板查看', 'API'),
-                  (7, 'template:manage', '线路模板维护', 'API')
-                """);
+        for (var function : functionRegistry.all()) {
+            jdbcTemplate.update("INSERT INTO sys_permission(permission_code,permission_name,permission_type,status) VALUES(?,?,?,1)",
+                    function.code(), function.name(), function.type());
+        }
         jdbcTemplate.update("""
                 INSERT INTO sys_user (id, phone, password_hash, role_id, status)
                 VALUES (1, '13800000000', ?, 1, 1)
@@ -76,7 +77,7 @@ class SystemManagementContractTests {
 
     @Test
     void productCrudUsesRealApi() throws Exception {
-        String token = token("template:view", "template:manage");
+        String token = token("PAGE_PRODUCTS", "BUTTON_PRODUCTS_MANAGE");
 
         mockMvc.perform(post("/api/v1/products")
                         .header("Authorization", bearer(token))
@@ -107,11 +108,88 @@ class SystemManagementContractTests {
                         .content("{\"status\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.enabled").value(false));
+
+        String templateOnly = token("PAGE_TEMPLATES");
+        mockMvc.perform(get("/api/v1/products").header("Authorization", bearer(templateOnly)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/products").header("Authorization", bearer(templateOnly))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"不可新增\",\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+        String productReadOnly = token("PAGE_PRODUCTS");
+        mockMvc.perform(get("/api/v1/products").header("Authorization", bearer(productReadOnly)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/products").header("Authorization", bearer(productReadOnly))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"不可新增\",\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+        String orphanButton = tokenService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L,
+                "ADMIN", "管理员", Set.of("BUTTON_PRODUCTS_MANAGE")));
+        mockMvc.perform(post("/api/v1/products").header("Authorization", bearer(orphanButton))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"不可新增\",\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+        String templateManager = token("BUTTON_TEMPLATES_MANAGE");
+        mockMvc.perform(get("/api/v1/products").header("Authorization", bearer(templateManager)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void dispatchViewLoadsOnlyMinimalDriverCandidatesWithoutDriverManagementPermission() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO driver (id, driver_type, name, phone, driving_license_no, id_card_no, status)
+                VALUES (101, 'INTERNAL', '调度候选', '13900000101', 'TEST-DL-101', '110105199001010117', 1),
+                       (102, 'OUTSOURCED', '停用司机', '13900000102', 'TEST-DL-102', '110105199001010125', 0)
+                """);
+        String dispatcher = token("PAGE_DISPATCH", "BUTTON_DISPATCH_PUBLISH");
+        mockMvc.perform(get("/api/v1/dispatch-batches/driver-options?pageNo=1&pageSize=100")
+                        .header("Authorization", bearer(dispatcher)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].name").value("调度候选"))
+                .andExpect(jsonPath("$.data.records[0].idCardNo").doesNotExist())
+                .andExpect(jsonPath("$.data.records[0].drivingLicenseNo").doesNotExist());
+        mockMvc.perform(get("/api/v1/route-templates")
+                        .header("Authorization", bearer(dispatcher)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/drivers")
+                        .header("Authorization", bearer(dispatcher)))
+                .andExpect(status().isForbidden());
+        String templateViewer = token("PAGE_TEMPLATES");
+        mockMvc.perform(get("/api/v1/dispatch-batches/driver-options")
+                        .header("Authorization", bearer(templateViewer)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void bindingAndDispatchCandidatesDoNotExposeFullVehicleOrDriverRecords() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO driver(id,driver_type,name,phone,driving_license_no,id_card_no,status)
+                VALUES(201,'INTERNAL','绑定候选','13900000201','TEST-DL-201','110105199001010117',1)
+                """);
+        jdbcTemplate.update("""
+                INSERT INTO vehicle(id,plate_no,vehicle_license_no,energy_type,max_load,
+                                    load_standard_type,load_standard_min_load,status)
+                VALUES(201,'测A201','SECRET-LICENSE-201','DIESEL',10,'FIXED',5,1)
+                """);
+        String binding = token("PAGE_BINDING");
+        mockMvc.perform(get("/api/v1/drivers/binding-candidates").header("Authorization", bearer(binding)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].idCardNo").doesNotExist())
+                .andExpect(jsonPath("$.data.records[0].drivingLicenseNo").doesNotExist());
+        mockMvc.perform(get("/api/v1/bindings/vehicle-options").header("Authorization", bearer(binding)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].vehicleLicenseNo").doesNotExist());
+        mockMvc.perform(get("/api/v1/vehicles").header("Authorization", bearer(binding)))
+                .andExpect(status().isForbidden());
+        String dispatch = token("PAGE_DISPATCH");
+        mockMvc.perform(get("/api/v1/dispatch-batches/vehicle-options").header("Authorization", bearer(dispatch)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].vehicleLicenseNo").doesNotExist());
+        mockMvc.perform(get("/api/v1/bindings/vehicle-options").header("Authorization", bearer(dispatch)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
     void userListCreateDisableResetAndSingleRoleAreSupported() throws Exception {
-        String token = token("user:manage");
+        String token = token("BUTTON_USERS_ADD", "BUTTON_USERS_EDIT", "BUTTON_USERS_RESET_PASSWORD");
 
         mockMvc.perform(post("/api/v1/users")
                         .header("Authorization", bearer(token))
@@ -156,26 +234,26 @@ class SystemManagementContractTests {
 
     @Test
     void rolePermissionsCanBeSavedAgainstExistingRegistryOnly() throws Exception {
-        String token = token("role:manage");
+        String token = token("BUTTON_ROLES_ADD", "BUTTON_ROLES_GRANT");
 
         mockMvc.perform(post("/api/v1/roles")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"roleCode":"OPS","roleName":"运营","status":1}
+                                {"roleName":"运营","status":1}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.roleCode").value("OPS"));
+                .andExpect(jsonPath("$.data.roleCode").value(org.hamcrest.Matchers.startsWith("ROLE_")));
 
         mockMvc.perform(put("/api/v1/roles/3/permissions")
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"permissionCodes":["user:manage","audit:view"]}
+                                {"permissionCodes":["PAGE_USERS","PAGE_AUDIT"]}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.permissions[0].permissionCode").value("audit:view"))
-                .andExpect(jsonPath("$.data.permissions[1].permissionCode").value("user:manage"));
+                .andExpect(jsonPath("$.data.permissions[0].permissionCode").value("PAGE_AUDIT"))
+                .andExpect(jsonPath("$.data.permissions[1].permissionCode").value("PAGE_USERS"));
 
         mockMvc.perform(get("/api/v1/roles/3")
                         .header("Authorization", bearer(token)))
@@ -193,8 +271,27 @@ class SystemManagementContractTests {
     }
 
     @Test
+    void retiredPermissionRowsCannotBeListedOrGrantedEvenIfOldDatabaseContainsThem() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO sys_permission (permission_code, permission_name, permission_type)
+                VALUES ('tire:request:process', '处理换胎申请', 'API')
+                """);
+        String token = token("BUTTON_ROLES_GRANT");
+        mockMvc.perform(get("/api/v1/permissions")
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(functionRegistry.all().size()));
+        mockMvc.perform(put("/api/v1/roles/2/permissions")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"permissionCodes\":[\"tire:request:process\"]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SYS_002"));
+    }
+
+    @Test
     void roleListEditAndStatusUseRealApi() throws Exception {
-        String token = token("role:manage");
+        String token = token("BUTTON_ROLES_EDIT");
 
         mockMvc.perform(get("/api/v1/roles")
                         .header("Authorization", bearer(token)))
@@ -217,18 +314,55 @@ class SystemManagementContractTests {
     }
 
     @Test
-    void permissionListCanBeFilteredByType() throws Exception {
-        String token = token("permission:manage");
+    void disabledFinanceRoleBlocksLoginAndExistingSessionsUntilFreshLogin() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO sys_user (id, phone, password_hash, role_id, status)
+                VALUES (2, '13900000002', ?, 2, 1)
+                """, passwordEncoder.encode("financePass"));
+        String adminToken = token("BUTTON_ROLES_EDIT");
+        String oldFinanceToken = tokenService.issueToken(new AuthenticatedUser(
+                2L, "13900000002", 2L, "FINANCE", "财务", Set.of()));
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"13900000002\",\"password\":\"financePass\"}"))
+                .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/permissions?permissionType=API")
+        mockMvc.perform(put("/api/v1/roles/2/status?status=0")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"13900000002\",\"password\":\"financePass\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("AUTH_006"))
+                .andExpect(jsonPath("$.message").value("所属角色已停用"));
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(oldFinanceToken)))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(put("/api/v1/roles/2/status?status=1")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(oldFinanceToken)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"phone\":\"13900000002\",\"password\":\"financePass\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void permissionListCanBeFilteredByType() throws Exception {
+        String token = token("PAGE_ROLES");
+
+        mockMvc.perform(get("/api/v1/permissions?permissionType=PAGE")
                         .header("Authorization", bearer(token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].permissionType").value("API"));
+                .andExpect(jsonPath("$.data[0].permissionType").value("PAGE"));
     }
 
     @Test
     void auditLogQueryReturnsBeforeAfterAndReason() throws Exception {
-        String token = token("audit:view");
+        String token = token("PAGE_AUDIT");
         jdbcTemplate.update("""
                 INSERT INTO audit_log (id, module, business_type, business_id, operation_type, before_json,
                                        after_json, operator_id, reason, ip, terminal)
@@ -256,8 +390,62 @@ class SystemManagementContractTests {
                 .andExpect(jsonPath("$.code").value("AUTH_003"));
     }
 
+    @Test
+    void roleGrantChangeRefreshesRightsWithoutRevokingTheSession() throws Exception {
+        String oldToken = token();
+        management.replaceRolePermissions(1L,
+                new com.dfwl.fleet.system.dto.request.RolePermissionRequest(java.util.List.of("PAGE_USERS")), 1L);
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(oldToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users").header("Authorization", bearer(oldToken)))
+                .andExpect(status().isOk());
+        management.replaceRolePermissions(1L,
+                new com.dfwl.fleet.system.dto.request.RolePermissionRequest(java.util.List.of()), 1L);
+        mockMvc.perform(get("/api/v1/users").header("Authorization", bearer(oldToken)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(oldToken)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void rolledBackGrantChangeDoesNotLogOutOrRemoveExistingRights() throws Exception {
+        management.replaceRolePermissions(1L,
+                new com.dfwl.fleet.system.dto.request.RolePermissionRequest(java.util.List.of("PAGE_USERS")), 1L);
+        String token = token("PAGE_USERS");
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
+            management.replaceRolePermissions(1L,
+                    new com.dfwl.fleet.system.dto.request.RolePermissionRequest(java.util.List.of()), 1L);
+            status.setRollbackOnly();
+            return null;
+        });
+        mockMvc.perform(get("/api/v1/users").header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void selfPasswordChangeRequiresCurrentPasswordAndRevokesSession() throws Exception {
+        String token = token();
+        mockMvc.perform(put("/api/v1/auth/password")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"oldPassword\":\"wrong\",\"newPassword\":\"nextSecret99\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("原密码错误"));
+        mockMvc.perform(put("/api/v1/auth/password")
+                        .header("Authorization", bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"oldPassword\":\"adminPass\",\"newPassword\":\"nextSecret99\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(token)))
+                .andExpect(status().isUnauthorized());
+        org.junit.jupiter.api.Assertions.assertTrue(passwordEncoder.matches("nextSecret99",
+                jdbcTemplate.queryForObject("SELECT password_hash FROM sys_user WHERE id = 1", String.class)));
+    }
+
     private String token(String... permissions) {
-        return tokenService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L, "ADMIN", "管理员", Set.of(permissions)));
+        return tokenService.issueToken(new AuthenticatedUser(1L, "13800000000", 1L, "ADMIN", "管理员", grants(permissions)));
     }
 
     private String bearer(String token) {

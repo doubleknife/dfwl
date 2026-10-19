@@ -18,7 +18,7 @@ export function detailError(error, resource = '审批') {
     : error?.status === 403 ? `无权查看${resource}`
       : error?.status === 404 ? `${resource}不存在` : (error?.message || '请求失败');
   const message = error?.message && prefix !== error.message ? `：${error.message}` : '';
-  return `${prefix}${message}${error?.requestId ? `（requestId: ${error.requestId}）` : ''}`;
+  return `${prefix}${message}`;
 }
 
 export function parseSnapshot(text) {

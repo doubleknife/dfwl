@@ -15,7 +15,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,7 +35,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries")
-    @PreAuthorize("hasAuthority('salary:view')")
+    @FunctionAccess(anyOf={"PAGE_SALARIES", "PAGE_SALARY_TRANSFERS"})
     public ApiResponse<PageResponse<SalaryLedgerService.Row>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long driverId,
@@ -52,7 +52,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries/summary")
-    @PreAuthorize("hasAuthority('salary:view')")
+    @FunctionAccess(anyOf={"PAGE_SALARIES"})
     public ApiResponse<SalaryLedgerService.Summary> summary(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) Long driverId,
             @RequestParam(required = false) String driverType, @RequestParam(required = false) Long templateId,
@@ -63,7 +63,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries/filter-options")
-    @PreAuthorize("hasAuthority('salary:view')")
+    @FunctionAccess(anyOf={"PAGE_SALARIES"})
     public ApiResponse<PageResponse<SalaryLedgerService.FilterOption>> filterOptions(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String kind,
             @RequestParam(required = false) String search, @RequestParam(required = false) String month,
@@ -73,7 +73,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries/drivers")
-    @PreAuthorize("hasAuthority('salary:view')")
+    @FunctionAccess(anyOf={"PAGE_SALARIES"})
     public ApiResponse<PageResponse<SalaryLedgerService.DriverSummary>> drivers(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) Long driverId,
@@ -86,7 +86,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries/export")
-    @PreAuthorize("hasAuthority('salary:export')")
+    @FunctionAccess(anyOf={"BUTTON_SALARIES_EXPORT"})
     public ResponseEntity<byte[]> export(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) Long driverId,
             @RequestParam(required = false) String driverType, @RequestParam(required = false) Long templateId,
@@ -102,7 +102,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries/{participantId}/history")
-    @PreAuthorize("hasAuthority('salary:view')")
+    @FunctionAccess(anyOf={"PAGE_SALARIES"})
     public ApiResponse<List<ParticipantSalaryHistoryResponse>> history(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long participantId) {
         users.denyAllDrivers(user);
@@ -110,7 +110,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/salary-slips/mine")
-    @PreAuthorize("hasAuthority('salary:mine')")
+    @FunctionAccess(anyOf={"PAGE_MINI_SALARY"})
     public ApiResponse<SalarySlipResponse> mine(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String month,
             @RequestParam(defaultValue = "1") int pageNo,

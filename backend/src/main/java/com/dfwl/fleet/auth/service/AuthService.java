@@ -41,18 +41,33 @@ public class AuthService {
         if (!passwordEncoder.matches(request.password(), account.passwordHash())) {
             throw new BusinessException(ErrorCode.AUTH_001);
         }
-        if (!account.enabled()) {
+        if (!account.enabled() || userAccountRepository.isLinkedDriverDisabled(account.id(), account.phone())) {
             throw new BusinessException(ErrorCode.AUTH_002);
+        }
+        if (!account.roleEnabled()) {
+            throw new BusinessException(ErrorCode.AUTH_006);
         }
 
         userAccountRepository.updateLastLoginAt(account.id(), LocalDateTime.now());
         AuthenticatedUser user = toAuthenticatedUser(account);
-        String token = tokenAuthenticationService.issueToken(user);
+        String token = tokenAuthenticationService.issueToken(user, request.effectiveTerminal());
         return new LoginResponse("Bearer", token, toCurrentUser(user));
     }
 
     public CurrentUserResponse currentUser(AuthenticatedUser user) {
-        return toCurrentUser(user);
+        UserAccount account = userAccountRepository.findById(user.id())
+                .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_001));
+        if (!account.enabled() || userAccountRepository.isLinkedDriverDisabled(account.id(), account.phone())) {
+            tokenAuthenticationService.revokeUserTokens(user.id());
+            throw new BusinessException(ErrorCode.AUTH_002);
+        }
+        if (!account.roleEnabled()) {
+            tokenAuthenticationService.revokeUserTokens(user.id());
+            throw new BusinessException(ErrorCode.AUTH_006);
+        }
+        AuthenticatedUser current = toAuthenticatedUser(account);
+        tokenAuthenticationService.refreshUserSessions(current);
+        return toCurrentUser(current);
     }
 
     public void logout(String token) {
@@ -64,7 +79,7 @@ public class AuthService {
         UserAccount account = userAccountRepository.findById(user.id())
                 .orElseThrow(() -> new BusinessException(ErrorCode.AUTH_001));
         if (!passwordEncoder.matches(request.oldPassword(), account.passwordHash())) {
-            throw new BusinessException(ErrorCode.AUTH_001);
+            throw new BusinessException("AUTH_005", "原密码错误");
         }
         userAccountRepository.updatePassword(user.id(), passwordEncoder.encode(request.newPassword()));
         tokenAuthenticationService.revokeUserTokens(user.id());

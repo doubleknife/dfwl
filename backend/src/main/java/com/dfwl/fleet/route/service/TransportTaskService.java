@@ -18,6 +18,7 @@ import com.dfwl.fleet.route.repository.TransportTaskRepository;
 import com.dfwl.fleet.route.service.TaskDriverValidationService.DriverSnapshot;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
+import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -44,15 +45,17 @@ public class TransportTaskService {
     private final TaskDriverValidationService drivers;
     private final TaskEvidenceRepository evidence;
     private final CurrentUserService users;
+    private final TransactionalAuthorizationGuard authorization;
 
     public TransportTaskService(JdbcTemplate jdbc, TransportTaskRepository tasks,
                                 TaskDriverValidationService drivers, TaskEvidenceRepository evidence,
-                                CurrentUserService users) {
+                                CurrentUserService users, TransactionalAuthorizationGuard authorization) {
         this.jdbc = jdbc;
         this.tasks = tasks;
         this.drivers = drivers;
         this.evidence = evidence;
         this.users = users;
+        this.authorization = authorization;
     }
 
     public PageResponse<TransportTaskResponse> list(int pageNo, int pageSize, LocalDate businessDate,
@@ -88,6 +91,7 @@ public class TransportTaskService {
     @Transactional
     public List<TransportParticipantResponse> confirmParticipantSalaries(long taskId,
                                                                          TaskSalariesConfirmRequest request, long actor) {
+        authorization.require(actor, "BUTTON_SALARIES_ADJUST", "BUTTON_SALARY_TRANSFERS_ADJUST");
         lockTask(taskId);
         TransportTaskResponse task = find(taskId);
         if (request == null || request.salaries() == null || request.salaries().isEmpty()
@@ -118,6 +122,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse depart(long id, TaskDepartRequest request, AuthenticatedUser user) {
+        authorization.require(user.id(), "BUTTON_ROUTES_DEPART", "BUTTON_MINI_ROUTES_DEPART");
         long driverId = users.requireDriver(user).driverId();
         lockTask(id);
         if (repeat(id, "DEPART", request.requestKey(), request.toString())) return find(id);
@@ -153,6 +158,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse transfer(long id, TaskTransferRequest request, long actor) {
+        authorization.require(actor, "BUTTON_ROUTES_TRANSFER");
         lockTask(id);
         TransportTaskResponse task = find(id);
         if (request.expectedVersion() != task.version()
@@ -196,6 +202,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse unload(long id, TaskUnloadRequest request, AuthenticatedUser user) {
+        authorization.require(user.id(), "BUTTON_ROUTES_UNLOAD", "BUTTON_MINI_ROUTES_UNLOAD");
         long driverId = users.requireDriver(user).driverId();
         lockTask(id);
         if (repeat(id, "UNLOAD", request.requestKey(), request.toString())) return find(id);
@@ -227,6 +234,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse adjustWeight(long id, TaskWeightAdjustmentRequest request, long actor) {
+        authorization.require(actor, "BUTTON_ROUTES_WEIGHT_ADJUST");
         lockTask(id);
         TransportTaskResponse task = find(id);
         if (!"COMPLETED".equals(task.status()) || request.expectedVersion() != task.version()
@@ -251,6 +259,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse cancel(long id, TaskCancelRequest request, long actor) {
+        authorization.require(actor, "BUTTON_ROUTES_CANCEL");
         lockTask(id);
         if (repeat(id, "CANCEL", request.requestKey(), request.toString())) return find(id);
         TransportTaskResponse task = find(id);

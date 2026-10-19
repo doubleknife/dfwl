@@ -6,7 +6,7 @@ import com.dfwl.fleet.common.web.RequestIdHolder;
 import com.dfwl.fleet.route.dto.response.DriverTaskResponse;
 import com.dfwl.fleet.route.service.TransportTaskService;
 import com.dfwl.fleet.security.AuthenticatedUser;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,7 +22,7 @@ public class DriverTaskController {
     public DriverTaskController(TransportTaskService tasks) { this.tasks = tasks; }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('task:view')")
+    @FunctionAccess(anyOf={"PAGE_MINI_ROUTES"})
     public ApiResponse<PageResponse<DriverTaskResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize,
@@ -31,7 +31,7 @@ public class DriverTaskController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('task:view')")
+    @FunctionAccess(anyOf={"PAGE_MINI_ROUTES"})
     public ApiResponse<DriverTaskResponse> find(@AuthenticationPrincipal AuthenticatedUser user,
                                                 @PathVariable long id) {
         return ApiResponse.success(tasks.findForDriver(user, id), RequestIdHolder.get());

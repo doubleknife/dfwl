@@ -5,6 +5,7 @@ CREATE TABLE sys_role (
   role_name VARCHAR(100) NOT NULL,
   is_system_fixed TINYINT NOT NULL DEFAULT 0,
   status TINYINT NOT NULL DEFAULT 1,
+  permission_version BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT uk_sys_role_code UNIQUE (role_code)
@@ -18,11 +19,26 @@ CREATE TABLE sys_user (
   status TINYINT NOT NULL DEFAULT 1,
   last_login_at TIMESTAMP NULL,
   version INT NOT NULL DEFAULT 0,
+  auth_version BIGINT NOT NULL DEFAULT 0,
   created_by BIGINT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_by BIGINT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT uk_sys_user_phone UNIQUE (phone)
+);
+
+CREATE TABLE auth_session (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  token_hash CHAR(64) NOT NULL,
+  user_id BIGINT NOT NULL,
+  terminal VARCHAR(8) NOT NULL,
+  issued_at TIMESTAMP NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP NULL,
+  auth_version BIGINT NOT NULL,
+  CONSTRAINT uk_auth_session_token_hash UNIQUE (token_hash),
+  CONSTRAINT fk_auth_session_user FOREIGN KEY (user_id) REFERENCES sys_user(id),
+  CONSTRAINT chk_auth_session_terminal CHECK (terminal IN ('WEB', 'MINI'))
 );
 
 CREATE TABLE sys_permission (
@@ -40,26 +56,35 @@ CREATE TABLE sys_role_permission (
   PRIMARY KEY (role_id, permission_id)
 );
 
+CREATE TABLE expense_category (
+  category_code VARCHAR(32) PRIMARY KEY,
+  category_name VARCHAR(64) NOT NULL,
+  display_order SMALLINT NOT NULL,
+  enabled TINYINT NOT NULL DEFAULT 1,
+  CONSTRAINT uk_expense_category_name UNIQUE (category_name)
+);
+
 CREATE TABLE driver (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NULL,
   driver_type VARCHAR(32) NOT NULL,
   name VARCHAR(64) NOT NULL,
   phone VARCHAR(32) NOT NULL,
-  vehicle_license_no VARCHAR(64) NULL,
-  driving_license_no VARCHAR(64) NULL,
-  id_card_no VARCHAR(64) NULL,
-  birth_date DATE NULL,
+  driving_license_no VARCHAR(64) NOT NULL,
+  id_card_no VARCHAR(18) NOT NULL,
   status TINYINT NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
-  CONSTRAINT uk_driver_user UNIQUE (user_id)
+  CONSTRAINT uk_driver_user UNIQUE (user_id),
+  CONSTRAINT uk_driver_driving_license UNIQUE (driving_license_no),
+  CONSTRAINT uk_driver_id_card UNIQUE (id_card_no)
 );
 
 CREATE TABLE vehicle (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   plate_no VARCHAR(32) NOT NULL,
+  vehicle_license_no VARCHAR(64) NOT NULL,
   insurance_complete TINYINT NOT NULL DEFAULT 0,
   energy_type VARCHAR(32) NOT NULL,
   max_load DECIMAL(18,3) NOT NULL,
@@ -71,6 +96,7 @@ CREATE TABLE vehicle (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL,
   CONSTRAINT uk_vehicle_plate UNIQUE (plate_no),
+  CONSTRAINT uk_vehicle_license UNIQUE (vehicle_license_no),
   CONSTRAINT chk_vehicle_load_standard CHECK (
     (load_standard_type = 'PERCENT' AND load_standard_percent IS NOT NULL AND load_standard_min_load IS NULL)
     OR (load_standard_type = 'FIXED' AND load_standard_percent IS NULL AND load_standard_min_load IS NOT NULL)
@@ -472,7 +498,9 @@ CREATE TABLE approval_template (
   expense_type VARCHAR(32) NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   version INT NOT NULL DEFAULT 0,
+  active_business_key VARCHAR(80) GENERATED ALWAYS AS (CASE WHEN enabled=1 AND business_type IN ('EXPENSE','TIRE_REPLACEMENT') THEN CONCAT(business_type, ':', COALESCE(expense_type,'')) ELSE NULL END),
   CONSTRAINT uk_approval_template_code UNIQUE (stable_code),
+  CONSTRAINT uk_approval_template_active_business UNIQUE (active_business_key),
   CONSTRAINT chk_approval_template_type CHECK (business_type IN ('EXPENSE', 'GENERAL', 'TIRE_REPLACEMENT'))
 );
 
@@ -495,9 +523,12 @@ CREATE TABLE approval_flow_node (
   flow_id BIGINT NOT NULL,
   node_order INT NOT NULL,
   node_name VARCHAR(128) NOT NULL,
-  approver_user_id BIGINT NOT NULL,
+  approver_role_id BIGINT NOT NULL,
+  approver_user_id BIGINT NULL,
   allow_return TINYINT NOT NULL DEFAULT 1,
-  CONSTRAINT uk_flow_node_order UNIQUE (flow_id, node_order)
+  CONSTRAINT uk_flow_node_order UNIQUE (flow_id, node_order),
+  CONSTRAINT fk_approval_node_role FOREIGN KEY (approver_role_id) REFERENCES sys_role(id),
+  CONSTRAINT fk_approval_node_user FOREIGN KEY (approver_user_id) REFERENCES sys_user(id)
 );
 
 
@@ -548,12 +579,11 @@ CREATE TABLE approval_task (
   instance_id BIGINT NOT NULL,
   submission_version_id BIGINT NOT NULL,
   node_id BIGINT NOT NULL,
-  approver_user_id BIGINT NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
   invalidated TINYINT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at TIMESTAMP NULL,
-  CONSTRAINT uk_approval_task_version_node UNIQUE (instance_id, submission_version_id, node_id, approver_user_id)
+  CONSTRAINT uk_approval_task_version_node UNIQUE (instance_id, submission_version_id, node_id)
 );
 
 CREATE TABLE approval_action (
@@ -788,88 +818,13 @@ VALUES
   ('DRIVER', '司机', 1),
   ('ADMIN', '管理员', 1);
 
-INSERT INTO sys_permission (permission_code, permission_name, permission_type)
-VALUES
-  ('vehicle:list', '车辆列表', 'API'),
-  ('vehicle:add', '车辆新增', 'API'),
-  ('vehicle:view', '车辆查看', 'API'),
-  ('vehicle:edit', '车辆编辑', 'API'),
-  ('vehicle:delete', '车辆删除', 'API'),
-  ('vehicle:bindDriver', '车辆绑定司机', 'API'),
-  ('vehicle:unbindDriver', '车辆解绑司机', 'API'),
-  ('vehicle:bindingHistory', '车辆绑定历史', 'API'),
-  ('trailer:list', '车挂列表', 'API'),
-  ('trailer:add', '车挂新增', 'API'),
-  ('trailer:edit', '车挂编辑', 'API'),
-  ('trailer:bindVehicle', '车挂绑定车辆', 'API'),
-  ('trailer:unbindVehicle', '车挂解绑车辆', 'API'),
-  ('trailer:bindingHistory', '车挂绑定历史', 'API'),
-  ('driver:list', '司机列表', 'API'),
-  ('driver:add', '司机新增', 'API'),
-  ('driver:edit', '司机编辑', 'API'),
-  ('driver:bindVehicle', '司机绑定车辆', 'API'),
-  ('driver:unbindVehicle', '司机解绑车辆', 'API'),
-  ('driver:resetPassword', '司机重置密码', 'API'),
-  ('template:view', '查看线路模板', 'API'),
-  ('template:manage', '维护线路模板', 'API'),
-  ('task:view', '查看运输任务', 'API'),
-  ('task:participants:view', '查看任务参与人', 'API'),
-  ('task:weight:view', '查看任务重量证据', 'API'),
-  ('dispatch:view', '查看调度工作台', 'API'),
-  ('dispatch:batch', '批量确认发布任务', 'API'),
-  ('task:import:view', '查看任务导入', 'API'),
-  ('task:import:submit', '提交任务导入', 'API'),
-  ('tire:view', '查看轮胎库存', 'API'),
-  ('tire:import', '轮胎入库与导入历史', 'API'),
-  ('tire:manage', '维护轮胎资料', 'API'),
-  ('tire:request:view', '查看换胎申请', 'API'),
-  ('tire:request:create', '发起换胎申请', 'API'),
-  ('tire:request:process', '处理换胎申请', 'API'),
-  ('task:cancel', '取消未发车任务', 'API'),
-  ('task:transfer', '转派运输任务', 'API'),
-  ('task:depart', '确认发车', 'API'),
-  ('task:unload', '确认卸货', 'API'),
-  ('task:weight:adjust', '调整任务重量', 'API'),
-  ('task:amount:adjust', '调整任务金额', 'API'),
-  ('salary:view', '工资查看', 'API'),
-  ('salary:adjust', '调整参与工资', 'API'),
-  ('salary:export', '导出工资台账', 'API'),
-  ('salary:mine', '本人薪资查看', 'API'),
-  ('attendance:view', '查看司机出勤', 'API'),
-  ('attendance:export', '导出司机出勤', 'API'),
-  ('dispatch:ledger:view', '查看车辆调度月账', 'API'),
-  ('dispatch:ledger:export', '导出车辆调度月账', 'API'),
-  ('approval:create', '发起审批与费用申请', 'API'),
-  ('approval:process', '处理审批', 'API'),
-  ('approval:return', '打回审批', 'API'),
-  ('approval:history:view', '查看审批记录', 'API'),
-  ('approval:flow:manage', '维护审批流程', 'API'),
-  ('expense:ledger:view', '查看费用台账', 'API'),
-  ('expense:attribution:edit', '调整费用任务归属', 'API'),
-  ('expense:reversal', '冲销正式费用', 'API'),
-  ('expense:export', '导出费用台账', 'API'),
-  ('charging:company:manage', '管理充电公司模板', 'API'),
-  ('charging:import', '确认充电订单入账', 'API'),
-  ('charging:view', '查看充电导入与原始文件', 'API'),
-  ('report:task:view', '查看任务经营', 'API'),
-  ('report:template:view', '查看线路模板经营', 'API'),
-  ('report:company:view', '查看公司经营', 'API'),
-  ('settlement:view', '查看月结版本', 'API'),
-  ('settlement:generate', '生成月结版本', 'API'),
-  ('user:manage', '用户管理', 'API'),
-  ('role:manage', '角色管理', 'API'),
-  ('permission:manage', '权限管理', 'API'),
-  ('audit:view', '审计查看', 'API');
+INSERT INTO expense_category (category_code,category_name,display_order) VALUES
+  ('PENALTY','罚款',10),('CARRYING','搬运费',20),('REPAIR','维修费',30),
+  ('ELECTRIC','电费',40),('GAS','气费',50),('TEMP_ELECTRIC','临时电费',60),
+  ('TEMP_GAS','临时气费',65),('WATER','水费',70),('TOLL','过路费',80),('CAR_WASH','洗车费',90);
 
-INSERT INTO sys_role_permission (role_id, permission_id)
-SELECT r.id, p.id
-FROM sys_role r
-CROSS JOIN sys_permission p
-WHERE r.role_code = 'ADMIN';
-INSERT INTO sys_role_permission (role_id, permission_id)
-SELECT r.id, p.id FROM sys_role r CROSS JOIN sys_permission p
-WHERE r.role_code = 'DRIVER'
-  AND p.permission_code IN ('task:view', 'task:depart', 'task:unload', 'salary:mine', 'approval:create');
+-- 页面与按钮权限由后端功能注册表在启动时同步；普通角色新增功能默认不授权。
+
 CREATE TABLE in_app_notification (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,

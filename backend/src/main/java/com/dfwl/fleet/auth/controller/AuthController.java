@@ -13,7 +13,7 @@ import com.dfwl.fleet.common.web.RequestIdHolder;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,17 +43,20 @@ public class AuthController {
     }
 
     @PostMapping("/auth/logout")
+    @FunctionAccess(self=true)
     public ApiResponse<Void> logout(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
         authService.logout(extractBearerToken(authorization));
         return ApiResponse.success(RequestIdHolder.get());
     }
 
     @GetMapping("/me")
+    @FunctionAccess(self=true)
     public ApiResponse<CurrentUserResponse> me(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.success(authService.currentUser(user), RequestIdHolder.get());
     }
 
     @PutMapping("/auth/password")
+    @FunctionAccess(self=true)
     public ApiResponse<Void> changePassword(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ChangePasswordRequest request) {
@@ -62,7 +65,7 @@ public class AuthController {
     }
 
     @PostMapping("/users/{id}/reset-password")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"BUTTON_USERS_RESET_PASSWORD", "BUTTON_DRIVERS_RESET_PASSWORD"})
     public ApiResponse<Void> resetPassword(
             @PathVariable("id") long userId,
             @Valid @RequestBody ResetPasswordRequest request) {
@@ -71,7 +74,7 @@ public class AuthController {
     }
 
     @PutMapping("/users/{id}/status")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"BUTTON_USERS_EDIT"})
     public ApiResponse<Void> updateStatus(
             @PathVariable("id") long userId,
             @Valid @RequestBody UpdateUserStatusRequest request) {

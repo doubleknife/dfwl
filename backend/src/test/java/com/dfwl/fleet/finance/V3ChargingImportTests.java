@@ -41,10 +41,10 @@ class V3ChargingImportTests {
                 "expense_attribution_history", "expense_entry", "transport_participant", "transport_task",
                 "route_template", "vehicle", "driver", "product")) jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO product(id,name) VALUES(1,'砂石')");
-        jdbc.update("INSERT INTO driver(id,driver_type,name,phone,status) VALUES(1,'INTERNAL','司机','13900000111',1)");
+        jdbc.update("INSERT INTO driver(id,driver_type,name,phone,id_card_no,driving_license_no,status) VALUES(1,'INTERNAL','司机','13900000111','110105199001010010','TEST-DL-001',1)");
         jdbc.update("""
-                INSERT INTO vehicle(id,plate_no,insurance_complete,energy_type,max_load,load_standard_type,
-                  load_standard_percent,status) VALUES(1,'云A001',1,'ELECTRIC',30,'PERCENT',0.9,1)
+                INSERT INTO vehicle(id,plate_no,vehicle_license_no,insurance_complete,energy_type,max_load,load_standard_type,
+                  load_standard_percent,status) VALUES(1,'云A001','TEST-VL-001',1,'ELECTRIC',30,'PERCENT',0.9,1)
                 """);
         jdbc.update("""
                 INSERT INTO route_template(id,stable_code,name,customer_name,product_id,loading_place,
@@ -222,10 +222,10 @@ class V3ChargingImportTests {
             var payload = json.treeToValue(sample.get("payload"), ChargingImportService.Confirmation.class);
             assertThat(sample.get("errors").size()).isZero();
             for (var order : payload.orders()) if (plates.add(order.plateNo())) jdbc.update("""
-                    INSERT INTO vehicle(plate_no,insurance_complete,energy_type,max_load,
+                    INSERT INTO vehicle(plate_no,vehicle_license_no,insurance_complete,energy_type,max_load,
                       load_standard_type,load_standard_percent,status)
-                    VALUES(?,1,'ELECTRIC',30,'PERCENT',0.9,1)
-                    """, order.plateNo());
+                    VALUES(?,CONCAT('TEST-VL-',?),1,'ELECTRIC',30,'PERCENT',0.9,1)
+                    """, order.plateNo(), order.plateNo());
             var saved = charging.saveCompany(null, new ChargingImportService.CompanyCommand(
                     sample.get("company").asText(), "SAMPLE" + index, "ORDER_NO",
                     payload.headerRowNo(), payload.headers(), payload.mapping()), 1);

@@ -1,5 +1,6 @@
 import { authStore, clearSession } from '../stores/auth.js';
 import { unwrapApiPayload } from './response.js';
+import { showApiError } from '../stores/apiErrorDialog.js';
 
 export const API_BASE = import.meta.env?.VITE_API_BASE_URL || '';
 
@@ -39,28 +40,38 @@ async function parseResponse(response) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method || 'GET',
-    headers: buildHeaders(options.headers, options.body !== undefined),
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
-  });
-  return parseResponse(response);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || 'GET',
+      headers: buildHeaders(options.headers, options.body !== undefined),
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+    return await parseResponse(response);
+  } catch (cause) {
+    showApiError(cause, { path, method: options.method || 'GET' });
+    throw cause;
+  }
 }
 
 async function upload(path, formData) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: buildHeaders({}, false),
-    body: formData
-  });
-  return parseResponse(response);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: 'POST', headers: buildHeaders({}, false), body: formData
+    });
+    return await parseResponse(response);
+  } catch (cause) { showApiError(cause, { path, method: 'POST', action: 'upload' }); throw cause; }
 }
 
 async function download(path) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: buildHeaders({}, false)
-  });
-  return parseResponse(response);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: buildHeaders({}, false)
+    });
+    return await parseResponse(response);
+  } catch (cause) {
+    showApiError(cause, { path, method: 'GET', action: 'download' });
+    throw cause;
+  }
 }
 
 export const apiClient = {

@@ -125,7 +125,8 @@ public class TireV3Service {
         if (users.isDriverUser(user)) {
             if (users.requireDriver(user).driverId() != ((Number) request.get("applicantDriverId")).longValue())
                 throw new AccessDeniedException("只能查看本人的换胎申请");
-        } else if (!user.permissions().contains("tire:request:view")) {
+        } else if (!user.permissions().contains("PAGE_APPROVALS_TODO")
+                && !user.permissions().contains("PAGE_APPROVALS_HISTORY")) {
             throw new AccessDeniedException("无权查看换胎申请");
         }
         request.remove("applicantDriverId");
@@ -336,6 +337,13 @@ public class TireV3Service {
                 SELECT id FROM approval_instance WHERE applicant_user_id=? AND request_key=?
                 """, user.id(), input.requestKey());
         if (previous != null) return approvals.detail(((Number) previous.get("id")).longValue(), user);
+        Long activeTireTemplate = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM approval_template t
+                JOIN approval_flow f ON f.template_id=t.id AND f.status='ACTIVE'
+                WHERE t.id=? AND t.enabled=1 AND t.business_type='TIRE_REPLACEMENT'
+                """, Long.class, input.templateId());
+        if (activeTireTemplate == null || activeTireTemplate != 1)
+            throw invalid("请选择当前有效的换胎审批流程");
         Map<String, Object> ocr = one("""
                 SELECT o.id,o.attachment_id,o.confirmed_text,a.uploaded_by,a.purpose
                 FROM ocr_record o JOIN file_attachment a ON a.id=o.attachment_id WHERE o.id=?

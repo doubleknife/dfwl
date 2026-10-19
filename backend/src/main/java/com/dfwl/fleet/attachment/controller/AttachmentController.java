@@ -7,6 +7,7 @@ import com.dfwl.fleet.attachment.domain.AttachmentFile;
 import com.dfwl.fleet.common.api.ApiResponse;
 import com.dfwl.fleet.common.web.RequestIdHolder;
 import com.dfwl.fleet.security.AuthenticatedUser;
+import com.dfwl.fleet.security.FunctionAccess;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.core.io.Resource;
@@ -36,6 +37,7 @@ public class AttachmentController {
     }
 
     @GetMapping
+    @FunctionAccess(self=true)
     public ApiResponse<List<AttachmentResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String ownerType,
@@ -45,6 +47,7 @@ public class AttachmentController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @FunctionAccess(self=true)
     public ApiResponse<AttachmentResponse> upload(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String ownerType,
@@ -55,6 +58,7 @@ public class AttachmentController {
     }
 
     @GetMapping("/{id}")
+    @FunctionAccess(self=true)
     public ResponseEntity<Resource> download(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
@@ -72,6 +76,7 @@ public class AttachmentController {
     }
 
     @DeleteMapping("/{id}")
+    @FunctionAccess(self=true)
     public ApiResponse<Void> delete(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {

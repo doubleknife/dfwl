@@ -26,7 +26,7 @@ const fieldName = { tire_no: '胎号', barcode: '条码', material_description: 
 const dateTime = (value) => value ? String(value).replace('T', ' ').slice(0, 16) : '—';
 
 async function load(next = 1) {
-  if (!can('tire:view')) return;
+  if (!can('PAGE_TIRES')) return;
   loading.value = true; error.value = '';
   try {
     const result = await tireApi.list(next, 20, filters);
@@ -66,7 +66,8 @@ onMounted(() => load());
   <main class="ui-page-container">
     <PageHeader title="轮胎库存" description="入库轮胎与当前申领状态；换胎申请只由司机在小程序发起。" />
     <ErrorState v-if="error" :message="error" @retry="load(page)" />
-    <div v-if="can('tire:view')">
+    <div v-if="can('PAGE_TIRES')">
+      <div class="tire-overview" role="status"><span>库存记录 <strong>{{ total }}</strong></span><span>当前页可用 <strong>{{ rows.filter((item) => item.status === 'AVAILABLE').length }}</strong></span><span>当前页已申领 <strong>{{ rows.filter((item) => item.status === 'CLAIMED').length }}</strong></span></div>
       <FilterBar>
         <label class="ui-search">胎号<input v-model.trim="filters.tireNo" type="search" placeholder="搜索胎号" @keyup.enter="load(1)" /></label>
         <label>状态<select v-model="filters.status"><option value="">全部状态</option><option value="AVAILABLE">可用</option><option value="CLAIMED">已申领</option></select></label>
@@ -104,7 +105,7 @@ onMounted(() => load());
           <template #operatedAt="{value}">{{ dateTime(value) }}</template>
         </DataTable>
       </template>
-      <template #footer><button v-if="can('tire:manage') && selected?.status === 'AVAILABLE'" type="button" @click="beginEdit">维护轮胎资料</button></template>
+      <template #footer><button v-if="can('BUTTON_TIRES_MANAGE') && selected?.status === 'AVAILABLE'" type="button" @click="beginEdit">维护轮胎资料</button></template>
     </DetailDrawer>
     <FormDialog :open="editing" title="维护轮胎资料" :busy="busy" @close="editing=false">
       <form @submit.prevent="save">
@@ -120,3 +121,9 @@ onMounted(() => load());
     </FormDialog>
   </main>
 </template>
+
+<style scoped>
+.tire-overview { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.tire-overview span { min-width: 138px; padding: 10px 14px; border: 1px solid var(--ui-border); border-radius: 8px; background: #fff; color: var(--ui-muted); }
+.tire-overview strong { display: block; margin-top: 3px; color: var(--ui-primary, #087563); font-size: 20px; }
+</style>

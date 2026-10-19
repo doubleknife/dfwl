@@ -1,7 +1,7 @@
 function apiError(payload, fallback, statusCode) {
   const message = payload?.message || fallback;
   const requestId = payload?.requestId;
-  const error = new Error(requestId ? `${message}（请求ID：${requestId}）` : message);
+  const error = new Error(message);
   error.statusCode = statusCode;
   error.code = payload?.code;
   error.requestId = requestId;
@@ -27,7 +27,7 @@ function request(options) {
       success(res) {
         if (res.statusCode === 401) {
           const isLogin = options.url === '/auth/login';
-          if (!isLogin && isCurrentSession(app, token)) {
+          if (!isLogin && options.url !== '/auth/logout' && isCurrentSession(app, token)) {
             app.clearSession();
             wx.redirectTo({ url: '/pages/login/index' });
           }

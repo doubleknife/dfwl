@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 
 public record VehicleRequest(
         @NotBlank String plateNo,
+        @NotBlank String vehicleLicenseNo,
         @NotNull Boolean insuranceComplete,
         @NotBlank String energyType,
         @NotNull @DecimalMin("0.001") BigDecimal maxLoad,

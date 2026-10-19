@@ -1,0 +1,32 @@
+<view class="password-page">
+  <view class="password-heading">修改密码</view>
+  <view class="password-hint">修改成功后需要重新登录</view>
+  <view class="password-card">
+    <view class="password-field">
+      <text class="password-label">原密码</text>
+      <view class="password-input-row">
+        <input class="password-input" value="{{oldPassword}}" bindinput="onOld" password="{{!showOldPassword}}" placeholder="请输入原密码" />
+        <text class="password-visibility" role="button" bindtap="toggleOldVisibility">{{showOldPassword ? '隐藏' : '显示'}}</text>
+      </view>
+      <text wx:if="{{oldError}}" class="password-error">{{oldError}}</text>
+    </view>
+    <view class="password-field">
+      <text class="password-label">新密码</text>
+      <view class="password-input-row">
+        <input class="password-input" value="{{newPassword}}" bindinput="onNew" password="{{!showNewPassword}}" placeholder="至少 6 位" />
+        <text class="password-visibility" role="button" bindtap="toggleNewVisibility">{{showNewPassword ? '隐藏' : '显示'}}</text>
+      </view>
+      <text wx:if="{{newError}}" class="password-error">{{newError}}</text>
+    </view>
+    <view class="password-field">
+      <text class="password-label">确认新密码</text>
+      <view class="password-input-row">
+        <input class="password-input" value="{{confirmPassword}}" bindinput="onConfirm" password="{{!showConfirmPassword}}" placeholder="请再次输入新密码" />
+        <text class="password-visibility" role="button" bindtap="toggleConfirmVisibility">{{showConfirmPassword ? '隐藏' : '显示'}}</text>
+      </view>
+      <text wx:if="{{confirmError}}" class="password-error">{{confirmError}}</text>
+    </view>
+    <view wx:if="{{apiError}}" class="password-api-error" role="alert">{{apiError}}</view>
+    <button class="password-submit" loading="{{loading}}" disabled="{{loading}}" bindtap="changePassword">确认修改</button>
+  </view>
+</view>

@@ -11,6 +11,7 @@
 - `pages/weight`：毛重/皮重同页提交。
 - `pages/salary`：自有司机工资单。
 - `pages/profile`：当前账号信息。
+- `pages/change-password`：独立修改密码页；成功后旧会话失效并重新登录。
 - `pages/expense-apply`：自有司机的授权费用申请。
 - `pages/approvals`：按本人权限查看申请与审批。
 - `pages/tire-request`：自有司机拍照、OCR、确认胎号、匹配库存并提交换胎审批；外协司机不可发起。

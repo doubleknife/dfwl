@@ -3,14 +3,16 @@ package com.dfwl.fleet.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dfwl.fleet.route.domain.TransportTaskStatus;
-import com.dfwl.fleet.security.PermissionCode;
+import com.dfwl.fleet.security.FunctionRegistry;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
 
 class BaselineContractTests {
 
@@ -47,19 +49,18 @@ class BaselineContractTests {
     @Test
     void permissionRegistryMatchesOpenApi() throws IOException {
         String openapi = read("docs/openapi.yaml");
-        Set<String> codes = Arrays.stream(PermissionCode.values())
-                .map(PermissionCode::code)
-                .collect(Collectors.toSet());
-
-        assertThat(codes).hasSize(PermissionCode.values().length);
-        for (String code : codes) {
-            if (code.startsWith("import:")) {
-                assertThat(openapi).doesNotContain("- " + code);
-            } else {
-                assertThat(openapi).contains("- " + code);
-            }
-        }
-        assertThat(codes).doesNotContain("route:add", "route:adjustWeight", "task:void", "task:reactivate");
+        Object parsedOpenApi = new Yaml().load(openapi);
+        assertThat(parsedOpenApi).isNotNull();
+        FunctionRegistry registry = new FunctionRegistry();
+        Set<String> codes = registry.codes();
+        assertThat(codes).hasSize(registry.all().size());
+        assertThat(codes).contains("PAGE_PRODUCTS", "BUTTON_PRODUCTS_MANAGE");
+        assertThat(codes).noneMatch(code -> code.contains(":"));
+        String functionSchema = openapi.substring(openapi.indexOf("    FunctionCode:"));
+        var matcher = Pattern.compile("(?m)^        - ([A-Z_]+)$").matcher(functionSchema);
+        java.util.HashSet<String> documented = new java.util.HashSet<>();
+        while (matcher.find()) documented.add(matcher.group(1));
+        assertThat(documented).containsExactlyInAnyOrderElementsOf(codes);
     }
 
     @Test
@@ -76,6 +77,17 @@ class BaselineContractTests {
         assertThat(sql).contains("DECIMAL(18,3)");
         assertThat(sql).contains("DECIMAL(8,4)");
         assertThat(migration).doesNotContain("CREATE DATABASE", "USE fleet_ops");
+        Set<String> productionTables = tableNames(sql);
+        assertThat(productionTables).hasSize(55).containsExactlyInAnyOrderElementsOf(tableNames(migration));
+        assertThat(productionTables).containsExactlyInAnyOrderElementsOf(
+                tableNames(read("backend/src/test/resources/schema-auth-test.sql")));
+    }
+
+    private static Set<String> tableNames(String sql) {
+        var matcher = Pattern.compile("(?i)CREATE TABLE\\s+([a-z_]+)").matcher(sql);
+        java.util.HashSet<String> tables = new java.util.HashSet<>();
+        while (matcher.find()) tables.add(matcher.group(1));
+        return tables;
     }
 
     private static <E extends Enum<E>> String[] enumNames(Class<E> enumType) {

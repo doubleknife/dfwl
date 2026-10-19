@@ -14,6 +14,8 @@ public class TaskDriverValidationService {
     public TaskDriverValidationService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public DriverSnapshot require(long driverId, String outsourcedPlate) {
+        // Serialize allocation and departure with administrator status changes.
+        jdbc.queryForList("SELECT id FROM driver WHERE id=? AND deleted_at IS NULL FOR UPDATE", Long.class, driverId);
         List<DriverSnapshot> found = jdbc.query("""
                 SELECT d.driver_type, d.status AS driver_status, v.id AS vehicle_id,
                     v.plate_no AS vehicle_plate, v.status AS vehicle_status, v.insurance_complete AS vehicle_insurance,

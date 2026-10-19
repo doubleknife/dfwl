@@ -17,7 +17,7 @@ Page({
     this.setData({ loading: true, denied: false, error: '' });
     try {
       const user = await request({ url: '/me' });
-      if (user.driverType !== 'INTERNAL' || !hasPermission(user, 'approval:create')) {
+      if (user.driverType !== 'INTERNAL' || !hasPermission(user, 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT')) {
         this.setData({ denied: true, error: '当前账号不能发起费用申请' }); return;
       }
       const [templates, options] = await Promise.all([

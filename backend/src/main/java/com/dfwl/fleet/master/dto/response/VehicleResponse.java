@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 public record VehicleResponse(
         Long id,
         String plateNo,
+        String vehicleLicenseNo,
         Boolean insuranceComplete,
         String energyType,
         BigDecimal maxLoad,

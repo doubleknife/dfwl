@@ -9,6 +9,7 @@ import DetailDrawer from '../components/DetailDrawer.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import EntityPicker from '../components/EntityPicker.vue';
 import ErrorState from '../components/ErrorState.vue';
+import SummaryCards from '../components/SummaryCards.vue';
 
 const props = defineProps({ initialSituation: { type: String, default: '' } });
 const today = new Date();
@@ -23,7 +24,7 @@ const exporting = ref(false);
 const error = ref('');
 const selected = ref(null);
 const participants = ref([]);
-const history = ref([]);
+const historyByParticipant = ref({});
 const review = ref(false);
 const reviewReason = ref('');
 const reviewRows = ref([]);
@@ -38,8 +39,8 @@ watch(() => filters.month, () => { filters.driverId = ''; filters.templateId = '
 const ledgerColumns = [
   { key: 'businessDate', label: '业务日期' }, { key: 'taskNo', label: '任务号' },
   { key: 'templateName', label: '线路模板' }, { key: 'driverName', label: '司机' },
-  { key: 'driverType', label: '类型' }, { key: 'sequenceNo', label: '参与身份' },
-  { key: 'vehiclePlate', label: '当时车牌' }, { key: 'salaryAmount', label: '核定工资', numeric: true },
+  { key: 'salaryAmount', label: '核定工资', numeric: true }, { key: 'driverType', label: '类型' },
+  { key: 'sequenceNo', label: '参与身份' }, { key: 'vehiclePlate', label: '当时车牌' },
   { key: 'transferTask', label: '任务情况' }, { key: 'actions', label: '操作' }
 ];
 const driverColumns = [
@@ -53,6 +54,13 @@ const typeName = (type) => type === 'OUTSOURCED' ? '外协司机' : '自有司�
 const money = (value) => `¥ ${Number(value || 0).toFixed(2)}`;
 const identity = (index) => index === 1 ? '初始司机' : `第${index - 1}次接手`;
 const maskedPhone = (phone) => phone?.replace(/^(\d{3})\d+(\d{4})$/, '$1****$2') || '系统账号';
+const pageTitle = computed(() => props.initialSituation === 'TRANSFER' ? '转派工资核对' : '工资台账');
+const summaryItems = computed(() => summary.value ? [
+  { label: '工资总额', value: money(summary.value.salaryTotal) },
+  { label: '自有司机工资', value: money(summary.value.internalSalary) },
+  { label: '外协司机工资', value: money(summary.value.outsourcedSalary) },
+  { label: '参与次数 / 转派任务', value: `${summary.value.participantCount} / ${summary.value.transferTaskCount}` }
+] : []);
 
 async function load(next = 1) {
   loading.value = true; error.value = '';
@@ -73,8 +81,11 @@ function selectDriver(row) { filters.driverId = row.driverId; mode.value = 'ledg
 async function openRow(row) {
   error.value = '';
   try {
-    const [chain, changes] = await Promise.all([routeApi.participants(row.taskId), salaryApi.history(row.participantId)]);
-    selected.value = row; participants.value = chain || []; history.value = changes || [];
+    const chain = await routeApi.participants(row.taskId);
+    const allParticipants = chain || [];
+    const changes = await Promise.all(allParticipants.map(async (item) => [item.id, (await salaryApi.history(item.id)) || []]));
+    selected.value = row; participants.value = allParticipants;
+    historyByParticipant.value = Object.fromEntries(changes);
     reviewRows.value = participants.value.map((item) => ({ participantId: item.id, amount: String(item.salary), expectedVersion: item.version }));
     reviewReason.value = ''; review.value = false;
     reviewKey.value = ''; reviewPayload.value = '';
@@ -117,11 +128,11 @@ onMounted(() => load());
 
 <template>
   <main class="ui-page-container">
-    <PageHeader title="工资中心" description="按运输任务参与人核定工资；转派链的每位司机均单独计薪。">
-      <template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="can('salary:export')" type="button" :disabled="exporting" @click="download">{{ exporting ? '正在导出…' : '下载当前筛选 Excel' }}</button></template>
+    <PageHeader :title="pageTitle" description="按运输任务参与人核定工资；转派链的每位司机均单独计薪。">
+      <template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="can('BUTTON_SALARIES_EXPORT')" type="button" :disabled="exporting" @click="download">{{ exporting ? '正在导出…' : '下载当前筛选 Excel' }}</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
-    <FilterBar>
+    <FilterBar class="salary-filter">
       <label>月份<input v-model="filters.month" type="month" /></label>
       <label>司机<EntityPicker :key="`driver-${filters.month}`" v-model="filters.driverId" remote-search :load-page="loadDriverOptions" :label-of="(item) => `${item.label} · ${item.detail || ''}`" placeholder="全部司机" /></label>
       <label>司机类型<select v-model="filters.driverType"><option value="">全部</option><option value="INTERNAL">自有司机</option><option value="OUTSOURCED">外协司机</option></select></label>
@@ -130,13 +141,8 @@ onMounted(() => load());
       <label>任务情况<select v-model="filters.transferOnly"><option value="">全部</option><option value="false">普通任务</option><option value="true">转派任务</option></select></label>
       <button type="button" @click="load(1)">查询</button>
     </FilterBar>
-    <section v-if="summary" class="v3-summary" aria-label="当前筛选汇总">
-      <div><small>工资总额</small><strong>{{ money(summary.salaryTotal) }}</strong></div>
-      <div><small>自有司机工资</small><strong>{{ money(summary.internalSalary) }}</strong></div>
-      <div><small>外协司机工资</small><strong>{{ money(summary.outsourcedSalary) }}</strong></div>
-      <div><small>参与次数 / 转派任务</small><strong>{{ summary.participantCount }} / {{ summary.transferTaskCount }}</strong></div>
-    </section>
-    <div class="ui-tabs" role="tablist" aria-label="工资视图"><button type="button" :aria-selected="mode === 'ledger'" @click="changeMode('ledger')">逐任务工资</button><button type="button" :aria-selected="mode === 'drivers'" @click="changeMode('drivers')">司机月度汇总</button></div>
+    <SummaryCards v-if="summary" label="当前筛选工资汇总" :items="summaryItems" />
+    <div class="ui-tabs" role="tablist" aria-label="工资视图"><button type="button" :aria-selected="mode === 'ledger'" @click="changeMode('ledger')">逐任务工资</button><button v-if="initialSituation !== 'TRANSFER'" type="button" :aria-selected="mode === 'drivers'" @click="changeMode('drivers')">司机月度汇总</button></div>
     <DataTable v-if="mode === 'ledger'" :columns="ledgerColumns" :rows="records" row-key="participantId" :loading="loading" empty-text="当前条件下暂无参与人工资">
       <template #driverType="{ row }">{{ typeName(row.driverType) }}</template>
       <template #sequenceNo="{ row }">{{ identity(row.sequenceNo) }}</template>
@@ -158,15 +164,23 @@ onMounted(() => load());
         <small>发车 {{ item.departedAt || '未发车' }} · 结束 {{ item.endedAt || '尚未结束' }}</small>
         <label v-if="review">核定工资（元）<input v-model="reviewRows[index].amount" type="number" min="0" step="0.01" /></label>
         <strong v-else>{{ money(item.salary) }}</strong>
+        <details v-if="historyByParticipant[item.id]?.length" class="v3-salary-history"><summary>查看该司机工资调整历史（{{ historyByParticipant[item.id].length }} 条）</summary><ol class="ui-timeline"><li v-for="change in historyByParticipant[item.id]" :key="change.id">{{ money(change.beforeAmount) }} → {{ money(change.afterAmount) }}<p>{{ change.operatedAt }} · 操作账号 {{ maskedPhone(change.operatorPhone) }} · {{ change.reason }}</p></li></ol></details>
       </div>
       <template v-if="review"><label>调整原因<textarea v-model.trim="reviewReason" rows="3" placeholder="填写本次核薪原因" /></label><p v-if="error" class="error">{{ error }}</p></template>
-      <h3>当前参与人工资历史</h3><p v-if="!history.length">暂无调整历史</p>
-      <ol v-else class="ui-timeline"><li v-for="item in history" :key="item.id">{{ money(item.beforeAmount) }} → {{ money(item.afterAmount) }}<p>{{ item.operatedAt }} · 操作账号 {{ maskedPhone(item.operatorPhone) }} · {{ item.reason }}</p></li></ol>
-      <template #footer><button v-if="review" type="button" @click="review = false">取消</button><button v-if="review" type="button" class="primary" :disabled="saving || !reviewReason.trim()" @click="confirmReview">{{ saving ? '正在核定…' : '确认全部工资' }}</button><button v-else-if="can('salary:adjust') && participants.length" type="button" class="primary" @click="beginReview">核定全部参与人工资</button></template>
+      <p v-if="!Object.values(historyByParticipant).some((changes) => changes.length)" class="muted">本任务暂无工资调整历史</p>
+      <template #footer><button v-if="review" type="button" @click="review = false">取消</button><button v-if="review" type="button" class="primary" :disabled="saving || !reviewReason.trim()" @click="confirmReview">{{ saving ? '正在核定…' : '确认全部工资' }}</button><button v-else-if="can('BUTTON_SALARIES_ADJUST') && participants.length" type="button" class="primary" @click="beginReview">核定全部参与人工资</button></template>
     </DetailDrawer>
   </main>
 </template>
 
 <style scoped>
-.v3-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.v3-summary>div,.v3-person-row{background:#fff;border:1px solid #e4ece8;border-radius:10px;padding:14px}.v3-summary small,.v3-person-row span,.v3-person-row small{display:block;color:#58716b}.v3-summary strong{display:block;margin-top:6px;font-size:19px}.v3-transfer-tag{color:#0c685e;background:#e8f4f0;border-radius:6px;padding:3px 7px}.v3-person-row{margin:10px 0}.v3-person-row strong,.v3-person-row span,.v3-person-row small{margin-bottom:6px}@media(max-width:1200px){.v3-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.salary-filter { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; }
+.salary-filter label, .salary-filter :deep(.ui-entity-picker) { min-width: 0; width: 100%; }
+.salary-filter :deep(.ui-entity-picker) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; align-items:center; }
+.salary-filter :deep(.ui-entity-picker > small), .salary-filter :deep(.ui-entity-picker > .ui-pagination) { grid-column:1 / -1; }
+.salary-filter > button { justify-self: start; min-width: 88px; }
+@media (max-width: 1100px) { .salary-filter { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .salary-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .salary-filter { grid-template-columns: 1fr; } }
+.v3-person-row{background:#fff;border:1px solid #e4ece8;border-radius:10px;padding:14px;margin:10px 0}.v3-person-row span,.v3-person-row small{display:block;color:#58716b}.v3-transfer-tag{color:#0c685e;background:#e8f4f0;border-radius:6px;padding:3px 7px}.v3-person-row strong,.v3-person-row span,.v3-person-row small{margin-bottom:6px}.v3-salary-history{margin-top:10px;padding-top:10px;border-top:1px solid #e4ece8}.v3-salary-history summary{cursor:pointer;color:#0c685e}
 </style>

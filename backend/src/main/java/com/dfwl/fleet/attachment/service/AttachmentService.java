@@ -247,12 +247,13 @@ public class AttachmentService {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {
-            case TIRE_OCR -> has(user, "tire:request:create");
-            case WEIGHT_ADJUST -> has(user, "task:weight:adjust");
-            case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "task:unload");
-            case APPROVAL_APPLICATION -> has(user, "approval:create");
-            case APPROVAL_ACTION -> hasAny(user, "approval:process", "approval:return");
-            case IMPORT_FILE -> hasAny(user, "task:import:submit", "tire:import");
+            case TIRE_OCR -> "DRIVER".equalsIgnoreCase(user.roleCode()) && has(user, "BUTTON_MINI_TIRE_REQUEST_SUBMIT")
+                    && repository.canCreateTireRequest(user.id(), user.phone());
+            case WEIGHT_ADJUST -> has(user, "BUTTON_ROUTES_WEIGHT_ADJUST");
+            case ROUTE_UNLOAD_WEIGHT_TICKET -> has(user, "BUTTON_MINI_ROUTES_UNLOAD");
+            case APPROVAL_APPLICATION -> has(user, "BUTTON_EXPENSE_APPLY_SUBMIT");
+            case APPROVAL_ACTION -> hasAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN");
+            case IMPORT_FILE -> hasAny(user, "BUTTON_TASK_IMPORTS_SUBMIT", "BUTTON_TIRE_IMPORTS_SUBMIT");
         };
         if (!allowed) {
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
@@ -270,39 +271,42 @@ public class AttachmentService {
 
     private void requireRead(FileAttachment attachment, AuthenticatedUser user) {
         AttachmentPurpose purpose = normalizePurpose(attachment.purpose());
-        boolean history = has(user, "approval:history:view");
+        boolean history = has(user, "PAGE_APPROVALS_HISTORY");
         if (purpose == AttachmentPurpose.TIRE_OCR) {
-            if ((attachment.uploadedBy() == user.id() && has(user, "tire:request:create"))
-                    || repository.canViewSubmissionEvidence(attachment.id(), user.id(), history)) return;
+            if ((attachment.uploadedBy() == user.id() && has(user, "BUTTON_MINI_TIRE_REQUEST_SUBMIT"))
+                    || repository.canViewSubmissionEvidence(attachment.id(), user.id(), history,
+                            hasAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN"))) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         if (purpose == AttachmentPurpose.APPROVAL_APPLICATION) {
             if ("APPROVAL_UPLOAD".equals(attachment.ownerType())
-                    && attachment.uploadedBy() == user.id() && has(user, "approval:create")) return;
+                    && attachment.uploadedBy() == user.id() && has(user, "BUTTON_EXPENSE_APPLY_SUBMIT")) return;
             if (Set.of("APPROVAL", "APPROVAL_APPLICATION").contains(attachment.ownerType())
-                    && repository.canViewApprovalInstance(attachment.ownerId(), user.id(), history)) return;
+                    && repository.canViewApprovalInstance(attachment.ownerId(), user.id(), history,
+                            hasAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN"))) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         if (purpose == AttachmentPurpose.APPROVAL_ACTION) {
             if ("APPROVAL_UPLOAD".equals(attachment.ownerType())
                     && attachment.uploadedBy() == user.id()
-                    && hasAny(user, "approval:process", "approval:return")) return;
+                    && hasAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN")) return;
             if ("APPROVAL_ACTION".equals(attachment.ownerType())
-                    && repository.canViewApprovalAction(attachment.ownerId(), user.id(), history)) return;
+                    && repository.canViewApprovalAction(attachment.ownerId(), user.id(), history,
+                            hasAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN"))) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         if (purpose == AttachmentPurpose.ROUTE_UNLOAD_WEIGHT_TICKET) {
             if ("TASK".equals(attachment.ownerType())
                     && repository.ownerExists("TASK", attachment.ownerId())
-                    && (has(user, "task:weight:view") && !"DRIVER".equalsIgnoreCase(user.roleCode())
-                        || has(user, "task:view") && repository.canDriverReadUnloadTicket(
+                    && (has(user, "PAGE_ROUTES") && !"DRIVER".equalsIgnoreCase(user.roleCode())
+                        || has(user, "PAGE_MINI_ROUTES") && repository.canDriverReadUnloadTicket(
                                 attachment.ownerId(), user.id(), user.phone()))) return;
             throw new AccessDeniedException(ErrorCode.AUTH_003.defaultMessage());
         }
         boolean allowed = switch (purpose) {
             case WEIGHT_ADJUST -> !"DRIVER".equalsIgnoreCase(user.roleCode())
-                    && hasAny(user, "task:weight:view", "task:weight:adjust");
-            case IMPORT_FILE -> hasAny(user, "task:import:view", "tire:import");
+                    && hasAny(user, "PAGE_ROUTES", "BUTTON_ROUTES_WEIGHT_ADJUST");
+            case IMPORT_FILE -> canReadImportFile(attachment, user);
             default -> false;
         };
         if (!allowed) {
@@ -315,6 +319,15 @@ public class AttachmentService {
         if ("APPROVAL_UPLOAD".equals(attachment.ownerType()) && attachment.ownerId() != user.id()) {
             throw new BusinessException(ErrorCode.ATTACHMENT_004);
         }
+    }
+
+    private boolean canReadImportFile(FileAttachment attachment, AuthenticatedUser user) {
+        if (attachment.ownerId() == 0) return attachment.uploadedBy() == user.id()
+                && hasAny(user, "PAGE_TASK_IMPORTS", "PAGE_TIRE_IMPORTS");
+        if (!"IMPORT".equals(attachment.ownerType())) return false;
+        String businessType = repository.importFileBusinessType(attachment.ownerId(), attachment.id());
+        return "TASK".equals(businessType) && has(user, "PAGE_TASK_IMPORTS")
+                || "TIRE".equals(businessType) && has(user, "PAGE_TIRE_IMPORTS");
     }
 
     private Set<String> allowedTypes(AttachmentPurpose purpose) {
@@ -336,7 +349,16 @@ public class AttachmentService {
     }
 
     private boolean has(AuthenticatedUser user, String permission) {
-        return user.permissions().contains(permission);
+        if (user == null || user.permissions() == null) return false;
+        String alternate = switch (permission) {
+            case "BUTTON_APPROVALS_TODO_APPROVE" -> "BUTTON_MINI_APPROVALS_APPROVE";
+            case "BUTTON_APPROVALS_TODO_RETURN" -> "BUTTON_MINI_APPROVALS_RETURN";
+            case "BUTTON_EXPENSE_APPLY_SUBMIT" -> "BUTTON_MINI_EXPENSE_APPLY_SUBMIT";
+            case "BUTTON_MINI_ROUTES_UNLOAD" -> "BUTTON_ROUTES_UNLOAD";
+            case "PAGE_MINI_ROUTES" -> "PAGE_ROUTES";
+            default -> null;
+        };
+        return user.permissions().contains(permission) || alternate != null && user.permissions().contains(alternate);
     }
 
     private boolean hasAny(AuthenticatedUser user, String... permissions) {

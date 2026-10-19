@@ -32,7 +32,7 @@ paths:
     get:
       tags: [Tires]
       summary: 管理端轮胎库存分页查询
-      x-permission: tire:view
+      x-function-any-of: [PAGE_TIRES]
       parameters:
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
         - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
@@ -43,13 +43,13 @@ paths:
     get:
       tags: [Tires]
       summary: 轮胎详情及维护历史
-      x-permission: tire:view
+      x-function-any-of: [PAGE_TIRES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 轮胎详情}}
     patch:
       tags: [Tires]
       summary: 授权维护可用轮胎入库信息并生成历史和审计
-      x-permission: tire:manage
+      x-function-any-of: [BUTTON_TIRES_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody:
         required: true
@@ -61,20 +61,20 @@ paths:
     get:
       tags: [Tires]
       summary: 轮胎人工维护与审批生效历史
-      x-permission: tire:view
+      x-function-any-of: [PAGE_TIRES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 轮胎历史列表}}
   /tire-imports/template:
     get:
       tags: [Tires]
       summary: 下载恰好四字段的系统轮胎入库模板
-      x-permission: tire:import
+      x-function-any-of: [PAGE_TIRE_IMPORTS]
       responses: {'200': {description: 固定 Excel 模板}}
   /tire-imports/preview:
     post:
       tags: [Tires]
       summary: 上传真实固定 Excel 并逐行预览
-      x-permission: tire:import
+      x-function-any-of: [BUTTON_TIRE_IMPORTS_SUBMIT]
       requestBody:
         content:
           multipart/form-data:
@@ -84,46 +84,47 @@ paths:
     post:
       tags: [Tires]
       summary: 正式重验并逐行入库
-      x-permission: tire:import
+      x-function-any-of: [BUTTON_TIRE_IMPORTS_SUBMIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 逐行入库结果}}
   /tire-imports:
     get:
       tags: [Tires]
       summary: 轮胎入库历史
-      x-permission: tire:import
+      x-function-any-of: [PAGE_TIRE_IMPORTS]
       responses: {'200': {description: 分页历史}}
   /tire-imports/{id}:
     get:
       tags: [Tires]
       summary: 轮胎导入逐行详情
-      x-permission: tire:import
+      x-function-any-of: [PAGE_TIRE_IMPORTS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 导入详情}}
   /tire-requests/ocr:
     post:
       tags: [Tires]
       summary: 对本人上传的换胎照片 OCR 并保存原始结果
-      x-permission: tire:request:create
+      x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
       responses: {'200': {description: OCR 候选与原始记录}}
   /tire-requests/ocr/{id}/confirm:
     post:
       tags: [Tires]
       summary: 确认本人照片的胎号
-      x-permission: tire:request:create
+      x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 已确认 OCR 记录}}
   /tires/request-target:
     get:
       tags: [Tires]
       summary: 按确认胎号匹配可用库存
-      x-permission: tire:request:create
+      x-function-any-of: [PAGE_MINI_TIRE_REQUEST]
       responses: {'200': {description: 可用轮胎}}
   /tire-requests:
     post:
       tags: [Tires]
       summary: 司机端提交换胎申请并进入 TIRE_REPLACEMENT 审批
-      x-permission: tire:request:create
+      description: 使用当前有效的换胎审批模板及其冻结流程版本；审批节点角色由流程配置决定，不固定为管理员。
+      x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
       requestBody:
         required: true
         content:
@@ -134,14 +135,15 @@ paths:
     get:
       tags: [Tires]
       summary: 查看本人换胎申请或授权管理端记录
-      x-permission: tire:request:view
+      x-function-any-of: [PAGE_MINI_TIRE_REQUEST, PAGE_APPROVALS_TODO, PAGE_APPROVALS_HISTORY]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 换胎申请业务事实与原图引用}}
   /auth/login:
     post:
       tags: [Auth]
       security: []
-      summary: 手机号密码登录
+      summary: 手机号密码登录并创建持久化会话
+      description: WEB 会话有效期 7 天，MINI 会话有效期 30 天。服务端仅保存 Token 摘要；重启后可从数据库恢复未到期、未撤销的会话，并按最新用户、角色及司机状态重新校验。
       requestBody:
         required: true
         content:
@@ -149,19 +151,23 @@ paths:
             schema: {$ref: '#/components/schemas/LoginRequest'}
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}}
+        '409': {description: 用户或所属角色停用时拒绝登录，角色停用返回 AUTH_006}
   /system/ping:
     get:
+      x-self-access: true
       tags: [System]
       security: []
       summary: 服务健康探测
       responses: {'200': {description: OK}}
   /auth/logout:
     post:
+      x-self-access: true
       tags: [Auth]
-      summary: 退出登录
+      summary: 撤销当前终端的服务端会话
       responses: {'200': {description: OK}}
   /me:
     get:
+      x-self-access: true
       tags: [Auth]
       summary: 当前账号、角色、权限、小程序能力
       responses:
@@ -177,21 +183,24 @@ paths:
                       data: {$ref: '#/components/schemas/CurrentUser'}
   /auth/password:
     put:
+      x-self-access: true
       tags: [Auth]
       summary: 修改本人密码
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [oldPassword, newPassword], properties: {oldPassword: {type: string}, newPassword: {type: string, minLength: 6}}}}}}
       responses: {'200': {description: OK}}
   /users/{id}/reset-password:
     post:
       tags: [Auth]
       summary: 管理员重置密码
-      x-permission: user:manage
+      x-function-any-of: [BUTTON_USERS_RESET_PASSWORD, BUTTON_DRIVERS_RESET_PASSWORD]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [newPassword], properties: {newPassword: {type: string, minLength: 6}}}}}}
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /users/{id}/status:
     put:
       tags: [Auth]
       summary: 启用/停用账号
-      x-permission: user:manage
+      x-function-any-of: [BUTTON_USERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
 
@@ -199,25 +208,25 @@ paths:
     get:
       tags: [System]
       summary: 用户分页列表
-      x-permission: user:manage
+      x-function-any-of: [PAGE_USERS]
       responses: {'200': {description: OK}}
     post:
       tags: [System]
       summary: 新增账号并分配单一非 DRIVER 角色；DRIVER 只能由司机业务流程创建或关联
-      x-permission: user:manage
+      x-function-any-of: [BUTTON_USERS_ADD]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /users/{id}:
     get:
       tags: [System]
       summary: 用户详情
-      x-permission: user:manage
+      x-function-any-of: [PAGE_USERS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     put:
       tags: [System]
       summary: 编辑非 DRIVER 账号并保持单一角色；不可借此修改现有 DRIVER 账号或分配 DRIVER
-      x-permission: user:manage
+      x-function-any-of: [BUTTON_USERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UserRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -225,33 +234,33 @@ paths:
     get:
       tags: [System]
       summary: 角色分页列表
-      x-permission: role:manage
+      x-function-any-of: [PAGE_ROLES]
       responses: {'200': {description: OK}}
     post:
       tags: [System]
       summary: 新增角色
-      x-permission: role:manage
+      x-function-any-of: [BUTTON_ROLES_ADD]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoleRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /roles/{id}:
     get:
       tags: [System]
       summary: 角色详情
-      x-permission: role:manage
+      x-function-any-of: [PAGE_ROLES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     put:
       tags: [System]
       summary: 编辑角色
-      x-permission: role:manage
+      x-function-any-of: [BUTTON_ROLES_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoleRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /roles/{id}/status:
     put:
       tags: [System]
-      summary: 启用/停用角色
-      x-permission: role:manage
+      summary: 启用/停用角色；停用后所属用户不可登录且已有令牌失效
+      x-function-any-of: [BUTTON_ROLES_EDIT]
       parameters:
         - {$ref: '#/components/parameters/Id'}
         - {name: status, in: query, required: true, schema: {type: integer, enum: [0, 1]}}
@@ -260,23 +269,23 @@ paths:
     put:
       tags: [System]
       summary: 保存角色权限；权限码只能来自既定注册表
-      x-permission: role:manage
+      x-function-any-of: [BUTTON_ROLES_GRANT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RolePermissionRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /permissions:
     get:
       tags: [System]
-      summary: 权限列表，支持按 MENU/BUTTON/API/MINI_PROGRAM 分类
-      x-permission: permission:manage
+      summary: 页面与按钮功能目录，支持按 PAGE/BUTTON 分类
+      x-function-any-of: [PAGE_ROLES]
       parameters:
-        - {name: permissionType, in: query, required: false, schema: {type: string, enum: [MENU, BUTTON, API, MINI_PROGRAM]}}
+        - {name: permissionType, in: query, required: false, schema: {type: string, enum: [PAGE, BUTTON]}}
       responses: {'200': {description: OK}}
   /audit-logs:
     get:
       tags: [System]
       summary: 操作日志分页查询
-      x-permission: audit:view
+      x-function-any-of: [PAGE_AUDIT]
       parameters:
         - {name: module, in: query, required: false, schema: {type: string}}
         - {name: businessType, in: query, required: false, schema: {type: string}}
@@ -289,19 +298,19 @@ paths:
     get:
       tags: [Products]
       summary: 货物分页列表
-      x-permission: template:view
+      x-function-any-of: [PAGE_PRODUCTS, PAGE_TEMPLATES]
       responses: {'200': {description: OK}}
     post:
       tags: [Products]
       summary: 新增货物
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_PRODUCTS_MANAGE]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /products/{id}:
     put:
       tags: [Products]
       summary: 编辑货物
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_PRODUCTS_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductRequest'}}}}
       responses: {'200': {description: OK}}
@@ -309,7 +318,7 @@ paths:
     put:
       tags: [Products]
       summary: 启用/停用货物
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_PRODUCTS_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StatusRequest'}}}}
       responses: {'200': {description: OK}}
@@ -318,55 +327,74 @@ paths:
     get:
       tags: [Drivers]
       summary: 司机列表
-      x-permission: driver:list
+      x-function-any-of: [PAGE_DRIVERS]
+      parameters:
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+        - {name: keyword, in: query, required: false, description: 司机姓名或手机号模糊查询, schema: {type: string}}
+        - {name: driverType, in: query, required: false, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
+        - {name: status, in: query, required: false, schema: {type: integer, enum: [0, 1]}}
       responses: {'200': {description: OK}}
     post:
       tags: [Drivers]
       summary: 新增司机并原子创建或关联合法 DRIVER 账号；新账号需 initialPassword，已存在账号不改密码
-      x-permission: driver:add
+      x-function-any-of: [BUTTON_DRIVERS_ADD]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
       responses: {'200': {description: OK}}
   /drivers/binding-candidates:
     get:
       tags: [Drivers]
-      summary: 公司车辆绑定候选司机，仅返回启用的 INTERNAL 司机
-      x-permission: driver:bindVehicle
+      summary: 公司车辆绑定候选司机，仅返回启用的 INTERNAL 司机及绑定所需字段，不含身份证和驾驶证号
+      x-function-any-of: [PAGE_BINDING]
       parameters:
         - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
         - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
       responses: {'200': {description: OK}}
+  /bindings/vehicle-options:
+    get:
+      tags: [Vehicles]
+      summary: 绑定关系页的精简车辆候选，不返回行驶证号或保险资料
+      x-function-any-of: [PAGE_BINDING]
+      responses: {'200': {description: 车辆及当前车挂的分页选择项}}
+  /bindings/trailer-options:
+    get:
+      tags: [Trailers]
+      summary: 绑定关系页的精简车挂候选
+      x-function-any-of: [PAGE_BINDING]
+      responses: {'200': {description: 车挂及当前车辆的分页选择项}}
   /drivers/{id}:
     get:
       tags: [Drivers]
       summary: 司机详情
-      x-permission: driver:list
+      x-function-any-of: [PAGE_DRIVERS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     put:
       tags: [Drivers]
       summary: 编辑司机
-      x-permission: driver:edit
+      x-function-any-of: [BUTTON_DRIVERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
       responses: {'200': {description: OK}}
   /drivers/{id}/bind-vehicle:
     post:
       tags: [Drivers]
       summary: 绑定公司车辆；OUTSOURCED 后端强制拒绝
-      x-permission: driver:bindVehicle
+      x-function-any-of: [BUTTON_BINDING_BIND_DRIVER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /drivers/{id}/unbind-vehicle:
     post:
       tags: [Drivers]
       summary: 解绑车辆
-      x-permission: driver:unbindVehicle
+      x-function-any-of: [BUTTON_BINDING_UNBIND_DRIVER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /drivers/{id}/binding-history:
     get:
       tags: [Drivers]
       summary: 司机车辆绑定历史（含操作人手机号）
-      x-permission: vehicle:bindingHistory
+      x-function-any-of: [PAGE_BINDING]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
 
@@ -374,44 +402,40 @@ paths:
     get:
       tags: [Vehicles]
       summary: 车辆列表
-      x-permission: vehicle:list
+      x-function-any-of: [PAGE_VEHICLES]
       responses: {'200': {description: OK}}
     post:
       tags: [Vehicles]
       summary: 新增车辆
-      x-permission: vehicle:add
+      x-function-any-of: [BUTTON_VEHICLES_ADD]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VehicleRequest'}}}}
       responses: {'200': {description: OK}}
   /vehicles/{id}:
     get:
       tags: [Vehicles]
       summary: 车辆详情
-      x-permission: vehicle:view
+      x-function-any-of: [PAGE_VEHICLES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     put:
       tags: [Vehicles]
       summary: 编辑车辆
-      x-permission: vehicle:edit
+      x-function-any-of: [BUTTON_VEHICLES_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
-    delete:
-      tags: [Vehicles]
-      summary: 删除车辆
-      x-permission: vehicle:delete
-      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VehicleRequest'}}}}
       responses: {'200': {description: OK}}
   /vehicles/{id}/binding-history:
     get:
       tags: [Vehicles]
       summary: 车辆绑定历史
-      x-permission: vehicle:bindingHistory
+      x-function-any-of: [PAGE_BINDING]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /vehicles/{id}/trailer-binding-history:
     get:
       tags: [Vehicles]
       summary: 车辆车挂绑定历史（含操作人手机号）
-      x-permission: vehicle:bindingHistory
+      x-function-any-of: [PAGE_BINDING]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
 
@@ -419,32 +443,32 @@ paths:
     get:
       tags: [Trailers]
       summary: 车挂列表
-      x-permission: trailer:list
+      x-function-any-of: [PAGE_TRAILERS]
       responses: {'200': {description: OK}}
     post:
       tags: [Trailers]
       summary: 新增车挂
-      x-permission: trailer:add
+      x-function-any-of: [BUTTON_TRAILERS_ADD]
       responses: {'200': {description: OK}}
   /trailers/{id}:
     put:
       tags: [Trailers]
       summary: 编辑车挂
-      x-permission: trailer:edit
+      x-function-any-of: [BUTTON_TRAILERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /trailers/{id}/bind-vehicle:
     post:
       tags: [Trailers]
       summary: 绑定车辆
-      x-permission: trailer:bindVehicle
+      x-function-any-of: [BUTTON_BINDING_BIND_TRAILER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /trailers/{id}/unbind-vehicle:
     post:
       tags: [Trailers]
       summary: 解绑车辆
-      x-permission: trailer:unbindVehicle
+      x-function-any-of: [BUTTON_BINDING_UNBIND_TRAILER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
 
@@ -452,69 +476,84 @@ paths:
     get:
       tags: [RouteTemplates]
       summary: 查询最终线路模板
-      x-permission: template:view
+      x-function-any-of: [PAGE_TEMPLATES, PAGE_DISPATCH]
       responses: {'200': {description: OK}}
     post:
       tags: [RouteTemplates]
       summary: 创建线路模板
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
       responses: {'200': {description: OK}}
   /route-templates/{id}:
     get:
       tags: [RouteTemplates]
-      x-permission: template:view
+      x-function-any-of: [PAGE_TEMPLATES, PAGE_DISPATCH]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     patch:
       tags: [RouteTemplates]
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
       responses: {'200': {description: OK}}
   /route-templates/{id}/enable:
     post:
       tags: [RouteTemplates]
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /route-templates/{id}/disable:
     post:
       tags: [RouteTemplates]
-      x-permission: template:manage
+      x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /dispatch-batches/preview:
     post:
       tags: [TransportTasks]
       summary: 对全部调度行预校验；失败不产生正式任务
-      x-permission: dispatch:batch
+      x-function-any-of: [BUTTON_DISPATCH_PUBLISH]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchBatchRequest'}}}}
       responses: {'200': {description: OK}}
+  /dispatch-batches/driver-options:
+    get:
+      tags: [TransportTasks]
+      summary: 调度工作台分页查询有效司机候选；仅返回派车所需字段，不包含身份证及驾驶证号
+      x-function-any-of: [PAGE_DISPATCH]
+      parameters:
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+      responses: {'200': {description: 有效司机候选分页}}
+  /dispatch-batches/vehicle-options:
+    get:
+      tags: [TransportTasks]
+      summary: 调度工作台精简车辆与当前车挂候选，不返回行驶证号
+      x-function-any-of: [PAGE_DISPATCH]
+      responses: {'200': {description: 车辆及当前车挂的分页选择项}}
   /dispatch-batches/confirm:
     post:
       tags: [TransportTasks]
       summary: 再次全量校验后整批原子发布，requestKey 幂等
-      x-permission: dispatch:batch
+      x-function-any-of: [BUTTON_DISPATCH_PUBLISH]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DispatchConfirmRequest'}}}}
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /dispatch-batches/{id}:
     get:
       tags: [TransportTasks]
-      x-permission: dispatch:view
+      x-function-any-of: [PAGE_DISPATCH]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /task-imports/template:
     get:
       tags: [TaskImports]
       summary: 下载固定版本运输任务 Excel 模板
-      x-permission: task:import:view
+      x-function-any-of: [PAGE_TASK_IMPORTS]
       responses: {'200': {description: Excel 文件}}
   /task-imports/preview:
     post:
       tags: [TaskImports]
       summary: 上传真实固定模板，保存逐行预览和文件历史；不生成任务
-      x-permission: task:import:submit
+      x-function-any-of: [BUTTON_TASK_IMPORTS_SUBMIT]
       requestBody:
         required: true
         content:
@@ -530,34 +569,34 @@ paths:
     post:
       tags: [TaskImports]
       summary: 逐行正式重验并发布，每行结果与导入历史持久保存
-      x-permission: task:import:submit
+      x-function-any-of: [BUTTON_TASK_IMPORTS_SUBMIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 逐行正式结果}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /task-imports:
     get:
       tags: [TaskImports]
       summary: 任务导入历史分页
-      x-permission: task:import:view
+      x-function-any-of: [PAGE_TASK_IMPORTS]
       responses: {'200': {description: OK}}
   /task-imports/{id}:
     get:
       tags: [TaskImports]
       summary: 查看导入批次与逐行结果
-      x-permission: task:import:view
+      x-function-any-of: [PAGE_TASK_IMPORTS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /task-imports/{id}/rows:
     get:
       tags: [TaskImports]
       summary: 查看导入逐行结果
-      x-permission: task:import:view
+      x-function-any-of: [PAGE_TASK_IMPORTS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks:
     get:
       tags: [TransportTasks]
       summary: 管理端任务分页；司机使用专用脱敏接口
-      x-permission: task:view
+      x-function-any-of: [PAGE_ROUTES]
       parameters:
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
         - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
@@ -570,26 +609,26 @@ paths:
   /transport-tasks/{id}:
     get:
       tags: [TransportTasks]
-      x-permission: task:view
+      x-function-any-of: [PAGE_ROUTES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/participants:
     get:
       tags: [TransportTasks]
-      summary: 参与历史；工资字段另需 salary:view
-      x-permission: task:participants:view
+      summary: 参与历史；工资字段另需 PAGE_SALARIES
+      x-function-any-of: [PAGE_ROUTES, PAGE_SALARIES, PAGE_SALARY_TRANSFERS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/weight-versions:
     get:
       tags: [TransportTasks]
-      x-permission: task:weight:view
+      x-function-any-of: [PAGE_ROUTES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/transfer:
     post:
       tags: [TransportTasks]
-      x-permission: task:transfer
+      x-function-any-of: [BUTTON_ROUTES_TRANSFER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskTransferRequest'}}}}
       responses: {'200': {description: OK}}
@@ -597,7 +636,7 @@ paths:
     post:
       tags: [TransportTasks]
       summary: 仅当前参与司机可发车；响应为脱敏 DriverTask
-      x-permission: task:depart
+      x-function-any-of: [BUTTON_ROUTES_DEPART, BUTTON_MINI_ROUTES_DEPART]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskDepartRequest'}}}}
       responses: {'200': {description: OK}}
@@ -605,7 +644,7 @@ paths:
     post:
       tags: [TransportTasks]
       summary: 仅当前在途司机可卸货；必须有原始磅单
-      x-permission: task:unload
+      x-function-any-of: [BUTTON_ROUTES_UNLOAD, BUTTON_MINI_ROUTES_UNLOAD]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskUnloadRequest'}}}}
       responses: {'200': {description: OK}}
@@ -613,36 +652,36 @@ paths:
     post:
       tags: [TransportTasks]
       summary: 仅未实际发车且未进入转派链的任务可取消
-      x-permission: task:cancel
+      x-function-any-of: [BUTTON_ROUTES_CANCEL]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskCancelRequest'}}}}
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/weight-adjustments:
     post:
       tags: [TransportTasks]
-      x-permission: task:weight:adjust
+      x-function-any-of: [BUTTON_ROUTES_WEIGHT_ADJUST]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskWeightAdjustmentRequest'}}}}
       responses: {'200': {description: OK}}
-  /transport-tasks/{id}/amount-adjustments:
+  /transport-tasks/{taskId}/amount-adjustments:
     post:
       tags: [TransportTasks]
       summary: 实际单价或信息费授权调整并追加历史
-      x-permission: task:amount:adjust
-      parameters: [{$ref: '#/components/parameters/Id'}]
+      x-function-any-of: [BUTTON_ROUTES_AMOUNT_ADJUST]
+      parameters: [{name: taskId, in: path, required: true, schema: {type: integer, format: int64}}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskAmountAdjustmentRequest'}}}}
       responses: {'200': {description: OK}}
-  /transport-tasks/{id}/amount-history:
+  /transport-tasks/{taskId}/amount-history:
     get:
       tags: [TransportTasks]
-      x-permission: task:view
-      parameters: [{$ref: '#/components/parameters/Id'}]
+      x-function-any-of: [PAGE_ROUTES]
+      parameters: [{name: taskId, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/participant-salaries/confirm:
     post:
       tags: [DriverSalaries]
       summary: 按参与人统一核定实际工资并追加调整历史
-      x-permission: salary:adjust
+      x-function-any-of: [BUTTON_SALARIES_ADJUST, BUTTON_SALARY_TRANSFERS_ADJUST]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskSalariesConfirmRequest'}}}}
       responses: {'200': {description: OK}}
@@ -650,20 +689,20 @@ paths:
     get:
       tags: [TransportTasks]
       summary: 本人参与任务分页；仅返回脱敏 DriverTask
-      x-permission: task:view
+      x-function-any-of: [PAGE_MINI_ROUTES]
       responses: {'200': {description: OK}}
   /driver/transport-tasks/{id}:
     get:
       tags: [TransportTasks]
       summary: 本人参与任务详情；无单价、工资、收入、利润和达标字段
-      x-permission: task:view
+      x-function-any-of: [PAGE_MINI_ROUTES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /driver-salaries:
     get:
       tags: [DriverSalaries]
       summary: Participant 工资台账；服务端筛选与分页
-      x-permission: salary:view
+      x-function-any-of: [PAGE_SALARIES, PAGE_SALARY_TRANSFERS]
       parameters:
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
         - {name: month, in: query, schema: {type: string}}
@@ -678,7 +717,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 与工资台账相同筛选口径的全量汇总
-      x-permission: salary:view
+      x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: month, in: query, schema: {type: string}}
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
@@ -691,7 +730,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 工资域司机、模板与任务可搜索筛选选项；无需额外主数据权限
-      x-permission: salary:view
+      x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: kind, in: query, required: true, schema: {type: string, enum: [DRIVER, TEMPLATE, TASK]}}
         - {name: search, in: query, schema: {type: string}}
@@ -703,7 +742,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 按司机汇总 Participant 工资，可用同一组台账筛选条件
-      x-permission: salary:view
+      x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: month, in: query, schema: {type: string}}
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
@@ -718,7 +757,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 导出完整筛选结果 Excel，非当前分页
-      x-permission: salary:export
+      x-function-any-of: [BUTTON_SALARIES_EXPORT]
       parameters:
         - {name: month, in: query, schema: {type: string}}
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
@@ -731,7 +770,7 @@ paths:
     get:
       tags: [MonthlyOperations]
       summary: 自有司机实际发车日出勤月表，同日多趟计一天
-      x-permission: attendance:view
+      x-function-any-of: [PAGE_ATTENDANCE]
       parameters:
         - {name: month, in: query, required: true, schema: {type: string}}
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
@@ -742,13 +781,13 @@ paths:
     get:
       tags: [MonthlyOperations]
       summary: 导出与出勤月表相同口径的完整 Excel
-      x-permission: attendance:export
+      x-function-any-of: [BUTTON_ATTENDANCE_EXPORT]
       responses: {'200': {description: XLSX 文件}}
   /attendance/drivers:
     get:
       tags: [MonthlyOperations]
-      summary: 出勤域自有司机可搜索筛选选项；无需 driver:list
-      x-permission: attendance:view
+      summary: 出勤域自有司机可搜索筛选选项；无需 PAGE_DRIVERS
+      x-function-any-of: [PAGE_ATTENDANCE]
       parameters:
         - {name: search, in: query, schema: {type: string}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -758,7 +797,7 @@ paths:
     get:
       tags: [MonthlyOperations]
       summary: 公司车辆按历史快照及实际发车次数生成月账
-      x-permission: dispatch:ledger:view
+      x-function-any-of: [PAGE_DISPATCH_INTERNAL]
       parameters:
         - {name: month, in: query, required: true, schema: {type: string}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -768,7 +807,7 @@ paths:
     get:
       tags: [MonthlyOperations]
       summary: 外协车牌按参与人实际发车次数生成月账
-      x-permission: dispatch:ledger:view
+      x-function-any-of: [PAGE_DISPATCH_OUTSOURCED]
       parameters:
         - {name: month, in: query, required: true, schema: {type: string}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -778,7 +817,7 @@ paths:
     get:
       tags: [MonthlyOperations]
       summary: 导出自有或外协车辆完整月账
-      x-permission: dispatch:ledger:export
+      x-function-any-of: [BUTTON_DISPATCH_INTERNAL_EXPORT, BUTTON_DISPATCH_OUTSOURCED_EXPORT]
       parameters:
         - {name: month, in: query, required: true, schema: {type: string}}
         - {name: scope, in: query, required: true, schema: {type: string, enum: [INTERNAL, OUTSOURCED]}}
@@ -787,7 +826,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 指定 Participant 工资调整历史
-      x-permission: salary:view
+      x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: participantId, in: path, required: true, schema: {type: integer, format: int64}}
       responses: {'200': {description: OK}}
@@ -795,7 +834,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 自有司机本人月工资摘要和参与明细；外协拒绝
-      x-permission: salary:mine
+      x-function-any-of: [PAGE_MINI_SALARY]
       parameters:
         - {name: month, in: query, required: true, schema: {type: string}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -803,11 +842,13 @@ paths:
       responses: {'200': {description: OK}}
   /notifications/unread-count:
     get:
+      x-self-access: true
       tags: [Notifications]
       summary: 当前用户站内通知未读数
       responses: {'200': {description: 返回 data.unreadCount}}
   /notifications:
     get:
+      x-self-access: true
       tags: [Notifications]
       summary: 当前用户站内通知分页
       parameters:
@@ -816,6 +857,7 @@ paths:
       responses: {'200': {description: 仅返回当前用户的通知；包含 businessType/businessId 用于受授权业务导航}}
   /notifications/{id}/read:
     post:
+      x-self-access: true
       tags: [Notifications]
       summary: 将当前用户的一条通知标记已读
       parameters:
@@ -823,12 +865,14 @@ paths:
       responses: {'200': {description: 返回最新未读数}}
   /notifications/read-all:
     post:
+      x-self-access: true
       tags: [Notifications]
       summary: 将当前用户全部通知标记已读
       responses: {'200': {description: 返回最新未读数}}
 
   /attachments:
     get:
+      x-self-access: true
       tags: [Attachments]
       summary: 按 ownerType/ownerId/purpose 查询附件元数据
       description: 任务证据读取权限由后端根据 owner_type、owner_id、purpose 和参与范围校验；司机可读取原始卸货磅单，重量纠错证据仅授权管理人员可见。
@@ -850,6 +894,7 @@ paths:
                         type: array
                         items: {$ref: '#/components/schemas/Attachment'}
     post:
+      x-self-access: true
       tags: [Attachments]
       summary: 上传原始文件
       description: 当前仅允许 TASK 的原始卸货磅单与重量纠错证据上传；每次上传生成独立附件，后端按任务归属和权限校验。
@@ -879,6 +924,7 @@ paths:
         '409': {$ref: '#/components/responses/BusinessConflict'}
   /attachments/{id}:
     get:
+      x-self-access: true
       tags: [Attachments]
       summary: 读取附件原始文件
       description: 必须认证；后端根据附件 owner_type、owner_id、purpose 做权限和业务归属检查，禁止猜测 ID 读取无关附件。司机可按线路参与范围读取原始卸货磅单，但不可读取 WEIGHT_ADJUST 纠错附件。
@@ -891,6 +937,7 @@ paths:
               schema: {type: string, format: binary}
         '409': {$ref: '#/components/responses/BusinessConflict'}
     delete:
+      x-self-access: true
       tags: [Attachments]
       summary: 普通删除入口
       description: 当前实现统一拒绝普通附件删除，避免破坏任务证据和审计历史。
@@ -902,12 +949,12 @@ paths:
     get:
       tags: [Approvals]
       summary: 流程管理员查看审批模板及版本
-      x-permission: approval:flow:manage
+      x-function-any-of: [PAGE_APPROVALS_FLOWS]
       responses: {'200': {description: 模板列表}}
     post:
       tags: [Approvals]
-      summary: 创建 EXPENSE/GENERAL/TIRE_REPLACEMENT 稳定业务模板及草稿流程
-      x-permission: approval:flow:manage
+      summary: 创建费用或换胎模板，稳定编号由服务端生成；GENERAL 仅保留历史读取
+      x-function-any-of: [BUTTON_APPROVALS_FLOWS_MANAGE]
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalTemplateInput'}}}
@@ -916,19 +963,20 @@ paths:
     get:
       tags: [Approvals]
       summary: 当前角色可发起的已发布模板
-      x-permission: approval:create
+      x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY, PAGE_MINI_TIRE_REQUEST]
       responses: {'200': {description: 模板列表}}
   /approval-templates/options:
     get:
       tags: [Approvals]
       summary: 流程配置角色与审批人选择项
-      x-permission: approval:flow:manage
+      description: 返回有效非司机角色及 canProcessApproval、canReturnApproval 授权标志；费用和换胎节点都要求审批角色具有 BUTTON_APPROVALS_TODO_APPROVE，打回操作另需 BUTTON_APPROVALS_TODO_RETURN；指定审批人可为空且必须属于所选有效角色。
+      x-function-any-of: [PAGE_APPROVALS_FLOWS]
       responses: {'200': {description: 选择项}}
   /approval-templates/{id}/versions:
     post:
       tags: [Approvals]
       summary: 创建冻结模板的下一草稿流程版本；有在途实例时拒绝
-      x-permission: approval:flow:manage
+      x-function-any-of: [BUTTON_APPROVALS_FLOWS_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody:
         required: true
@@ -938,20 +986,22 @@ paths:
     get:
       tags: [Approvals]
       summary: 查看流程版本及稳定 flowNodeId
-      x-permission: approval:flow:manage
+      x-function-any-of: [PAGE_APPROVALS_FLOWS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 流程版本}}
   /approval-flows/{id}/publish:
     post:
       tags: [Approvals]
       summary: 发布草稿流程版本
-      x-permission: approval:flow:manage
+      x-function-any-of: [BUTTON_APPROVALS_FLOWS_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 已发布流程}}
   /approvals:
     get:
+      x-self-access: true
       tags: [Approvals]
       summary: 待我处理、我的申请或审批记录
+      description: TODO 仅返回当前有效、具有相应统一审批动作权限且符合冻结节点角色及可选指定人的任务；管理员不因角色编码而绕过节点资格。
       parameters:
         - {name: scope, in: query, schema: {type: string, enum: [TODO, MINE, HISTORY]}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -959,14 +1009,15 @@ paths:
       responses: {'200': {description: 审批分页}}
     post:
       tags: [Approvals]
-      summary: 发起单笔 DAILY/TASK 费用、普通审批或换胎审批
-      x-permission: approval:create
+      summary: 发起 DAILY/TASK 费用申请；换胎由 /tire-requests 发起并进入同一审批链
+      x-function-any-of: [BUTTON_EXPENSE_APPLY_SUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalApplication'}}}
       responses: {'200': {description: 审批实例、冻结流程与首次 Submission}}
   /approvals/{id}:
     get:
+      x-self-access: true
       tags: [Approvals]
       summary: 审批详情、明细、Submission、时间线和附件
       parameters: [{$ref: '#/components/parameters/Id'}]
@@ -975,14 +1026,15 @@ paths:
     get:
       tags: [Approvals]
       summary: 当前实例实际合法可返回步骤及稳定 flowNodeId
-      x-permission: approval:return
+      x-function-any-of: [BUTTON_APPROVALS_TODO_RETURN, BUTTON_MINI_APPROVALS_RETURN]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 合法步骤列表；无中间步骤时为空}}
   /approvals/{id}/approve:
     post:
       tags: [Approvals]
       summary: 通过当前步骤；费用终审按明细幂等生成 ExpenseEntry
-      x-permission: approval:process
+      description: 费用和换胎统一使用 BUTTON_APPROVALS_TODO_APPROVE，并校验冻结节点角色及可选指定人；换胎终审只通过现有业务生效链更新一次轮胎事实。
+      x-function-any-of: [BUTTON_APPROVALS_TODO_APPROVE, BUTTON_MINI_APPROVALS_APPROVE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
       responses: {'200': {description: 新审批状态}}
@@ -990,7 +1042,7 @@ paths:
     post:
       tags: [Approvals]
       summary: 返回冻结流程中已实际经过的指定步骤
-      x-permission: approval:return
+      x-function-any-of: [BUTTON_APPROVALS_TODO_RETURN, BUTTON_MINI_APPROVALS_RETURN]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
       responses: {'200': {description: 新 Submission 与重新执行的目标步骤}}
@@ -998,7 +1050,7 @@ paths:
     post:
       tags: [Approvals]
       summary: 打回原申请人修改
-      x-permission: approval:return
+      x-function-any-of: [BUTTON_APPROVALS_TODO_RETURN, BUTTON_MINI_APPROVALS_RETURN]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalAction'}}}}
       responses: {'200': {description: 已打回申请人}}
@@ -1006,92 +1058,100 @@ paths:
     post:
       tags: [Approvals]
       summary: 原申请人修改后形成新 Submission Version
-      x-permission: approval:create
+      x-function-any-of: [BUTTON_APPROVALS_MINE_RESUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalResubmission'}}}}
       responses: {'200': {description: 重新进入冻结流程}}
+  /approvals/{id}/withdraw:
+    post:
+      tags: [Approvals]
+      summary: 申请人撤回未生效审批并终止待办；重新发起须创建新实例
+      x-function-any-of: [BUTTON_APPROVALS_MINE_WITHDRAW, BUTTON_MINI_APPROVALS_WITHDRAW]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 原申请与撤回事实保留，状态为 WITHDRAWN}}
   /expense-applications/options:
     get:
       tags: [ExpenseApplications]
       summary: 日常/任务费用的正式司机、公司车辆选择项
-      x-permission: approval:create
-      responses: {'200': {description: 司机与公司车辆；外协司机拒绝}}
+      x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY, PAGE_APPROVALS_FLOWS]
+      responses: {'200': {description: 司机、公司车辆与当前启用的正式费用大类；外协司机拒绝}}
   /expense-applications/task-candidates:
     get:
       tags: [ExpenseApplications]
       summary: 指定司机正式参与的任务候选；司机账号只能查本人
-      x-permission: approval:create
+      x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY]
       parameters: [{name: driverId, in: query, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 任务候选}}
   /expense-applications/daily-template:
     get:
       tags: [ExpenseApplications]
       summary: 下载唯一固定 DAILY Excel 模板
-      x-permission: approval:create
+      x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY]
       responses: {'200': {description: XLSX 文件}}
   /expense-applications/daily-preview:
     post:
       tags: [ExpenseApplications]
       summary: 预览全部行、金额合计和错误；不产生审批
-      x-permission: approval:create
+      x-function-any-of: [BUTTON_EXPENSE_APPLY_SUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}}
       responses: {'200': {description: 行级校验结果}}
   /charging/companies:
     get:
       tags: [ChargingImports]
       summary: 当前充电公司及四字段映射
-      x-permission: charging:view|charging:import|charging:company:manage
+      x-function-any-of: [PAGE_CHARGING_COMPANIES, PAGE_CHARGING_IMPORTS]
       responses: {'200': {description: 公司配置列表}}
     post:
       tags: [ChargingImports]
       summary: 新增充电公司；表头列位置及四字段映射必须完整
-      x-permission: charging:company:manage
+      x-function-any-of: [BUTTON_CHARGING_COMPANIES_MANAGE]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [companyName, sourceSystem, headerRowNo, headers, mapping], properties: {companyName: {type: string}, sourceSystem: {type: string}, orderNoType: {type: string}, headerRowNo: {type: integer}, headers: {type: array, items: {type: object}}, mapping: {type: object}}}}}}
       responses: {'200': {description: 保存后的公司配置}}
   /charging/companies/{id}:
     put:
       tags: [ChargingImports]
       summary: 修改当前映射并立即生效；来源系统标识不可修改
-      x-permission: charging:company:manage
+      x-function-any-of: [BUTTON_CHARGING_COMPANIES_MANAGE]
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 保存后的公司配置}}
   /charging/imports:
     get:
       tags: [ChargingImports]
       summary: 充电原始文件与导入批次历史
-      x-permission: charging:view
+      x-function-any-of: [PAGE_CHARGING_IMPORTS]
       parameters: [{name: page, in: query, schema: {type: integer, default: 1}}, {name: size, in: query, schema: {type: integer, default: 20, maximum: 100}}]
       responses: {'200': {description: 服务端分页批次列表，含 total、items、正常入账、零元不入账、重复数量及金额}}
     post:
       tags: [ChargingImports]
       summary: 人工确认只读预览后正式入账；服务端重新核验原始 Excel、四字段、数量、金额和唯一订单
       description: 零元合法来源订单保留并参与去重，但不生成 ExpenseEntry；空金额、负数和无法解析金额拒绝整批。有效订单数等于正常入账+零元不入账+已存在重复。
-      x-permission: charging:import
+      x-function-any-of: [BUTTON_CHARGING_IMPORTS_IMPORT]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, payload], properties: {file: {type: string, format: binary}, payload: {type: object, description: '包含公司、工作表、表头列位置映射、逐行订单/原始行号、count、zeroCount、totalAmount'}}}}}}
       responses: {'200': {description: 正式批次及新增来源订单；失败不返回成功}}
   /charging/imports/{id}:
     get:
       tags: [ChargingImports]
       summary: 批次与新增来源订单明细，零元订单可追溯
-      x-permission: charging:view
+      x-function-any-of: [PAGE_CHARGING_IMPORTS]
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 批次及来源订单}}
   /charging/imports/{id}/original-file:
     get:
       tags: [ChargingImports]
       summary: 权限校验后下载批次原始 Excel
-      x-permission: charging:view
+      x-function-any-of: [PAGE_CHARGING_IMPORTS]
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 原始 Excel 文件}}
   /charging/source-orders/by-expense/{expenseId}:
     get:
       tags: [ChargingImports]
       summary: 从正式费用追溯充电原始订单、文件及行号
-      x-permission: charging:view|expense:ledger:view
+      x-function-any-of: [PAGE_CHARGING_IMPORTS, PAGE_EXPENSE_LEDGER]
       parameters: [{name: expenseId, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 原始订单追溯信息}}
   /expense-ledger:
     get:
+      x-function-any-of: [PAGE_EXPENSE_LEDGER, PAGE_FINANCE_VEHICLES, PAGE_FINANCE_DRIVERS, PAGE_FINANCE_ENERGY]
       tags: [ExpenseLedger]
       summary: 正式费用台账，按服务端条件分页
       description: 申请属性 applicationScope 永久保留；currentTaskId 是当前经营归属。
@@ -1111,20 +1171,49 @@ paths:
   /expense-ledger/filter-options:
     get:
       tags: [ExpenseLedger]
-      summary: 司机、车辆、匹配参与车辆的任务筛选候选
+      summary: 正式费用大类、司机、车辆与匹配参与车辆的任务筛选候选
+      x-function-any-of: [PAGE_EXPENSE_LEDGER, PAGE_EXPENSE_UNASSIGNED, PAGE_FINANCE_VEHICLES, PAGE_FINANCE_DRIVERS, PAGE_FINANCE_ENERGY]
       parameters:
-        - {name: kind, in: query, required: true, schema: {type: string, enum: [DRIVER, VEHICLE, TASK]}}
+        - {name: kind, in: query, required: true, schema: {type: string, enum: [CATEGORY, DRIVER, VEHICLE, TASK]}}
         - {name: search, in: query, schema: {type: string}}
         - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
       responses: {'200': {description: 业务候选分页}}
   /expense-ledger/summary:
     get:
+      x-function-any-of: [PAGE_EXPENSE_LEDGER, PAGE_FINANCE_VEHICLES, PAGE_FINANCE_DRIVERS, PAGE_FINANCE_ENERGY]
       tags: [ExpenseLedger]
       summary: 与费用台账同筛选口径的金额与未归属汇总
       responses: {'200': {description: 筛选汇总}}
+  /expense-ledger/pending-attribution:
+    get:
+      tags: [ExpenseLedger]
+      summary: 当前有效且未归属任务的费用分页；仅供费用归属办理
+      x-function-any-of: [PAGE_EXPENSE_UNASSIGNED]
+      parameters:
+        - {name: month, in: query, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+        - {name: expenseType, in: query, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
+        - {name: sourceType, in: query, schema: {type: string}}
+        - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 200}}
+      responses: {'200': {description: 待归属费用分页与总数}}
+  /expense-ledger/pending-attribution/summary:
+    get:
+      tags: [ExpenseLedger]
+      summary: 当前用户有权办理的全部待归属费用数量和金额；不受分页影响
+      x-function-any-of: [PAGE_EXPENSE_UNASSIGNED]
+      parameters:
+        - {name: month, in: query, schema: {type: string, pattern: '^\d{4}-\d{2}$'}}
+        - {name: expenseType, in: query, schema: {type: string}}
+        - {name: driverId, in: query, schema: {type: integer, format: int64}}
+        - {name: vehicleId, in: query, schema: {type: integer, format: int64}}
+        - {name: sourceType, in: query, schema: {type: string}}
+      responses: {'200': {description: 待归属费用 entry_count 与 amount_total}}
   /expense-ledger/export:
     get:
+      x-function-any-of: [BUTTON_EXPENSE_LEDGER_EXPORT]
       tags: [ExpenseLedger]
       summary: 与费用台账同筛选口径的完整 Excel 导出
       responses: {'200': {description: Excel 文件, content: {application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {schema: {type: string, format: binary}}}}}
@@ -1132,10 +1221,12 @@ paths:
     get:
       tags: [ExpenseLedger]
       summary: 费用事实、原审批、归属历史、冲销关系及审计
+      x-function-any-of: [PAGE_EXPENSE_LEDGER, PAGE_EXPENSE_UNASSIGNED, PAGE_FINANCE_VEHICLES, PAGE_FINANCE_DRIVERS, PAGE_FINANCE_ENERGY]
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 费用详情}}
   /expense-ledger/{id}/attribution:
     post:
+      x-function-any-of: [BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE]
       tags: [ExpenseLedger]
       summary: 有版本校验的费用任务归属调整；车辆必须匹配正式自有参与车辆
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
@@ -1143,6 +1234,7 @@ paths:
       responses: {'200': {description: 更新后的费用详情}}
   /expense-ledger/{id}/reverse:
     post:
+      x-function-any-of: [BUTTON_EXPENSE_LEDGER_REVERSE]
       tags: [ExpenseLedger]
       summary: 保留原费用并建立等额负数冲销事实
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
@@ -1150,69 +1242,81 @@ paths:
       responses: {'200': {description: 原费用及冲销关系}}
   /finance/task-summaries:
     get:
+      x-function-any-of: [PAGE_FINANCE_TASKS]
       tags: [Finance]
       summary: 对任务列表批量返回统一财务投影
       parameters: [{name: taskIds, in: query, required: true, schema: {type: array, items: {type: integer, format: int64}}}]
       responses: {'200': {description: 任务经营摘要列表}}
   /finance/tasks:
     get:
+      x-function-any-of: [PAGE_FINANCE_TASKS]
       tags: [Finance]
       summary: 已完成运输任务经营分页
       responses: {'200': {description: 任务经营分页}}
   /finance/tasks/{id}:
     get:
+      x-function-any-of: [PAGE_FINANCE_TASKS]
       tags: [Finance]
       summary: 任务经营、参与人、归属费用及类型汇总
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 任务经营档案}}
   /transport-tasks/{id}/expenses:
     get:
+      x-function-any-of: [PAGE_FINANCE_TASKS]
       tags: [Finance]
       summary: 运输任务当前归属的正式费用清单
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 费用清单}}
   /finance/templates:
     get:
+      x-function-any-of: [PAGE_FINANCE_TEMPLATES]
       tags: [Finance]
       summary: 线路模板按所属已完成任务聚合经营
       responses: {'200': {description: 模板经营分页}}
   /finance/company:
     get:
+      x-function-any-of: [PAGE_FINANCE_COMPANY]
       tags: [Finance]
       summary: 公司月度总经营，包括未归属任务的正式日常费用
       parameters: [{name: month, in: query, required: true, schema: {type: string}}]
       responses: {'200': {description: 月度经营汇总}}
   /finance/dashboard:
     get:
+      x-function-any-of: [PAGE_DASHBOARD]
       tags: [Finance]
       summary: 基于同一经营投影的首页看板与待处理计数
       parameters: [{name: month, in: query, required: true, schema: {type: string}}]
       responses: {'200': {description: 看板数据}}
   /settlements/{month}/versions:
     get:
+      x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
       summary: 某月只读结算版本列表
       parameters: [{name: month, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: 版本列表}}
     post:
+      x-function-any-of: [BUTTON_SETTLEMENTS_GENERATE]
       tags: [Settlement]
       summary: 使用当前正式财务事实生成不可变的新结算版本
       parameters: [{name: month, in: path, required: true, schema: {type: string}}]
       responses: {'200': {description: 新版本摘要}}
   /settlements/versions/{id}:
     get:
+      x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
       summary: 只读结算版本摘要
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 版本摘要}}
   /settlements/versions/{id}/details:
     get:
+      x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
       summary: 不可变结算事实的服务端分页明细
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 业务明细}}
   /settlements/versions/{id}/diff:
     get:
+      x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
       summary: 与前一版本的业务化差异、金额影响、原因和操作信息
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
@@ -1250,21 +1354,23 @@ components:
         requestKey: {type: string}
     ApprovalTemplateInput:
       type: object
-      required: [stableCode, name, businessType, initiatorRoleIds, nodes]
+      description: 新建仅接受 EXPENSE 或 TIRE_REPLACEMENT。稳定业务编号及模板名称由服务端生成；费用模板名称由正式费用大类生成，同类型同大类只允许一份有效模板。已有 GENERAL 模板仅供历史读取。
+      required: [businessType, initiatorRoleIds, nodes]
       properties:
-        stableCode: {type: string}
-        name: {type: string}
-        businessType: {type: string, enum: [EXPENSE, GENERAL, TIRE_REPLACEMENT]}
-        expenseType: {type: string, nullable: true}
+        stableCode: {type: string, readOnly: true}
+        name: {type: string, readOnly: true}
+        businessType: {type: string, enum: [EXPENSE, TIRE_REPLACEMENT]}
+        expenseType: {type: string, nullable: true, description: 费用申请必填，从当前启用的正式费用大类中选择；换胎申请不传}
         initiatorRoleIds: {type: array, items: {type: integer, format: int64}}
         nodes:
           type: array
           items:
             type: object
-            required: [name, approverUserId]
+            required: [name, approverRoleId]
             properties:
               name: {type: string}
-              approverUserId: {type: integer, format: int64}
+              approverRoleId: {type: integer, format: int64}
+              approverUserId: {type: integer, format: int64, nullable: true}
               allowReturn: {type: boolean}
     ApprovalExpenseItem:
       type: object
@@ -1319,6 +1425,11 @@ components:
       properties:
         phone: {type: string}
         password: {type: string}
+        terminal:
+          type: string
+          enum: [WEB, MINI]
+          default: WEB
+          description: 终端类型。管理端传 WEB，微信小程序传 MINI。
     CurrentUser:
       type: object
       description: 当前登录账号、单一角色、权限，以及司机账号的小程序身份扩展信息。
@@ -1356,14 +1467,14 @@ components:
       required: [phone, roleId, status]
       properties:
         phone: {type: string}
-        password: {type: [string, 'null'], description: 新增账号必填；编辑账号不使用该字段重置密码}
+        password: {type: [string, 'null'], minLength: 6, description: 新增账号必填；编辑账号不使用该字段重置密码}
         roleId: {type: integer, format: int64}
         status: {type: integer, enum: [0, 1]}
     RoleRequest:
       type: object
-      required: [roleCode, roleName, status]
+      required: [roleName, status]
       properties:
-        roleCode: {type: string}
+        roleCode: {type: string, readOnly: true, description: 服务端自动生成且不可修改}
         roleName: {type: string}
         status: {type: integer, enum: [0, 1]}
     RolePermissionRequest:
@@ -1371,7 +1482,7 @@ components:
       properties:
         permissionCodes:
           type: array
-          items: {$ref: '#/components/schemas/PermissionCode'}
+          items: {$ref: '#/components/schemas/FunctionCode'}
     TaskStatus:
       type: string
       enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]
@@ -1403,17 +1514,29 @@ components:
       description: 重量/电量/气量 DECIMAL(18,3)，接口以字符串传输避免浮点误差。
     DriverCreateRequest:
       type: object
-      required: [driverType, name, phone, status]
+      required: [driverType, name, phone, idCardNo, drivingLicenseNo, status]
       properties:
         driverType: {type: string, enum: [INTERNAL, OUTSOURCED]}
         name: {type: string}
         phone: {type: string}
         status: {type: integer, enum: [0, 1]}
         initialPassword: {type: [string, 'null'], writeOnly: true, description: 仅新建 DRIVER User 时必填；已有合法账号时不改原密码}
-        vehicleLicenseNo: {type: [string, 'null']}
-        drivingLicenseNo: {type: [string, 'null']}
-        idCardNo: {type: [string, 'null']}
-        birthDate: {type: [string, 'null'], format: date}
+        drivingLicenseNo: {type: string, minLength: 1, description: 司机驾驶证号；首尾空格由服务端去除；全局唯一}
+        idCardNo: {type: string, pattern: '^[1-9][0-9]{16}[0-9Xx]$', description: 中国大陆18位身份证；校验出生日期及校验码；全局唯一}
+      description: 出生日期与年龄由合法身份证号派生并只读返回，不允许在请求中人工设置。
+    VehicleRequest:
+      type: object
+      required: [plateNo, vehicleLicenseNo, insuranceComplete, energyType, maxLoad, loadStandardType, status]
+      properties:
+        plateNo: {type: string}
+        vehicleLicenseNo: {type: string, minLength: 1, description: 车辆行驶证号；首尾空格由服务端去除；全局唯一}
+        insuranceComplete: {type: boolean}
+        energyType: {type: string}
+        maxLoad: {$ref: '#/components/schemas/DecimalWeight'}
+        loadStandardType: {type: string, enum: [PERCENT, FIXED]}
+        loadStandardPercent: {type: [number, 'null']}
+        loadStandardMinLoad: {$ref: '#/components/schemas/DecimalWeight'}
+        status: {type: integer, enum: [0, 1]}
     RouteTemplateRequest:
       type: object
       required: [stableCode, name, customerName, productId, loadingPlace, unloadingPlace, defaultUnitPrice, defaultInformationFee, defaultDriverSalary]
@@ -1526,76 +1649,102 @@ components:
               expectedVersion: {type: integer}
         reason: {type: string}
         requestKey: {type: string}
-    PermissionCode:
+    FunctionCode:
       type: string
+      description: 系统启动从后端功能注册表同步的页面或按钮功能编码。
       enum:
-        - vehicle:list
-        - vehicle:add
-        - vehicle:view
-        - vehicle:edit
-        - vehicle:delete
-        - vehicle:bindDriver
-        - vehicle:unbindDriver
-        - vehicle:bindingHistory
-        - trailer:list
-        - trailer:add
-        - trailer:edit
-        - trailer:bindVehicle
-        - trailer:unbindVehicle
-        - trailer:bindingHistory
-        - driver:list
-        - driver:add
-        - driver:edit
-        - driver:bindVehicle
-        - driver:unbindVehicle
-        - driver:resetPassword
-        - template:view
-        - template:manage
-        - task:view
-        - task:participants:view
-        - task:weight:view
-        - dispatch:view
-        - dispatch:batch
-        - task:import:view
-        - task:import:submit
-        - tire:view
-        - tire:import
-        - tire:manage
-        - tire:request:view
-        - tire:request:create
-        - tire:request:process
-        - task:cancel
-        - task:transfer
-        - task:depart
-        - task:unload
-        - task:weight:adjust
-        - task:amount:adjust
-        - salary:view
-        - salary:adjust
-        - salary:export
-        - salary:mine
-        - attendance:view
-        - attendance:export
-        - dispatch:ledger:view
-        - dispatch:ledger:export
-        - expense:ledger:view
-        - expense:attribution:edit
-        - expense:reversal
-        - expense:export
-        - charging:company:manage
-        - charging:import
-        - charging:view
-        - report:task:view
-        - report:template:view
-        - report:company:view
-        - settlement:view
-        - settlement:generate
-        - approval:create
-        - approval:process
-        - approval:return
-        - approval:history:view
-        - approval:flow:manage
-        - user:manage
-        - role:manage
-        - permission:manage
-        - audit:view
+        - PAGE_DASHBOARD
+        - PAGE_PRODUCTS
+        - PAGE_TEMPLATES
+        - PAGE_DISPATCH
+        - PAGE_TASK_IMPORTS
+        - PAGE_ROUTES
+        - PAGE_DISPATCH_INTERNAL
+        - PAGE_DISPATCH_OUTSOURCED
+        - PAGE_DRIVERS
+        - PAGE_VEHICLES
+        - PAGE_TRAILERS
+        - PAGE_BINDING
+        - PAGE_TIRES
+        - PAGE_TIRE_IMPORTS
+        - PAGE_EXPENSE_APPLY
+        - PAGE_EXPENSE_LEDGER
+        - PAGE_EXPENSE_UNASSIGNED
+        - PAGE_CHARGING_IMPORTS
+        - PAGE_CHARGING_COMPANIES
+        - PAGE_APPROVALS_TODO
+        - PAGE_APPROVALS_MINE
+        - PAGE_APPROVALS_HISTORY
+        - PAGE_APPROVALS_FLOWS
+        - PAGE_ATTENDANCE
+        - PAGE_SALARIES
+        - PAGE_SALARY_TRANSFERS
+        - PAGE_FINANCE_COMPANY
+        - PAGE_FINANCE_TEMPLATES
+        - PAGE_FINANCE_TASKS
+        - PAGE_FINANCE_VEHICLES
+        - PAGE_FINANCE_DRIVERS
+        - PAGE_FINANCE_ENERGY
+        - PAGE_SETTLEMENTS
+        - PAGE_USERS
+        - PAGE_ROLES
+        - PAGE_AUDIT
+        - PAGE_MINI_ROUTES
+        - PAGE_MINI_SALARY
+        - PAGE_MINI_EXPENSE_APPLY
+        - PAGE_MINI_APPROVALS
+        - PAGE_MINI_TIRE_REQUEST
+        - BUTTON_PRODUCTS_MANAGE
+        - BUTTON_TEMPLATES_MANAGE
+        - BUTTON_DISPATCH_PUBLISH
+        - BUTTON_TASK_IMPORTS_SUBMIT
+        - BUTTON_ROUTES_CANCEL
+        - BUTTON_ROUTES_TRANSFER
+        - BUTTON_ROUTES_DEPART
+        - BUTTON_ROUTES_UNLOAD
+        - BUTTON_ROUTES_WEIGHT_ADJUST
+        - BUTTON_ROUTES_AMOUNT_ADJUST
+        - BUTTON_DISPATCH_INTERNAL_EXPORT
+        - BUTTON_DISPATCH_OUTSOURCED_EXPORT
+        - BUTTON_DRIVERS_ADD
+        - BUTTON_DRIVERS_EDIT
+        - BUTTON_DRIVERS_RESET_PASSWORD
+        - BUTTON_VEHICLES_ADD
+        - BUTTON_VEHICLES_EDIT
+        - BUTTON_TRAILERS_ADD
+        - BUTTON_TRAILERS_EDIT
+        - BUTTON_BINDING_BIND_DRIVER
+        - BUTTON_BINDING_UNBIND_DRIVER
+        - BUTTON_BINDING_BIND_TRAILER
+        - BUTTON_BINDING_UNBIND_TRAILER
+        - BUTTON_TIRES_MANAGE
+        - BUTTON_TIRE_IMPORTS_SUBMIT
+        - BUTTON_EXPENSE_APPLY_SUBMIT
+        - BUTTON_EXPENSE_LEDGER_REVERSE
+        - BUTTON_EXPENSE_LEDGER_EXPORT
+        - BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE
+        - BUTTON_CHARGING_IMPORTS_IMPORT
+        - BUTTON_CHARGING_COMPANIES_MANAGE
+        - BUTTON_APPROVALS_TODO_APPROVE
+        - BUTTON_APPROVALS_TODO_RETURN
+        - BUTTON_APPROVALS_MINE_WITHDRAW
+        - BUTTON_APPROVALS_MINE_RESUBMIT
+        - BUTTON_APPROVALS_FLOWS_MANAGE
+        - BUTTON_ATTENDANCE_EXPORT
+        - BUTTON_SALARIES_ADJUST
+        - BUTTON_SALARIES_EXPORT
+        - BUTTON_SALARY_TRANSFERS_ADJUST
+        - BUTTON_SETTLEMENTS_GENERATE
+        - BUTTON_USERS_ADD
+        - BUTTON_USERS_EDIT
+        - BUTTON_USERS_RESET_PASSWORD
+        - BUTTON_ROLES_ADD
+        - BUTTON_ROLES_EDIT
+        - BUTTON_ROLES_GRANT
+        - BUTTON_MINI_ROUTES_DEPART
+        - BUTTON_MINI_ROUTES_UNLOAD
+        - BUTTON_MINI_EXPENSE_APPLY_SUBMIT
+        - BUTTON_MINI_APPROVALS_APPROVE
+        - BUTTON_MINI_APPROVALS_RETURN
+        - BUTTON_MINI_APPROVALS_WITHDRAW
+        - BUTTON_MINI_TIRE_REQUEST_SUBMIT

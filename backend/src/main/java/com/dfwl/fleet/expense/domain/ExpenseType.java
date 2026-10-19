@@ -7,6 +7,7 @@ public enum ExpenseType {
     ELECTRIC,
     GAS,
     TEMP_ELECTRIC,
+    TEMP_GAS,
     WATER,
     TOLL,
     CAR_WASH,

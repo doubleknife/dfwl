@@ -6,7 +6,7 @@ export const businessTypeLabels = {
 
 export const expenseTypeLabels = {
   PENALTY: '罚款', CARRYING: '搬运费', REPAIR: '维修费', ELECTRIC: '电费', GAS: '气费',
-  TEMP_ELECTRIC: '临时电费', WATER: '水费', TOLL: '过路费', CAR_WASH: '洗车费',
+  TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', WATER: '水费', TOLL: '过路费', CAR_WASH: '洗车费',
   INFORMATION: '信息费', DRIVER_SALARY: '司机工资', OTHER: '其他费用'
 };
 

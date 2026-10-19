@@ -8,16 +8,11 @@
         <view><view class="profile-name">{{driver.name || user.driverName || user.phone}}</view><view class="profile-role">{{driverTypeLabel}}</view></view></view>
       <view class="profile-fact"><text>手机号</text><text>{{user.phone}}</text></view>
       <view class="profile-fact"><text>当前车辆</text><text>{{bindingLabel}}</text></view>
-      <view class="profile-fact"><text>角色</text><text>{{user.roleName || '当前账号'}}</text></view>
+      <view class="profile-fact"><text>角色</text><text>{{roleName}}</text></view>
     </view>
     <view class="profile-card">
-      <view class="profile-security" bindtap="toggleSecurity">账户与安全 <text>{{securityOpen ? '收起' : '展开'}} ›</text></view>
-      <block wx:if="{{securityOpen}}">
-        <text class="profile-label">原密码</text><input class="profile-input" value="{{oldPassword}}" bindinput="onOld" password placeholder="请输入原密码" />
-        <text class="profile-label">新密码</text><input class="profile-input" value="{{newPassword}}" bindinput="onNew" password placeholder="请输入新密码" />
-        <view wx:if="{{passwordError}}" class="profile-error">{{passwordError}}</view>
-        <button class="profile-save" loading="{{loading}}" disabled="{{loading}}" bindtap="changePassword">保存新密码</button>
-      </block>
+      <view class="profile-security-heading">账户与安全</view>
+      <view class="profile-security-link" role="button" tabindex="0" bindtap="openChangePassword">修改密码 <text>›</text></view>
     </view>
     <button class="profile-logout" bindtap="logout">退出登录</button>
   </block>

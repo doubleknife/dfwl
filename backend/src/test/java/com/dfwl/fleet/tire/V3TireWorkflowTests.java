@@ -1,5 +1,7 @@
 package com.dfwl.fleet.tire;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -30,7 +32,7 @@ class V3TireWorkflowTests {
     @Autowired JdbcTemplate jdbc;
     @Autowired TireV3Service tires;
     private final AuthenticatedUser admin = new AuthenticatedUser(190L, "13900000190", 2L, "ADMIN",
-            "管理员", Set.of("tire:view", "tire:manage", "tire:import"));
+            "管理员", grants("PAGE_TIRES", "BUTTON_TIRES_MANAGE", "BUTTON_TIRE_IMPORTS_SUBMIT"));
 
     @BeforeEach
     void reset() {
@@ -117,17 +119,21 @@ class V3TireWorkflowTests {
     void pendingAndApprovedRequestsCannotMatchTheSameInventoryAgain() {
         jdbc.update("INSERT INTO sys_user(id,phone,password_hash,role_id,status) "
                 + "VALUES(191,'13900000191','HASH',1,1)");
-        jdbc.update("INSERT INTO driver(id,user_id,driver_type,name,phone,status) "
-                + "VALUES(191,191,'INTERNAL','司机','13900000191',1)");
-        jdbc.update("INSERT INTO vehicle(id,plate_no,insurance_complete,energy_type,max_load,"
+        jdbc.update("INSERT INTO driver(id,user_id,driver_type,name,phone,id_card_no,driving_license_no,status) "
+                + "VALUES(191,191,'INTERNAL','司机','13900000191','110105199001011910','TEST-DL-191',1)");
+        jdbc.update("INSERT INTO vehicle(id,plate_no,vehicle_license_no,insurance_complete,energy_type,max_load,"
                 + "load_standard_type,load_standard_percent,status) "
-                + "VALUES(191,'测F191',1,'ELECTRIC',30,'PERCENT',0.9,1)");
+                + "VALUES(191,'测F191','TEST-VL-191',1,'ELECTRIC',30,'PERCENT',0.9,1)");
         jdbc.update("INSERT INTO driver_vehicle_current(driver_id,vehicle_id,bound_at,bound_by) "
                 + "VALUES(191,191,CURRENT_TIMESTAMP,190)");
         jdbc.update("INSERT INTO tire(id,tire_no,material_description,arrived_at,status,created_by) "
                 + "VALUES(701,'T-701','轮胎',CURRENT_TIMESTAMP,'AVAILABLE',190)");
         var driver = new AuthenticatedUser(191L, "13900000191", 1L, "DRIVER", "司机",
-                Set.of("tire:request:create"));
+                grants("BUTTON_MINI_TIRE_REQUEST_SUBMIT"));
+        assertThatThrownBy(() -> tires.submitRequest(
+                new TireV3Service.TireRequestInput(999L, 1L, "T-701", "invalid-flow"), driver))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("当前有效的换胎审批流程");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire_request", Long.class)).isZero();
         assertThat(tires.requestTarget("T-701", driver).get("status")).isEqualTo("AVAILABLE");
         jdbc.update("INSERT INTO tire_request(id,applicant_driver_id,vehicle_id,confirmed_tire_no,"
                 + "ocr_record_id,photo_attachment_id,tire_id,status) "

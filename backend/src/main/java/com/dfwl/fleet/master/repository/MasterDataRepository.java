@@ -10,7 +10,7 @@ import com.dfwl.fleet.master.dto.request.TrailerRequest;
 import com.dfwl.fleet.master.dto.response.TrailerResponse;
 import com.dfwl.fleet.master.dto.request.VehicleRequest;
 import com.dfwl.fleet.master.dto.response.VehicleResponse;
-import java.sql.Date;
+import com.dfwl.fleet.master.validation.MainlandIdCard;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
@@ -80,14 +80,27 @@ public class MasterDataRepository {
                 status, id) == 1;
     }
 
-    public PageResponse<DriverResponse> listDrivers(int pageNo, int pageSize) {
-        long total = count("driver", "deleted_at IS NULL");
+    public PageResponse<DriverResponse> listDrivers(int pageNo, int pageSize, String keyword, String driverType, Integer status) {
+        String search = keyword == null ? "" : keyword.trim();
+        String type = driverType == null ? "" : driverType;
+        int state = status == null ? -1 : status;
+        String pattern = "%" + search + "%";
+        long total = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM driver d
+                WHERE d.deleted_at IS NULL
+                  AND (? = '' OR d.driver_type = ?)
+                  AND (? = -1 OR d.status = ?)
+                  AND (? = '' OR d.name LIKE ? OR d.phone LIKE ?)
+                """, Long.class, type, type, state, state, search, pattern, pattern);
         List<DriverResponse> records = jdbcTemplate.query("""
                 SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM driver d
                 LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
                 LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
                 WHERE d.deleted_at IS NULL
+                  AND (? = '' OR d.driver_type = ?)
+                  AND (? = -1 OR d.status = ?)
+                  AND (? = '' OR d.name LIKE ? OR d.phone LIKE ?)
                 ORDER BY d.id DESC
                 LIMIT ? OFFSET ?
                 """, (rs, rowNum) -> new DriverResponse(
@@ -96,31 +109,62 @@ public class MasterDataRepository {
                 rs.getString("driver_type"),
                 rs.getString("name"),
                 rs.getString("phone"),
-                rs.getString("vehicle_license_no"),
                 rs.getString("driving_license_no"),
                 rs.getString("id_card_no"),
-                rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
+                MainlandIdCard.birthDateOrNull(rs.getString("id_card_no")),
+                MainlandIdCard.age(MainlandIdCard.birthDateOrNull(rs.getString("id_card_no"))),
                 rs.getInt("status"),
-                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), pageSize, offset(pageNo, pageSize));
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")),
+                type, type, state, state, search, pattern, pattern, pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
-    public PageResponse<DriverResponse> listBindingCandidates(int pageNo, int pageSize) {
+    public PageResponse<com.dfwl.fleet.master.dto.response.BindingDriverOption> listBindingCandidates(int pageNo, int pageSize) {
         long total = count("driver", "deleted_at IS NULL AND status = 1 AND driver_type = 'INTERNAL'");
-        List<DriverResponse> records = jdbcTemplate.query("""
-                SELECT d.*, dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
+        List<com.dfwl.fleet.master.dto.response.BindingDriverOption> records = jdbcTemplate.query("""
+                SELECT d.id,d.name,d.phone,d.driver_type,d.status,
+                       dvc.vehicle_id AS current_vehicle_id, cv.plate_no AS current_vehicle_plate_no
                 FROM driver d
                 LEFT JOIN driver_vehicle_current dvc ON dvc.driver_id = d.id
                 LEFT JOIN vehicle cv ON cv.id = dvc.vehicle_id
                 WHERE d.deleted_at IS NULL AND d.status = 1 AND d.driver_type = 'INTERNAL'
                 ORDER BY d.id DESC LIMIT ? OFFSET ?
-                """, (rs, rowNum) -> new DriverResponse(
-                rs.getLong("id"), readLong(rs, "user_id"), rs.getString("driver_type"),
-                rs.getString("name"), rs.getString("phone"), rs.getString("vehicle_license_no"),
-                rs.getString("driving_license_no"), rs.getString("id_card_no"),
-                rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
+                """, (rs, rowNum) -> new com.dfwl.fleet.master.dto.response.BindingDriverOption(
+                rs.getLong("id"), rs.getString("name"), rs.getString("phone"), rs.getString("driver_type"),
                 rs.getInt("status"), readLong(rs, "current_vehicle_id"),
                 rs.getString("current_vehicle_plate_no")), pageSize, offset(pageNo, pageSize));
+        return new PageResponse<>(pageNo, pageSize, total, records);
+    }
+
+    public PageResponse<com.dfwl.fleet.master.dto.response.BindingVehicleOption> listBindingVehicles(int pageNo, int pageSize) {
+        long total = count("vehicle", "deleted_at IS NULL");
+        List<com.dfwl.fleet.master.dto.response.BindingVehicleOption> records = jdbcTemplate.query("""
+                SELECT v.id,v.plate_no,v.status,vtc.trailer_id AS current_trailer_id,
+                       t.plate_no AS current_trailer_plate_no
+                FROM vehicle v
+                LEFT JOIN vehicle_trailer_current vtc ON vtc.vehicle_id=v.id
+                LEFT JOIN trailer t ON t.id=vtc.trailer_id
+                WHERE v.deleted_at IS NULL ORDER BY v.id DESC LIMIT ? OFFSET ?
+                """, (rs, rowNum) -> new com.dfwl.fleet.master.dto.response.BindingVehicleOption(
+                rs.getLong("id"), rs.getString("plate_no"), rs.getInt("status"),
+                readLong(rs, "current_trailer_id"), rs.getString("current_trailer_plate_no")),
+                pageSize, offset(pageNo, pageSize));
+        return new PageResponse<>(pageNo, pageSize, total, records);
+    }
+
+    public PageResponse<com.dfwl.fleet.master.dto.response.BindingTrailerOption> listBindingTrailers(int pageNo, int pageSize) {
+        long total = count("trailer", "deleted_at IS NULL");
+        List<com.dfwl.fleet.master.dto.response.BindingTrailerOption> records = jdbcTemplate.query("""
+                SELECT t.id,t.plate_no,t.trailer_no,t.status,vtc.vehicle_id AS current_vehicle_id,
+                       v.plate_no AS current_vehicle_plate_no
+                FROM trailer t
+                LEFT JOIN vehicle_trailer_current vtc ON vtc.trailer_id=t.id
+                LEFT JOIN vehicle v ON v.id=vtc.vehicle_id
+                WHERE t.deleted_at IS NULL ORDER BY t.id DESC LIMIT ? OFFSET ?
+                """, (rs, rowNum) -> new com.dfwl.fleet.master.dto.response.BindingTrailerOption(
+                rs.getLong("id"), rs.getString("plate_no"), rs.getString("trailer_no"), rs.getInt("status"),
+                readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")),
+                pageSize, offset(pageNo, pageSize));
         return new PageResponse<>(pageNo, pageSize, total, records);
     }
 
@@ -137,10 +181,10 @@ public class MasterDataRepository {
                 rs.getString("driver_type"),
                 rs.getString("name"),
                 rs.getString("phone"),
-                rs.getString("vehicle_license_no"),
                 rs.getString("driving_license_no"),
                 rs.getString("id_card_no"),
-                rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
+                MainlandIdCard.birthDateOrNull(rs.getString("id_card_no")),
+                MainlandIdCard.age(MainlandIdCard.birthDateOrNull(rs.getString("id_card_no"))),
                 rs.getInt("status"),
                 readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), id).stream().findFirst();
     }
@@ -160,10 +204,10 @@ public class MasterDataRepository {
                 rs.getString("driver_type"),
                 rs.getString("name"),
                 rs.getString("phone"),
-                rs.getString("vehicle_license_no"),
                 rs.getString("driving_license_no"),
                 rs.getString("id_card_no"),
-                rs.getDate("birth_date") == null ? null : rs.getDate("birth_date").toLocalDate(),
+                MainlandIdCard.birthDateOrNull(rs.getString("id_card_no")),
+                MainlandIdCard.age(MainlandIdCard.birthDateOrNull(rs.getString("id_card_no"))),
                 rs.getInt("status"),
                 readLong(rs, "current_vehicle_id"), rs.getString("current_vehicle_plate_no")), userId, phone, userId).stream().findFirst();
     }
@@ -172,17 +216,15 @@ public class MasterDataRepository {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO driver (driver_type, name, phone, vehicle_license_no, driving_license_no, id_card_no, birth_date, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO driver (driver_type, name, phone, driving_license_no, id_card_no, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, request.driverType());
             ps.setString(2, request.name());
             ps.setString(3, request.phone());
-            ps.setString(4, request.vehicleLicenseNo());
-            ps.setString(5, request.drivingLicenseNo());
-            ps.setString(6, request.idCardNo());
-            ps.setDate(7, request.birthDate() == null ? null : Date.valueOf(request.birthDate()));
-            ps.setInt(8, request.status());
+            ps.setString(4, request.drivingLicenseNo().trim());
+            ps.setString(5, request.idCardNo().trim().toUpperCase(java.util.Locale.ROOT));
+            ps.setInt(6, request.status());
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -191,12 +233,12 @@ public class MasterDataRepository {
     public boolean updateDriver(long id, DriverRequest request) {
         return jdbcTemplate.update("""
                 UPDATE driver
-                SET driver_type = ?, name = ?, phone = ?, vehicle_license_no = ?, driving_license_no = ?,
-                    id_card_no = ?, birth_date = ?, status = ?
+                SET driver_type = ?, name = ?, phone = ?, driving_license_no = ?,
+                    id_card_no = ?, status = ?
                 WHERE id = ? AND deleted_at IS NULL
-                """, request.driverType(), request.name(), request.phone(), request.vehicleLicenseNo(),
-                request.drivingLicenseNo(), request.idCardNo(),
-                request.birthDate() == null ? null : Date.valueOf(request.birthDate()), request.status(), id) == 1;
+                """, request.driverType(), request.name(), request.phone(),
+                request.drivingLicenseNo().trim(), request.idCardNo().trim().toUpperCase(java.util.Locale.ROOT),
+                request.status(), id) == 1;
     }
 
     public boolean hasDriverTaskHistory(long driverId) {
@@ -205,8 +247,35 @@ public class MasterDataRepository {
         return count != null && count > 0;
     }
 
+    public boolean driverCertificateExists(String column, String value, long exceptId) {
+        if (!"id_card_no".equals(column) && !"driving_license_no".equals(column)) {
+            throw new IllegalArgumentException("Unsupported certificate column");
+        }
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM driver WHERE " + column + " = ? AND id <> ?",
+                Integer.class, value, exceptId);
+        return count != null && count > 0;
+    }
+
+    public boolean vehicleLicenseExists(String value, long exceptId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM vehicle WHERE vehicle_license_no = ? AND id <> ?",
+                Integer.class, value, exceptId);
+        return count != null && count > 0;
+    }
+
     public void lockDriver(long driverId) {
         jdbcTemplate.queryForList("SELECT id FROM driver WHERE id = ? AND deleted_at IS NULL FOR UPDATE", Long.class, driverId);
+    }
+
+    public int unfinishedCurrentTasks(long driverId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(DISTINCT t.id) FROM transport_task t
+                JOIN transport_participant p ON p.id=t.current_participant_id
+                WHERE p.driver_id=? AND p.is_current=1
+                  AND t.status IN ('PUBLISHED','IN_TRANSIT','TRANSFER_PENDING')
+                """, Integer.class, driverId);
+        return count == null ? 0 : count;
     }
 
     public int activeDriversWithPhone(String phone) {
@@ -236,6 +305,7 @@ public class MasterDataRepository {
                 """, (rs, rowNum) -> new VehicleResponse(
                 rs.getLong("id"),
                 rs.getString("plate_no"),
+                rs.getString("vehicle_license_no"),
                 rs.getInt("insurance_complete") == 1,
                 rs.getString("energy_type"),
                 rs.getBigDecimal("max_load"),
@@ -275,6 +345,7 @@ public class MasterDataRepository {
                 """, (rs, rowNum) -> new VehicleResponse(
                 rs.getLong("id"),
                 rs.getString("plate_no"),
+                rs.getString("vehicle_license_no"),
                 rs.getInt("insurance_complete") == 1,
                 rs.getString("energy_type"),
                 rs.getBigDecimal("max_load"),
@@ -320,6 +391,7 @@ public class MasterDataRepository {
                 """, (rs, rowNum) -> new VehicleResponse(
                 rs.getLong("id"),
                 rs.getString("plate_no"),
+                rs.getString("vehicle_license_no"),
                 rs.getInt("insurance_complete") == 1,
                 rs.getString("energy_type"),
                 rs.getBigDecimal("max_load"),
@@ -335,18 +407,19 @@ public class MasterDataRepository {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO vehicle (plate_no, insurance_complete, energy_type, max_load, load_standard_type,
+                    INSERT INTO vehicle (plate_no, vehicle_license_no, insurance_complete, energy_type, max_load, load_standard_type,
                                          load_standard_percent, load_standard_min_load, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, request.plateNo());
-            ps.setInt(2, Boolean.TRUE.equals(request.insuranceComplete()) ? 1 : 0);
-            ps.setString(3, request.energyType());
-            ps.setBigDecimal(4, request.maxLoad());
-            ps.setString(5, request.loadStandardType());
-            ps.setBigDecimal(6, request.loadStandardPercent());
-            ps.setBigDecimal(7, request.loadStandardMinLoad());
-            ps.setInt(8, request.status());
+            ps.setString(2, request.vehicleLicenseNo().trim());
+            ps.setInt(3, Boolean.TRUE.equals(request.insuranceComplete()) ? 1 : 0);
+            ps.setString(4, request.energyType());
+            ps.setBigDecimal(5, request.maxLoad());
+            ps.setString(6, request.loadStandardType());
+            ps.setBigDecimal(7, request.loadStandardPercent());
+            ps.setBigDecimal(8, request.loadStandardMinLoad());
+            ps.setInt(9, request.status());
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -355,16 +428,12 @@ public class MasterDataRepository {
     public boolean updateVehicle(long id, VehicleRequest request) {
         return jdbcTemplate.update("""
                 UPDATE vehicle
-                SET plate_no = ?, insurance_complete = ?, energy_type = ?, max_load = ?, load_standard_type = ?,
+                SET plate_no = ?, vehicle_license_no = ?, insurance_complete = ?, energy_type = ?, max_load = ?, load_standard_type = ?,
                     load_standard_percent = ?, load_standard_min_load = ?, status = ?
                 WHERE id = ? AND deleted_at IS NULL
-                """, request.plateNo(), Boolean.TRUE.equals(request.insuranceComplete()) ? 1 : 0,
+                """, request.plateNo(), request.vehicleLicenseNo().trim(), Boolean.TRUE.equals(request.insuranceComplete()) ? 1 : 0,
                 request.energyType(), request.maxLoad(), request.loadStandardType(), request.loadStandardPercent(),
                 request.loadStandardMinLoad(), request.status(), id) == 1;
-    }
-
-    public boolean deleteVehicle(long id) {
-        return jdbcTemplate.update("UPDATE vehicle SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL", id) == 1;
     }
 
     public PageResponse<TrailerResponse> listTrailers(int pageNo, int pageSize) {

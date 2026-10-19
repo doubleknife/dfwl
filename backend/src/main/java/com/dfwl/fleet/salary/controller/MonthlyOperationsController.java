@@ -13,7 +13,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,7 +30,7 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/attendance")
-    @PreAuthorize("hasAuthority('attendance:view')")
+    @FunctionAccess(anyOf={"PAGE_ATTENDANCE"})
     public ApiResponse<MonthlyOperationsService.MonthPage> attendance(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String month,
             @RequestParam(required = false) Long driverId, @RequestParam(defaultValue = "1") int pageNo,
@@ -40,7 +40,7 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/attendance/drivers")
-    @PreAuthorize("hasAuthority('attendance:view')")
+    @FunctionAccess(anyOf={"PAGE_ATTENDANCE"})
     public ApiResponse<PageResponse<MonthlyOperationsService.DriverOption>> attendanceDrivers(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String search,
@@ -51,7 +51,7 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/attendance/export")
-    @PreAuthorize("hasAuthority('attendance:export')")
+    @FunctionAccess(anyOf={"BUTTON_ATTENDANCE_EXPORT"})
     public ResponseEntity<byte[]> attendanceExport(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String month, @RequestParam(required = false) Long driverId) {
         users.denyAllDrivers(user);
@@ -59,7 +59,7 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/dispatch-ledger/internal")
-    @PreAuthorize("hasAuthority('dispatch:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_DISPATCH_INTERNAL"})
     public ApiResponse<MonthlyOperationsService.MonthPage> internal(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String month,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
@@ -68,7 +68,7 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/dispatch-ledger/outsourced")
-    @PreAuthorize("hasAuthority('dispatch:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_DISPATCH_OUTSOURCED"})
     public ApiResponse<MonthlyOperationsService.MonthPage> outsourced(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String month,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
@@ -77,12 +77,16 @@ public class MonthlyOperationsController {
     }
 
     @GetMapping("/api/v1/dispatch-ledger/export")
-    @PreAuthorize("hasAuthority('dispatch:ledger:export')")
+    @FunctionAccess(anyOf={"BUTTON_DISPATCH_INTERNAL_EXPORT", "BUTTON_DISPATCH_OUTSOURCED_EXPORT"})
     public ResponseEntity<byte[]> ledgerExport(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String month, @RequestParam String scope) {
         users.denyAllDrivers(user);
         if (!"INTERNAL".equals(scope) && !"OUTSOURCED".equals(scope))
             throw new BusinessException(ErrorCode.SYS_002);
+        String page = "OUTSOURCED".equals(scope) ? "PAGE_DISPATCH_OUTSOURCED" : "PAGE_DISPATCH_INTERNAL";
+        String button = "OUTSOURCED".equals(scope) ? "BUTTON_DISPATCH_OUTSOURCED_EXPORT" : "BUTTON_DISPATCH_INTERNAL_EXPORT";
+        if (!user.permissions().contains(page) || !user.permissions().contains(button))
+            throw new org.springframework.security.access.AccessDeniedException("没有该车辆月账的导出权限");
         return file(operations.exportLedger(month, "OUTSOURCED".equals(scope)),
                 ("OUTSOURCED".equals(scope) ? "外协车辆月账-" : "自有车辆月账-") + month + ".xlsx");
     }

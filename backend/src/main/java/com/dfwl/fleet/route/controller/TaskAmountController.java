@@ -9,7 +9,7 @@ import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
 import jakarta.validation.Valid;
 import java.util.List;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,7 +30,7 @@ public class TaskAmountController {
     }
 
     @GetMapping("/amount-history")
-    @PreAuthorize("hasAuthority('task:view')")
+    @FunctionAccess(anyOf={"PAGE_ROUTES"})
     public ApiResponse<List<TaskAmountHistoryResponse>> history(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long taskId) {
         users.denyAllDrivers(user);
@@ -38,7 +38,7 @@ public class TaskAmountController {
     }
 
     @PostMapping("/amount-adjustments")
-    @PreAuthorize("hasAuthority('task:amount:adjust')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_AMOUNT_ADJUST"})
     public ApiResponse<Void> adjust(@AuthenticationPrincipal AuthenticatedUser user,
                                     @PathVariable long taskId,
                                     @Valid @RequestBody TaskAmountAdjustmentRequest request) {

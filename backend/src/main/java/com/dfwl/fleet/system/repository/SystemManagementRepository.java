@@ -123,9 +123,12 @@ public class SystemManagementRepository {
     public int updateUser(long id, UserRequest request, long operatorId) {
         return jdbcTemplate.update("""
                 UPDATE sys_user
-                SET phone = ?, role_id = ?, status = ?, updated_by = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+                SET phone = ?, role_id = ?, status = ?, updated_by = ?, version = version + 1,
+                    auth_version = auth_version + CASE WHEN role_id <> ? OR status <> ? THEN 1 ELSE 0 END,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-                """, request.phone(), request.roleId(), request.status(), operatorId, id);
+                """, request.phone(), request.roleId(), request.status(), operatorId,
+                request.roleId(), request.status(), id);
     }
 
     public PageResponse<RoleResponse> listRoles(int pageNo, int pageSize) {
@@ -229,6 +232,7 @@ public class SystemManagementRepository {
         for (Long permissionId : permissionIds) {
             jdbcTemplate.update("INSERT INTO sys_role_permission (role_id, permission_id) VALUES (?, ?)", roleId, permissionId);
         }
+        jdbcTemplate.update("UPDATE sys_role SET permission_version = permission_version + 1 WHERE id = ?", roleId);
     }
 
     public PageResponse<AuditLogResponse> listAuditLogs(String module, String businessType, Long operatorId,

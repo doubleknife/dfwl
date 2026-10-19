@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#d9e9df"/><stop offset=".55" stop-color="#f3f8f4"/><stop offset="1" stop-color="#e4efe8"/></linearGradient>
+    <linearGradient id="road" x2="1" y2="1"><stop stop-color="#bad7c5"/><stop offset="1" stop-color="#ecf5ee"/></linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <path d="M0 735C258 604 337 763 582 671S975 438 1600 576V900H0Z" fill="url(#road)" opacity=".62"/>
+  <path d="M0 772C288 627 342 800 600 701S992 478 1600 617" fill="none" stroke="#fff" stroke-width="5" stroke-dasharray="24 28" opacity=".7"/>
+  <g fill="none" stroke="#276951" stroke-width="5" stroke-linejoin="round" opacity=".22">
+    <path d="M1082 490h327v90h-327zM1409 516h72l70 64h-142zM1128 490l30-57h185l31 57"/>
+    <circle cx="1160" cy="580" r="31"/><circle cx="1454" cy="580" r="31"/>
+    <path d="M1050 440h116M1019 469h80"/>
+  </g>
+  <circle cx="1210" cy="175" r="250" fill="#fff" opacity=".22"/>
+  <circle cx="230" cy="710" r="260" fill="#fff" opacity=".18"/>
+</svg>

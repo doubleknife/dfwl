@@ -8,10 +8,10 @@ public record DriverResponse(
         String driverType,
         String name,
         String phone,
-        String vehicleLicenseNo,
         String drivingLicenseNo,
         String idCardNo,
         LocalDate birthDate,
+        Integer age,
         Integer status,
         Long currentVehicleId,
         String currentVehiclePlateNo

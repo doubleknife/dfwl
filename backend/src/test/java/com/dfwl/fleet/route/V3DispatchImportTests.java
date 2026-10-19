@@ -1,5 +1,7 @@
 package com.dfwl.fleet.route;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -40,7 +42,7 @@ class V3DispatchImportTests {
     @Autowired RouteTemplateService templates;
 
     private final AuthenticatedUser operator = new AuthenticatedUser(1L, "13900000001", 1L, "ADMIN", "管理员",
-            Set.of("task:import:submit", "task:import:view", "dispatch:batch", "dispatch:view"));
+            grants("BUTTON_TASK_IMPORTS_SUBMIT", "PAGE_TASK_IMPORTS", "BUTTON_DISPATCH_PUBLISH", "PAGE_DISPATCH"));
 
     @BeforeEach
     void setup() {
@@ -49,12 +51,12 @@ class V3DispatchImportTests {
                 "file_attachment", "driver_vehicle_current", "vehicle", "driver", "product"))
             jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO product (id, name, enabled) VALUES (1, '砂石', 1)");
-        jdbc.update("INSERT INTO vehicle (id, plate_no, insurance_complete, energy_type, max_load, "
-                + "load_standard_type, load_standard_percent, status) VALUES (10, '云A001', 1, 'ELECTRIC', 30, 'PERCENT', 0.9, 1)");
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) "
-                + "VALUES (11, 501, 'INTERNAL', '自有司机', '13911111111', 1)");
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) "
-                + "VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', 1)");
+        jdbc.update("INSERT INTO vehicle (id, plate_no, vehicle_license_no, insurance_complete, energy_type, max_load, "
+                + "load_standard_type, load_standard_percent, status) VALUES (10, '云A001', 'TEST-VL-010', 1, 'ELECTRIC', 30, 'PERCENT', 0.9, 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) "
+                + "VALUES (11, 501, 'INTERNAL', '自有司机', '13911111111', '110105199001010117', 'TEST-DL-011', 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) "
+                + "VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', '110105199001010125', 'TEST-DL-012', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) "
                 + "VALUES (11, 10, CURRENT_TIMESTAMP, 1)");
         templates.create(new RouteTemplateRequest("TPL-01", "砂石运输", "中文客户", 1L, "昆明", "曲靖",

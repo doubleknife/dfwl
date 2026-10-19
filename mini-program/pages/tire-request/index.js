@@ -10,7 +10,7 @@ Page({
     this.setData({ loading: true, error: '' });
     try {
       const user = await request({ url: '/me' });
-      if (user.driverType !== 'INTERNAL' || !hasPermission(user, 'tire:request:create')
+      if (user.driverType !== 'INTERNAL' || !hasPermission(user, 'BUTTON_MINI_TIRE_REQUEST_SUBMIT')
           || !user.currentVehicleId) {
         this.setData({ denied: true, error: '当前账号没有换胎申请资格或未绑定公司车辆' }); return;
       }

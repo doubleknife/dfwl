@@ -63,6 +63,13 @@ public class TireApprovalEffect {
                 """, instanceId);
     }
 
+    public void onWithdrawn(long instanceId) {
+        jdbc.update("""
+                UPDATE tire_request SET status='WITHDRAWN'
+                WHERE approval_instance_id=? AND status IN ('PENDING_APPROVAL','RETURNED_TO_APPLICANT')
+                """, instanceId);
+    }
+
     public void onApproved(long instanceId, long operatorId) {
         Map<String, Object> request = jdbc.queryForList("""
                 SELECT * FROM tire_request WHERE approval_instance_id=? FOR UPDATE

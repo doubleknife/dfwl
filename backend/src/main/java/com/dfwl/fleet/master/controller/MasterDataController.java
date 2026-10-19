@@ -22,9 +22,8 @@ import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
 import jakarta.validation.Valid;
 import java.util.List;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,7 +46,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/products")
-    @PreAuthorize("hasAuthority('template:view')")
+    @FunctionAccess(anyOf={"PAGE_PRODUCTS", "PAGE_TEMPLATES"})
     public ApiResponse<PageResponse<ProductResponse>> listProducts(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
@@ -57,7 +56,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/products")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_PRODUCTS_MANAGE"})
     public ApiResponse<ProductResponse> createProduct(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ProductRequest request) {
@@ -66,7 +65,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/products/{id}")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_PRODUCTS_MANAGE"})
     public ApiResponse<ProductResponse> updateProduct(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -76,7 +75,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/products/{id}/status")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_PRODUCTS_MANAGE"})
     public ApiResponse<ProductResponse> updateProductStatus(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -86,20 +85,23 @@ public class MasterDataController {
     }
 
     @GetMapping("/drivers")
-    @PreAuthorize("hasAuthority('driver:list')")
+    @FunctionAccess(anyOf={"PAGE_DRIVERS"})
     public ApiResponse<PageResponse<DriverResponse>> listDrivers(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(defaultValue = "") String keyword,
+            @RequestParam(defaultValue = "") String driverType,
+            @RequestParam(required = false) Integer status) {
         if (currentUserService.isDriverUser(user)) {
             return ApiResponse.success(masterDataService.listDriversForCurrentDriver(user, pageNo, pageSize), RequestIdHolder.get());
         }
-        return ApiResponse.success(masterDataService.listDrivers(pageNo, pageSize), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.listDrivers(pageNo, pageSize, keyword, driverType, status), RequestIdHolder.get());
     }
 
     @GetMapping("/drivers/binding-candidates")
-    @PreAuthorize("hasAuthority('driver:bindVehicle')")
-    public ApiResponse<PageResponse<DriverResponse>> bindingCandidates(
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
+    public ApiResponse<PageResponse<com.dfwl.fleet.master.dto.response.BindingDriverOption>> bindingCandidates(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -107,8 +109,28 @@ public class MasterDataController {
         return ApiResponse.success(masterDataService.listBindingCandidates(pageNo, pageSize), RequestIdHolder.get());
     }
 
+    @GetMapping("/bindings/vehicle-options")
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
+    public ApiResponse<PageResponse<com.dfwl.fleet.master.dto.response.BindingVehicleOption>> bindingVehicles(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(masterDataService.listBindingVehicles(pageNo, pageSize), RequestIdHolder.get());
+    }
+
+    @GetMapping("/bindings/trailer-options")
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
+    public ApiResponse<PageResponse<com.dfwl.fleet.master.dto.response.BindingTrailerOption>> bindingTrailers(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(defaultValue = "1") int pageNo,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        currentUserService.denyAllDrivers(user);
+        return ApiResponse.success(masterDataService.listBindingTrailers(pageNo, pageSize), RequestIdHolder.get());
+    }
+
     @PostMapping("/drivers")
-    @PreAuthorize("hasAuthority('driver:add')")
+    @FunctionAccess(anyOf={"BUTTON_DRIVERS_ADD"})
     public ApiResponse<DriverResponse> createDriver(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody DriverRequest request) {
@@ -117,7 +139,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/drivers/{id}")
-    @PreAuthorize("hasAuthority('driver:list')")
+    @FunctionAccess(anyOf={"PAGE_DRIVERS"})
     public ApiResponse<DriverResponse> findDriver(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         if (currentUserService.isDriverUser(user)) {
             return ApiResponse.success(masterDataService.findDriverForCurrentUser(user, id), RequestIdHolder.get());
@@ -126,7 +148,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/drivers/{id}")
-    @PreAuthorize("hasAuthority('driver:edit')")
+    @FunctionAccess(anyOf={"BUTTON_DRIVERS_EDIT"})
     public ApiResponse<DriverResponse> updateDriver(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -136,7 +158,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/drivers/{id}/bind-vehicle")
-    @PreAuthorize("hasAuthority('driver:bindVehicle')")
+    @FunctionAccess(anyOf={"BUTTON_BINDING_BIND_DRIVER"})
     public ApiResponse<Void> bindDriverVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -147,7 +169,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/drivers/{id}/unbind-vehicle")
-    @PreAuthorize("hasAuthority('driver:unbindVehicle')")
+    @FunctionAccess(anyOf={"BUTTON_BINDING_UNBIND_DRIVER"})
     public ApiResponse<Void> unbindDriverVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -158,7 +180,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/vehicles")
-    @PreAuthorize("hasAuthority('vehicle:list')")
+    @FunctionAccess(anyOf={"PAGE_VEHICLES"})
     public ApiResponse<PageResponse<VehicleResponse>> listVehicles(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
@@ -170,7 +192,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/vehicles")
-    @PreAuthorize("hasAuthority('vehicle:add')")
+    @FunctionAccess(anyOf={"BUTTON_VEHICLES_ADD"})
     public ApiResponse<VehicleResponse> createVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody VehicleRequest request) {
@@ -179,7 +201,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/vehicles/{id}")
-    @PreAuthorize("hasAuthority('vehicle:view')")
+    @FunctionAccess(anyOf={"PAGE_VEHICLES"})
     public ApiResponse<VehicleResponse> findVehicle(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         if (currentUserService.isDriverUser(user)) {
             return ApiResponse.success(masterDataService.findVehicleForCurrentDriver(user, id), RequestIdHolder.get());
@@ -188,7 +210,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/vehicles/{id}")
-    @PreAuthorize("hasAuthority('vehicle:edit')")
+    @FunctionAccess(anyOf={"BUTTON_VEHICLES_EDIT"})
     public ApiResponse<VehicleResponse> updateVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -197,16 +219,8 @@ public class MasterDataController {
         return ApiResponse.success(masterDataService.updateVehicle(id, request), RequestIdHolder.get());
     }
 
-    @DeleteMapping("/vehicles/{id}")
-    @PreAuthorize("hasAuthority('vehicle:delete')")
-    public ApiResponse<Void> deleteVehicle(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
-        currentUserService.denyAllDrivers(user);
-        masterDataService.deleteVehicle(id);
-        return ApiResponse.success(RequestIdHolder.get());
-    }
-
     @GetMapping("/vehicles/{id}/binding-history")
-    @PreAuthorize("hasAuthority('vehicle:bindingHistory')")
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
     public ApiResponse<List<BindingHistoryResponse>> vehicleBindingHistory(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
@@ -215,7 +229,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/drivers/{id}/binding-history")
-    @PreAuthorize("hasAuthority('vehicle:bindingHistory')")
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
     public ApiResponse<List<BindingHistoryResponse>> driverBindingHistory(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         currentUserService.denyAllDrivers(user);
@@ -223,7 +237,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/vehicles/{id}/trailer-binding-history")
-    @PreAuthorize("hasAuthority('vehicle:bindingHistory')")
+    @FunctionAccess(anyOf={"PAGE_BINDING"})
     public ApiResponse<List<BindingHistoryResponse>> trailerBindingHistory(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         currentUserService.denyAllDrivers(user);
@@ -231,7 +245,7 @@ public class MasterDataController {
     }
 
     @GetMapping("/trailers")
-    @PreAuthorize("hasAuthority('trailer:list')")
+    @FunctionAccess(anyOf={"PAGE_TRAILERS"})
     public ApiResponse<PageResponse<TrailerResponse>> listTrailers(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
@@ -241,7 +255,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/trailers")
-    @PreAuthorize("hasAuthority('trailer:add')")
+    @FunctionAccess(anyOf={"BUTTON_TRAILERS_ADD"})
     public ApiResponse<TrailerResponse> createTrailer(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody TrailerRequest request) {
@@ -250,7 +264,7 @@ public class MasterDataController {
     }
 
     @PutMapping("/trailers/{id}")
-    @PreAuthorize("hasAuthority('trailer:edit')")
+    @FunctionAccess(anyOf={"BUTTON_TRAILERS_EDIT"})
     public ApiResponse<TrailerResponse> updateTrailer(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -260,7 +274,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/trailers/{id}/bind-vehicle")
-    @PreAuthorize("hasAuthority('trailer:bindVehicle')")
+    @FunctionAccess(anyOf={"BUTTON_BINDING_BIND_TRAILER"})
     public ApiResponse<Void> bindTrailerVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -271,7 +285,7 @@ public class MasterDataController {
     }
 
     @PostMapping("/trailers/{id}/unbind-vehicle")
-    @PreAuthorize("hasAuthority('trailer:unbindVehicle')")
+    @FunctionAccess(anyOf={"BUTTON_BINDING_UNBIND_TRAILER"})
     public ApiResponse<Void> unbindTrailerVehicle(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,

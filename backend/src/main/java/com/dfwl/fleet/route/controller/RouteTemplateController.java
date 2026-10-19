@@ -8,7 +8,7 @@ import com.dfwl.fleet.route.service.RouteTemplateService;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import java.util.List;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -26,40 +26,40 @@ public class RouteTemplateController {
     public RouteTemplateController(RouteTemplateService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('template:view')")
+    @FunctionAccess(anyOf={"PAGE_TEMPLATES", "PAGE_DISPATCH"})
     public ApiResponse<List<RouteTemplateResponse>> list() {
         return ApiResponse.success(service.list(), RequestIdHolder.get());
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('template:view')")
+    @FunctionAccess(anyOf={"PAGE_TEMPLATES", "PAGE_DISPATCH"})
     public ApiResponse<RouteTemplateResponse> find(@PathVariable long id) {
         return ApiResponse.success(service.find(id), RequestIdHolder.get());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_TEMPLATES_MANAGE"})
     public ApiResponse<RouteTemplateResponse> create(@AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody RouteTemplateRequest request) {
         return ApiResponse.success(service.create(request, user.id()), RequestIdHolder.get());
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_TEMPLATES_MANAGE"})
     public ApiResponse<RouteTemplateResponse> update(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @Valid @RequestBody RouteTemplateRequest request) {
         return ApiResponse.success(service.update(id, request, user.id()), RequestIdHolder.get());
     }
 
     @PostMapping("/{id}/enable")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_TEMPLATES_MANAGE"})
     public ApiResponse<RouteTemplateResponse> enable(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @RequestBody VersionRequest request) {
         return ApiResponse.success(service.setEnabled(id, request.expectedVersion(), true, user.id()), RequestIdHolder.get());
     }
 
     @PostMapping("/{id}/disable")
-    @PreAuthorize("hasAuthority('template:manage')")
+    @FunctionAccess(anyOf={"BUTTON_TEMPLATES_MANAGE"})
     public ApiResponse<RouteTemplateResponse> disable(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @RequestBody VersionRequest request) {
         return ApiResponse.success(service.setEnabled(id, request.expectedVersion(), false, user.id()), RequestIdHolder.get());

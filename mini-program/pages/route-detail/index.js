@@ -24,8 +24,8 @@ Page({
         }, user,
         driverLabel: sameDriver ? (user.driverName || '本人') : '接手司机',
         vehicleLabel: safe.currentPlateNo || user.currentPlateNo || '暂未绑定',
-        canDepart: !!sameDriver && hasPermission(user, 'task:depart'),
-        canUnload: !!sameDriver && hasPermission(user, 'task:unload') });
+        canDepart: !!sameDriver && hasPermission(user, 'BUTTON_MINI_ROUTES_DEPART'),
+        canUnload: !!sameDriver && hasPermission(user, 'BUTTON_MINI_ROUTES_UNLOAD') });
     } catch (error) {
       if (version === this._loadVersion) this.setData({ error: error.statusCode === 403 ? '当前账号不能查看这条线路，请联系调度' : (error.message || '线路详情加载失败，请重试') });
     } finally { if (version === this._loadVersion) this.setData({ loading: false }); }

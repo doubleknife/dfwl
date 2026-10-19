@@ -13,7 +13,7 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,7 +33,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/expense-ledger/filter-options")
-    @PreAuthorize("hasAuthority('expense:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_LEDGER", "PAGE_EXPENSE_UNASSIGNED", "PAGE_FINANCE_VEHICLES", "PAGE_FINANCE_DRIVERS", "PAGE_FINANCE_ENERGY"})
     public ApiResponse<PageResponse<Map<String, Object>>> expenseOptions(
             @AuthenticationPrincipal AuthenticatedUser user, @RequestParam String kind,
             @RequestParam(defaultValue = "") String search,
@@ -43,7 +43,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/expense-ledger")
-    @PreAuthorize("hasAuthority('expense:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_LEDGER", "PAGE_FINANCE_VEHICLES", "PAGE_FINANCE_DRIVERS", "PAGE_FINANCE_ENERGY"})
     public ApiResponse<PageResponse<Map<String, Object>>> expenses(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) String expenseType,
             @RequestParam(required = false) String applicationScope, @RequestParam(required = false) Long driverId,
@@ -57,7 +57,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/expense-ledger/summary")
-    @PreAuthorize("hasAuthority('expense:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_LEDGER", "PAGE_FINANCE_VEHICLES", "PAGE_FINANCE_DRIVERS", "PAGE_FINANCE_ENERGY"})
     public ApiResponse<Map<String, Object>> expenseSummary(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) String expenseType,
             @RequestParam(required = false) String applicationScope, @RequestParam(required = false) Long driverId,
@@ -69,8 +69,35 @@ public class FinanceV3Controller {
                 taskId, sourceType, status)));
     }
 
+    @GetMapping("/api/v1/expense-ledger/pending-attribution")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_UNASSIGNED"})
+    public ApiResponse<PageResponse<Map<String, Object>>> pendingAttribution(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(required = false) String month, @RequestParam(required = false) String expenseType,
+            @RequestParam(required = false) Long driverId, @RequestParam(required = false) Long vehicleId,
+            @RequestParam(required = false) String sourceType,
+            @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
+        users.denyAllDrivers(user);
+        return ok(ledger.list(pendingFilter(month, expenseType, driverId, vehicleId, sourceType), pageNo, pageSize));
+    }
+
+    @GetMapping("/api/v1/expense-ledger/pending-attribution/summary")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_UNASSIGNED"})
+    public ApiResponse<Map<String, Object>> pendingAttributionSummary(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(required = false) String month, @RequestParam(required = false) String expenseType,
+            @RequestParam(required = false) Long driverId, @RequestParam(required = false) Long vehicleId,
+            @RequestParam(required = false) String sourceType) {
+        users.denyAllDrivers(user);
+        return ok(ledger.summary(pendingFilter(month, expenseType, driverId, vehicleId, sourceType)));
+    }
+
+    private Filter pendingFilter(String month, String expenseType, Long driverId, Long vehicleId, String sourceType) {
+        return new Filter(month, expenseType, null, driverId, vehicleId, false, null, sourceType, "ACTIVE");
+    }
+
     @GetMapping("/api/v1/expense-ledger/export")
-    @PreAuthorize("hasAuthority('expense:export')")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_LEDGER_EXPORT"})
     public ResponseEntity<byte[]> export(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) String expenseType,
             @RequestParam(required = false) String applicationScope, @RequestParam(required = false) Long driverId,
@@ -87,7 +114,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/expense-ledger/{id}")
-    @PreAuthorize("hasAuthority('expense:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_LEDGER", "PAGE_EXPENSE_UNASSIGNED", "PAGE_FINANCE_VEHICLES", "PAGE_FINANCE_DRIVERS", "PAGE_FINANCE_ENERGY"})
     public ApiResponse<Map<String, Object>> expense(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -95,7 +122,7 @@ public class FinanceV3Controller {
     }
 
     @PostMapping("/api/v1/expense-ledger/{id}/attribution")
-    @PreAuthorize("hasAuthority('expense:attribution:edit')")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE"})
     public ApiResponse<Map<String, Object>> attribute(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @RequestBody Attribution command) {
         users.denyAllDrivers(user);
@@ -103,7 +130,7 @@ public class FinanceV3Controller {
     }
 
     @PostMapping("/api/v1/expense-ledger/{id}/reverse")
-    @PreAuthorize("hasAuthority('expense:reversal')")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_LEDGER_REVERSE"})
     public ApiResponse<Map<String, Object>> reverse(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @RequestBody Reversal command) {
         users.denyAllDrivers(user);
@@ -111,7 +138,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/task-summaries")
-    @PreAuthorize("hasAuthority('report:task:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_TASKS"})
     public ApiResponse<List<Map<String, Object>>> taskSummaries(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam List<Long> taskIds) {
         users.denyAllDrivers(user);
@@ -119,7 +146,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/tasks")
-    @PreAuthorize("hasAuthority('report:task:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_TASKS"})
     public ApiResponse<PageResponse<Map<String, Object>>> tasks(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month, @RequestParam(required = false) Long templateId,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
@@ -128,7 +155,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/tasks/{id}")
-    @PreAuthorize("hasAuthority('report:task:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_TASKS"})
     public ApiResponse<Map<String, Object>> task(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -137,7 +164,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/transport-tasks/{id}/expenses")
-    @PreAuthorize("hasAuthority('report:task:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_TASKS"})
     public ApiResponse<List<Map<String, Object>>> taskExpenses(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -145,7 +172,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/templates")
-    @PreAuthorize("hasAuthority('report:template:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_TEMPLATES"})
     public ApiResponse<PageResponse<Map<String, Object>>> templates(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String month,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
@@ -154,7 +181,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/company")
-    @PreAuthorize("hasAuthority('report:company:view')")
+    @FunctionAccess(anyOf={"PAGE_FINANCE_COMPANY"})
     public ApiResponse<Map<String, Object>> company(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String month) {
         users.denyAllDrivers(user);
@@ -162,7 +189,7 @@ public class FinanceV3Controller {
     }
 
     @GetMapping("/api/v1/finance/dashboard")
-    @PreAuthorize("hasAuthority('report:company:view')")
+    @FunctionAccess(anyOf={"PAGE_DASHBOARD"})
     public ApiResponse<Map<String, Object>> dashboard(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String month) {
         users.denyAllDrivers(user);

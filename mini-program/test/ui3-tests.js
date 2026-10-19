@@ -37,6 +37,95 @@ function route(id, status = 'PUBLISHED') {
 }
 
 module.exports = [
+  ['home and profile show the nested role returned by me', async () => {
+    const previousGetApp = global.getApp;
+    global.getApp = () => ({ globalData: {} });
+    const user = { id: 1, phone: '13900009917', role: { id: 1, code: 'ADMIN', name: '管理员' }, permissions: [] };
+    try {
+      await pageScenario('home', async ({ url }) => url === '/me' ? user : { unreadCount: 0 }, async (page) => {
+        await page.load();
+        assert.equal(page.data.roleLabel, '管理员');
+      }, { setStorageSync() {} });
+      await pageScenario('profile', async () => user, async (page) => {
+        await page.load();
+        assert.equal(page.data.roleName, '管理员');
+        assert.equal(page.data.driverTypeLabel, '管理员');
+      });
+    } finally { global.getApp = previousGetApp; }
+  }],
+  ['home shows approval work for manager and transport only for driver', async () => {
+    const previousGetApp = global.getApp;
+    const urls = [];
+    const manager = { id: 1, name: '管理员', permissions: ['PAGE_MINI_APPROVALS', 'BUTTON_MINI_APPROVALS_APPROVE', 'PAGE_MINI_ROUTES'] };
+    global.getApp = () => ({ globalData: {} });
+    try {
+      await pageScenario('home', async ({ url }) => {
+        urls.push(url);
+        if (url === '/me') return manager;
+        if (url.startsWith('/approvals?')) return { total: 4, records: [{ id: 2, templateName: '费用申请', approvalNo: 'A2', currentStepName: '财务审核' }] };
+        return { unreadCount: 0 };
+      }, async (page) => {
+        await page.load();
+        assert.equal(page.data.driver, null);
+        assert.equal(page.data.todoCount, 4);
+        assert.equal(page.data.approvalTasks[0].templateName, '费用申请');
+        assert.equal(page.data.currentTask, null);
+        assert.equal(page.data.canApprove, true);
+        page.openApprovals();
+      }, { setStorageSync() {}, navigateTo({ url }) { urls.push(url); } });
+      assert.ok(urls.includes('/approvals?scope=TODO&pageNo=1&pageSize=3'));
+      assert.ok(urls.includes('/pages/approvals/index'));
+      assert.equal(urls.some((url) => url.startsWith('/driver/transport-tasks')), false);
+
+      urls.length = 0;
+      await pageScenario('home', async ({ url }) => {
+        urls.push(url);
+        if (url === '/me') return { id: 2, driverId: 8, driverName: '司机', driverType: 'INTERNAL', permissions: ['PAGE_MINI_ROUTES'] };
+        if (url.startsWith('/driver/transport-tasks')) return { records: [route(9)] };
+        return { unreadCount: 0 };
+      }, async (page) => {
+        await page.load();
+        assert.equal(page.data.currentTask.id, 9);
+        assert.equal(page.data.canApprove, false);
+        assert.equal(page.data.todoCount, 0);
+      }, { setStorageSync() {} });
+      assert.equal(urls.some((url) => url.startsWith('/approvals?')), false);
+    } finally { global.getApp = previousGetApp; }
+  }],
+  ['home does not show a false zero when approval tasks fail', async () => {
+    const previousGetApp = global.getApp;
+    global.getApp = () => ({ globalData: {} });
+    try {
+      await pageScenario('home', async ({ url }) => {
+        if (url === '/me') return { id: 1, permissions: ['PAGE_MINI_APPROVALS', 'BUTTON_MINI_APPROVALS_RETURN'] };
+        if (url.startsWith('/approvals?')) throw new Error('审批服务暂不可用');
+        return { unreadCount: 0 };
+      }, async (page) => {
+        await page.load();
+        assert.equal(page.data.todoError, '审批服务暂不可用');
+        assert.equal(page.data.error, '');
+        assert.equal(page.data.approvalTasks.length, 0);
+      }, { setStorageSync() {} });
+    } finally { global.getApp = previousGetApp; }
+  }],
+  ['home does not query approvals without processing permission', async () => {
+    const previousGetApp = global.getApp;
+    const urls = [];
+    global.getApp = () => ({ globalData: {} });
+    try {
+      await pageScenario('home', async ({ url }) => {
+        urls.push(url);
+        if (url === '/me') return { id: 3, permissions: ['PAGE_MINI_EXPENSE_APPLY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT'] };
+        return { unreadCount: 0 };
+      }, async (page) => {
+        await page.load();
+        assert.equal(page.data.canApprove, false);
+        assert.equal(page.data.approvalTasks.length, 0);
+        page.openApprovals();
+      }, { setStorageSync() {}, navigateTo({ url }) { urls.push(url); } });
+      assert.equal(urls.some((url) => url.startsWith('/approvals?') || url === '/pages/approvals/index'), false);
+    } finally { global.getApp = previousGetApp; }
+  }],
   ['BIZ1B home ignores historical participant and presents current transfer', () => {
     assert.equal(currentTask([{ ...route(1, 'IN_TRANSIT'), currentParticipant: false }], 1), null);
     assert.equal(currentTask([route(2, 'TRANSFER_PENDING')], 1).nextAction, '确认发车');
@@ -108,7 +197,7 @@ module.exports = [
     let modal;
     let posts = 0;
     await pageScenario('route-detail', async ({ url, method }) => {
-      if (url === '/me') return { driverId: 1, currentVehicleId: 7, currentPlateNo: '云A12345', permissions: ['task:view', 'task:depart'] };
+      if (url === '/me') return { driverId: 1, currentVehicleId: 7, currentPlateNo: '云A12345', permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
       if (url.endsWith('/depart')) { posts += 1; return route(4, 'IN_TRANSIT'); }
       return route(4);
     }, async (page) => {
@@ -129,7 +218,7 @@ module.exports = [
     let modal;
     let posts = 0;
     await pageScenario('route-detail', async ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['task:view', 'task:depart'] };
+      if (url === '/me') return { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
       if (url.endsWith('/depart')) posts += 1;
       return route(1);
     }, async (page) => {
@@ -149,7 +238,7 @@ module.exports = [
   ['BIZ1D completed route opens original ticket as read only without an unload action', async () => {
     const opened = [];
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['task:view'] };
+      if (url === '/me') return { driverId: 1, permissions: ['PAGE_MINI_ROUTES'] };
       return route(4, 'COMPLETED');
     }, async (page) => {
       page.data.id = 4;
@@ -162,7 +251,7 @@ module.exports = [
   }],
   ['BIZ1B only current transfer driver may depart while waiting for handoff', async () => {
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['task:view', 'task:depart'] };
+      if (url === '/me') return { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
       return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: false };
     }, async (page) => {
       page.data.id = 8;
@@ -171,7 +260,7 @@ module.exports = [
       assert.equal(page.data.route.nextAction, '等待接手司机发车');
     });
     await pageScenario('route-detail', ({ url }) => {
-      if (url === '/me') return { driverId: 2, permissions: ['task:view', 'task:depart'] };
+      if (url === '/me') return { driverId: 2, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
       return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: true, vehiclePlate: '外协B002' };
     }, async (page) => {
       page.data.id = 8;
@@ -191,7 +280,7 @@ module.exports = [
   ['BIZ1D weight page requires a ticket before opening confirmation', async () => {
     let modalCalls = 0;
     await pageScenario('weight', ({ url }) => url === '/me'
-      ? { driverId: 1, permissions: ['task:unload'] } : route(9, 'IN_TRANSIT'), async (page) => {
+      ? { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_UNLOAD'] } : route(9, 'IN_TRANSIT'), async (page) => {
       page.data.id = 9;
       await page.load();
       page.onGross({ detail: { value: '30' } });
@@ -205,7 +294,7 @@ module.exports = [
     let selected;
     let uploadCount = 0;
     await pageScenario('weight', ({ url }) => url === '/me'
-      ? { driverId: 1, permissions: ['task:unload'] } : route(10, 'IN_TRANSIT'), async (page) => {
+      ? { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_UNLOAD'] } : route(10, 'IN_TRANSIT'), async (page) => {
       page.data.id = 10;
       await page.load();
       page.chooseTickets();
@@ -227,7 +316,7 @@ module.exports = [
     let posts = 0;
     let backs = 0;
     await pageScenario('weight', ({ url }) => {
-      if (url === '/me') return Promise.resolve({ driverId: 1, permissions: ['task:unload'] });
+      if (url === '/me') return Promise.resolve({ driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_UNLOAD'] });
       if (url.endsWith('/unload')) { posts += 1; return new Promise((resolve) => { finishPost = resolve; }); }
       return Promise.resolve(route(5, 'IN_TRANSIT'));
     }, async (page) => {
@@ -256,7 +345,7 @@ module.exports = [
     let fail = false;
     let posts = 0;
     await pageScenario('weight', async ({ url }) => {
-      if (url === '/me') return { driverId: 1, permissions: ['task:unload'] };
+      if (url === '/me') return { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_UNLOAD'] };
       if (url.endsWith('/unload')) { posts += 1; throw new Error('网络不可用'); }
       return route(7, 'IN_TRANSIT');
     }, async (page) => {

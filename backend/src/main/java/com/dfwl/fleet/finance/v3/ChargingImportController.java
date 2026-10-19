@@ -12,7 +12,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,14 +36,14 @@ public class ChargingImportController {
     }
 
     @GetMapping("/companies")
-    @PreAuthorize("hasAnyAuthority('charging:view','charging:import','charging:company:manage')")
+    @FunctionAccess(anyOf={"PAGE_CHARGING_COMPANIES", "PAGE_CHARGING_IMPORTS"})
     public ApiResponse<List<Map<String, Object>>> companies(@AuthenticationPrincipal AuthenticatedUser user) {
         users.denyAllDrivers(user);
         return ok(service.companies());
     }
 
     @PostMapping("/companies")
-    @PreAuthorize("hasAuthority('charging:company:manage')")
+    @FunctionAccess(anyOf={"BUTTON_CHARGING_COMPANIES_MANAGE"})
     public ApiResponse<Map<String, Object>> createCompany(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestBody ChargingImportService.CompanyCommand body) {
         users.denyAllDrivers(user);
@@ -51,7 +51,7 @@ public class ChargingImportController {
     }
 
     @PutMapping("/companies/{id}")
-    @PreAuthorize("hasAuthority('charging:company:manage')")
+    @FunctionAccess(anyOf={"BUTTON_CHARGING_COMPANIES_MANAGE"})
     public ApiResponse<Map<String, Object>> updateCompany(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id, @RequestBody ChargingImportService.CompanyCommand body) {
         users.denyAllDrivers(user);
@@ -59,7 +59,7 @@ public class ChargingImportController {
     }
 
     @GetMapping("/imports")
-    @PreAuthorize("hasAuthority('charging:view')")
+    @FunctionAccess(anyOf={"PAGE_CHARGING_IMPORTS"})
     public ApiResponse<Map<String, Object>> history(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
         users.denyAllDrivers(user);
@@ -67,7 +67,7 @@ public class ChargingImportController {
     }
 
     @GetMapping("/imports/{id}")
-    @PreAuthorize("hasAuthority('charging:view')")
+    @FunctionAccess(anyOf={"PAGE_CHARGING_IMPORTS"})
     public ApiResponse<Map<String, Object>> importDetail(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -75,7 +75,7 @@ public class ChargingImportController {
     }
 
     @PostMapping(value = "/imports", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('charging:import')")
+    @FunctionAccess(anyOf={"BUTTON_CHARGING_IMPORTS_IMPORT"})
     public ApiResponse<Map<String, Object>> confirm(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestPart("file") MultipartFile file,
             @RequestPart("payload") ChargingImportService.Confirmation body) {
@@ -84,7 +84,7 @@ public class ChargingImportController {
     }
 
     @GetMapping("/imports/{id}/original-file")
-    @PreAuthorize("hasAuthority('charging:view')")
+    @FunctionAccess(anyOf={"PAGE_CHARGING_IMPORTS"})
     public ResponseEntity<Resource> original(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -98,7 +98,7 @@ public class ChargingImportController {
     }
 
     @GetMapping("/source-orders/by-expense/{expenseId}")
-    @PreAuthorize("hasAnyAuthority('charging:view','expense:ledger:view')")
+    @FunctionAccess(anyOf={"PAGE_CHARGING_IMPORTS", "PAGE_EXPENSE_LEDGER"})
     public ApiResponse<Map<String, Object>> sourceOrder(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long expenseId) {
         users.denyAllDrivers(user);

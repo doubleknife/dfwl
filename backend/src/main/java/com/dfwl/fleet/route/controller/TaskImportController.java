@@ -13,7 +13,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,7 +36,7 @@ public class TaskImportController {
     }
 
     @GetMapping("/template")
-    @PreAuthorize("hasAuthority('task:import:view')")
+    @FunctionAccess(anyOf={"PAGE_TASK_IMPORTS"})
     public ResponseEntity<byte[]> template(@AuthenticationPrincipal AuthenticatedUser user) {
         users.denyAllDrivers(user);
         byte[] content = service.template();
@@ -49,7 +49,7 @@ public class TaskImportController {
     }
 
     @PostMapping(value = "/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('task:import:submit')")
+    @FunctionAccess(anyOf={"BUTTON_TASK_IMPORTS_SUBMIT"})
     public ApiResponse<ImportDetail> preview(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam String requestKey, @RequestPart("file") MultipartFile file) {
         users.denyAllDrivers(user);
@@ -57,14 +57,14 @@ public class TaskImportController {
     }
 
     @PostMapping("/{id}/confirm")
-    @PreAuthorize("hasAuthority('task:import:submit')")
+    @FunctionAccess(anyOf={"BUTTON_TASK_IMPORTS_SUBMIT"})
     public ApiResponse<ImportDetail> confirm(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);
         return ApiResponse.success(service.confirm(id, user), RequestIdHolder.get());
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('task:import:view')")
+    @FunctionAccess(anyOf={"PAGE_TASK_IMPORTS"})
     public ApiResponse<PageResponse<ImportSummary>> history(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize) {
         users.denyAllDrivers(user);
@@ -72,14 +72,14 @@ public class TaskImportController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('task:import:view')")
+    @FunctionAccess(anyOf={"PAGE_TASK_IMPORTS"})
     public ApiResponse<ImportDetail> detail(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);
         return ApiResponse.success(service.detail(id), RequestIdHolder.get());
     }
 
     @GetMapping("/{id}/rows")
-    @PreAuthorize("hasAuthority('task:import:view')")
+    @FunctionAccess(anyOf={"PAGE_TASK_IMPORTS"})
     public ApiResponse<java.util.List<TaskImportService.ImportRowView>> rows(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);

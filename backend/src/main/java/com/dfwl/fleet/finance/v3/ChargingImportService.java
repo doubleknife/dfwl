@@ -139,7 +139,9 @@ public class ChargingImportService {
         String key = jdbc.queryForList("SELECT original_storage_key FROM charging_import_batch WHERE id=?", batchId)
                 .stream().findFirst().map(row -> String.valueOf(row.get("original_storage_key")))
                 .orElseThrow(() -> invalid("原始文件不存在"));
-        return storage.load(key);
+        Resource original = storage.load(key);
+        if (!original.exists() || !original.isReadable()) throw invalid("原始文件不存在或无法读取");
+        return original;
     }
 
     @Transactional

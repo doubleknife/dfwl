@@ -4,6 +4,7 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.system.service.AuditWriteService;
+import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -51,9 +52,11 @@ public class ExpenseLedgerService {
     private final JdbcTemplate jdbc;
     private final FinanceFactsService finance;
     private final AuditWriteService audit;
+    private final TransactionalAuthorizationGuard authorization;
 
-    public ExpenseLedgerService(JdbcTemplate jdbc, FinanceFactsService finance, AuditWriteService audit) {
-        this.jdbc = jdbc; this.finance = finance; this.audit = audit;
+    public ExpenseLedgerService(JdbcTemplate jdbc, FinanceFactsService finance, AuditWriteService audit,
+                                TransactionalAuthorizationGuard authorization) {
+        this.jdbc = jdbc; this.finance = finance; this.audit = audit; this.authorization = authorization;
     }
 
     public record Filter(String month, String expenseType, String applicationScope, Long driverId,
@@ -67,6 +70,10 @@ public class ExpenseLedgerService {
         String from;
         String fields;
         switch (kind) {
+              case "CATEGORY" -> {
+                  from = " FROM expense_category WHERE enabled=1 AND category_name LIKE ?";
+                  fields = "category_code id,category_name label,category_code detail";
+              }
             case "DRIVER" -> {
                 from = " FROM driver WHERE deleted_at IS NULL AND (name LIKE ? OR phone LIKE ?)";
                 fields = "id,name label,phone detail";
@@ -81,7 +88,7 @@ public class ExpenseLedgerService {
             }
             default -> throw invalid("筛选对象不合法");
         }
-        Object[] args = "VEHICLE".equals(kind) ? new Object[]{term} : new Object[]{term, term};
+          Object[] args = "VEHICLE".equals(kind) || "CATEGORY".equals(kind) ? new Object[]{term} : new Object[]{term, term};
         if ("TASK".equals(kind) && vehicleId != null) {
             from += " AND EXISTS(SELECT 1 FROM transport_participant p WHERE p.task_id=transport_task.id "
                     + "AND p.driver_type_snapshot='INTERNAL' AND p.company_vehicle_id=? AND p.status<>'CANCELLED')";
@@ -150,6 +157,7 @@ public class ExpenseLedgerService {
 
     @Transactional
     public Map<String, Object> attribute(long id, Attribution command, long actor) {
+        authorization.require(actor, "BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE");
         if (command == null || command.reason() == null || command.reason().isBlank()
                 || command.expectedVersion() == null) throw invalid("请填写归属原因并刷新版本");
         Map<String, Object> expense = lock(id);
@@ -187,6 +195,7 @@ public class ExpenseLedgerService {
 
     @Transactional
     public Map<String, Object> reverse(long id, Reversal command, long actor) {
+        authorization.require(actor, "BUTTON_EXPENSE_LEDGER_REVERSE");
         if (command == null || command.reason() == null || command.reason().isBlank()
                 || command.requestKey() == null || command.requestKey().isBlank())
             throw invalid("请填写冲销原因和请求标识");

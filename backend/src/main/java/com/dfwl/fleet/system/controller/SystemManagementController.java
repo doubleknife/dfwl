@@ -17,7 +17,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.util.List;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,7 +41,7 @@ public class SystemManagementController {
     }
 
     @GetMapping("/users")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"PAGE_USERS"})
     public ApiResponse<PageResponse<UserResponse>> listUsers(
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -49,13 +49,13 @@ public class SystemManagementController {
     }
 
     @GetMapping("/users/{id}")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"PAGE_USERS"})
     public ApiResponse<UserResponse> findUser(@PathVariable long id) {
         return ApiResponse.success(service.findUser(id), RequestIdHolder.get());
     }
 
     @PostMapping("/users")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"BUTTON_USERS_ADD"})
     public ApiResponse<UserResponse> createUser(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody UserRequest request) {
@@ -63,7 +63,7 @@ public class SystemManagementController {
     }
 
     @PutMapping("/users/{id}")
-    @PreAuthorize("hasAuthority('user:manage')")
+    @FunctionAccess(anyOf={"BUTTON_USERS_EDIT"})
     public ApiResponse<UserResponse> updateUser(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -72,7 +72,7 @@ public class SystemManagementController {
     }
 
     @GetMapping("/roles")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"PAGE_ROLES"})
     public ApiResponse<PageResponse<RoleResponse>> listRoles(
             @RequestParam(defaultValue = "1") int pageNo,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -80,19 +80,19 @@ public class SystemManagementController {
     }
 
     @GetMapping("/roles/{id}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"PAGE_ROLES"})
     public ApiResponse<RoleResponse> findRole(@PathVariable long id) {
         return ApiResponse.success(service.findRole(id), RequestIdHolder.get());
     }
 
     @PostMapping("/roles")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"BUTTON_ROLES_ADD"})
     public ApiResponse<RoleResponse> createRole(@Valid @RequestBody RoleRequest request) {
         return ApiResponse.success(service.createRole(request), RequestIdHolder.get());
     }
 
     @PutMapping("/roles/{id}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"BUTTON_ROLES_EDIT"})
     public ApiResponse<RoleResponse> updateRole(
             @PathVariable long id,
             @Valid @RequestBody RoleRequest request) {
@@ -100,7 +100,7 @@ public class SystemManagementController {
     }
 
     @PutMapping("/roles/{id}/status")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"BUTTON_ROLES_EDIT"})
     public ApiResponse<RoleResponse> updateRoleStatus(
             @PathVariable long id,
             @RequestParam @Min(0) @Max(1) int status) {
@@ -108,7 +108,7 @@ public class SystemManagementController {
     }
 
     @PutMapping("/roles/{id}/permissions")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @FunctionAccess(anyOf={"BUTTON_ROLES_GRANT"})
     public ApiResponse<RoleResponse> replaceRolePermissions(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
@@ -117,14 +117,14 @@ public class SystemManagementController {
     }
 
     @GetMapping("/permissions")
-    @PreAuthorize("hasAuthority('permission:manage')")
+    @FunctionAccess(anyOf={"PAGE_ROLES"})
     public ApiResponse<List<PermissionResponse>> listPermissions(
             @RequestParam(value = "permissionType", required = false) String permissionType) {
         return ApiResponse.success(service.listPermissions(permissionType), RequestIdHolder.get());
     }
 
     @GetMapping("/audit-logs")
-    @PreAuthorize("hasAuthority('audit:view')")
+    @FunctionAccess(anyOf={"PAGE_AUDIT"})
     public ApiResponse<PageResponse<AuditLogResponse>> listAuditLogs(
             @RequestParam(value = "module", required = false) String module,
             @RequestParam(value = "businessType", required = false) String businessType,

@@ -55,7 +55,8 @@ public class NotificationRepository {
                 JOIN sys_role_permission rp ON rp.role_id = r.id
                 JOIN sys_permission p ON p.id = rp.permission_id AND p.status = 1
                 WHERE u.id = ? AND u.status = 1 AND r.role_code <> 'DRIVER'
-                  AND p.permission_code IN ('approval:process', 'approval:return')
+                  AND p.permission_code IN ('BUTTON_APPROVALS_TODO_APPROVE', 'BUTTON_APPROVALS_TODO_RETURN',
+                                            'BUTTON_MINI_APPROVALS_APPROVE', 'BUTTON_MINI_APPROVALS_RETURN')
                 """, Integer.class, userId);
         return count != null && count > 0;
     }

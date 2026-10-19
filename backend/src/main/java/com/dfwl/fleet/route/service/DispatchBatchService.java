@@ -10,6 +10,7 @@ import com.dfwl.fleet.route.dto.response.RouteTemplateResponse;
 import com.dfwl.fleet.route.repository.RouteTemplateRepository;
 import com.dfwl.fleet.route.service.TaskDriverValidationService.DriverSnapshot;
 import com.dfwl.fleet.system.service.AuditWriteService;
+import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -37,14 +38,17 @@ public class DispatchBatchService {
     private final RouteTemplateRepository templates;
     private final TaskDriverValidationService driverValidation;
     private final AuditWriteService audit;
+    private final TransactionalAuthorizationGuard authorization;
     private final Map<String, Preview> previews = new ConcurrentHashMap<>();
 
     public DispatchBatchService(JdbcTemplate jdbc, RouteTemplateRepository templates,
-                                TaskDriverValidationService driverValidation, AuditWriteService audit) {
+                                TaskDriverValidationService driverValidation, AuditWriteService audit,
+                                TransactionalAuthorizationGuard authorization) {
         this.jdbc = jdbc;
         this.templates = templates;
         this.driverValidation = driverValidation;
         this.audit = audit;
+        this.authorization = authorization;
     }
 
     public DispatchPreviewResponse preview(DispatchBatchRequest batch, long actor) {
@@ -67,6 +71,7 @@ public class DispatchBatchService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DispatchBatchResponse confirm(DispatchConfirmRequest request, long actor) {
+        authorization.require(actor, "BUTTON_DISPATCH_PUBLISH", "BUTTON_TASK_IMPORTS_SUBMIT");
         if (request == null || request.batch() == null || request.requestKey() == null
                 || request.requestKey().isBlank() || request.requestKey().length() > 128)
             throw new BusinessException(ErrorCode.SYS_002);
@@ -153,6 +158,7 @@ public class DispatchBatchService {
     /** Caller supplies a per-row transaction; the unique business key prevents repeat imports. */
     public long publishImportedRow(java.time.LocalDate date, DispatchBatchRequest.Row input,
                                    long actor, String businessKey) {
+        authorization.require(actor, "BUTTON_TASK_IMPORTS_SUBMIT");
         DispatchBatchRequest batch = new DispatchBatchRequest(date, List.of(input));
         lockPublicationReferences(batch);
         ValidatedRow row = validate(batch).getFirst();

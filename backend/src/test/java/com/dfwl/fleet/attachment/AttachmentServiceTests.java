@@ -1,5 +1,7 @@
 package com.dfwl.fleet.attachment;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -29,7 +32,7 @@ class AttachmentServiceTests {
         RecordingStorage storage = new RecordingStorage();
         AttachmentService service = new AttachmentService(repository, storage);
         AuthenticatedUser user = new AuthenticatedUser(
-                1L, "13800000001", 1L, "ADMIN", "管理员", Set.of("task:weight:adjust"));
+                1L, "13800000001", 1L, "ADMIN", "管理员", grants("BUTTON_ROUTES_WEIGHT_ADJUST"));
 
         assertThatThrownBy(() -> service.upload(
                 "TASK",
@@ -42,7 +45,26 @@ class AttachmentServiceTests {
         assertThat(storage.deletedKey).isEqualTo("stored/key.csv");
     }
 
+    @Test
+    void importFileReadIsScopedToTheActualBusinessType() {
+        FailingRepository repository = new FailingRepository();
+        RecordingStorage storage = new RecordingStorage();
+        AttachmentService service = new AttachmentService(repository, storage);
+        AuthenticatedUser taskViewer = new AuthenticatedUser(2L, "13800000002", 1L, "ADMIN", "任务查看员",
+                grants("PAGE_TASK_IMPORTS"));
+        AuthenticatedUser tireViewer = new AuthenticatedUser(3L, "13800000003", 1L, "ADMIN", "轮胎查看员",
+                grants("BUTTON_TIRE_IMPORTS_SUBMIT"));
+        repository.importType = "TASK";
+        assertThat(service.download(10, taskViewer).resource().exists()).isTrue();
+        assertThatThrownBy(() -> service.download(10, tireViewer)).isInstanceOf(AccessDeniedException.class);
+        repository.importType = "TIRE";
+        assertThat(service.download(10, tireViewer).resource().exists()).isTrue();
+        assertThatThrownBy(() -> service.download(10, taskViewer)).isInstanceOf(AccessDeniedException.class);
+    }
+
     private static class FailingRepository extends FileAttachmentRepository {
+
+        String importType;
 
         FailingRepository() {
             super((JdbcTemplate) null);
@@ -63,9 +85,12 @@ class AttachmentServiceTests {
         @Override
         public Optional<FileAttachment> find(long id) {
             return Optional.of(new FileAttachment(
-                    id, "IMPORT", 0, "IMPORT_FILE", "stored/key.csv", "routes.csv",
+                    id, "IMPORT", 7, "IMPORT_FILE", "stored/key.csv", "routes.csv",
                     "text/csv", 7, "hash", 1, LocalDateTime.now()));
         }
+
+        @Override
+        public String importFileBusinessType(long importId, long attachmentId) { return importType; }
     }
 
     private static class RecordingStorage implements StorageService {

@@ -35,7 +35,7 @@ async function homeData(user) {
 module.exports = [
   ['home shows actual current binding without guessing vehicle status', async () => {
     const data = await homeData({ driverId: 2, driverName: '司机甲', driverType: 'INTERNAL',
-      currentVehicleId: 5, currentPlateNo: '云A12345', permissions: ['task:view'] });
+      currentVehicleId: 5, currentPlateNo: '云A12345', permissions: ['PAGE_MINI_ROUTES'] });
     assert.equal(data.vehicle.plateNo, '云A12345');
     assert.equal(data.displayName, '司机甲');
     const markup = fs.readFileSync(path.join(__dirname, '../pages/home/index.wxml'), 'utf8');
@@ -47,19 +47,19 @@ module.exports = [
     assert.equal((await homeData({ driverId: null, permissions: [] })).driver, null);
   }],
   ['home exposes V3-D expense and approval only to eligible internal drivers', () => {
-    const user = { permissions: ['task:view', 'tire:request:create', 'salary:mine', 'approval:create'] };
+    const user = { permissions: ['PAGE_MINI_TIRE_REQUEST', 'PAGE_MINI_EXPENSE_APPLY', 'PAGE_MINI_ROUTES', 'BUTTON_MINI_TIRE_REQUEST_SUBMIT', 'PAGE_MINI_SALARY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((card) => card.key),
       ['routes', 'expense', 'approval', 'salary']);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((card) => card.key),
       ['routes']);
   }],
   ['tire request requires internal driver, current company vehicle and permissions', () => {
-    const user = { permissions: ['task:view', 'approval:create', 'approval:history:view', 'salary:mine', 'tire:request:create'] };
+    const user = { permissions: ['PAGE_MINI_EXPENSE_APPLY', 'PAGE_MINI_TIRE_REQUEST', 'PAGE_MINI_ROUTES', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT', 'PAGE_MINI_APPROVALS', 'PAGE_MINI_SALARY', 'BUTTON_MINI_TIRE_REQUEST_SUBMIT'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((item) => item.key),
       ['routes', 'expense', 'approval', 'salary']);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL', currentVehicleId: 7 }).map((item) => item.key),
       ['routes', 'expense', 'approval', 'salary', 'tire']);
-    assert.equal(visibleHomeActions({ permissions: ['tire:request:create'] },
+    assert.equal(visibleHomeActions({ permissions: ['PAGE_MINI_TIRE_REQUEST', 'BUTTON_MINI_TIRE_REQUEST_SUBMIT'] },
       { driverType: 'INTERNAL', currentVehicleId: 7 }).some((item) => item.key === 'tire'), true);
     assert.equal(visibleHomeActions(user, { driverType: 'INTERNAL' }, []).some((item) => item.key === 'launchApproval'), false);
     assert.deepEqual(visibleHomeActions(user, { driverType: 'OUTSOURCED' }, [{}]).map((item) => item.key), ['routes']);
@@ -84,7 +84,7 @@ module.exports = [
     const source = fs.readFileSync(path.join(__dirname, '../pages/route-detail/index.js'), 'utf8');
     assert.match(source, /onShow\(\).*this\.load\(\)/);
     assert.match(source, /this\.data\.busy \|\| this\.data\.confirming/);
-    assert.match(source, /hasPermission\(user, 'task:depart'\)/);
+    assert.match(source, /hasPermission\(user, 'BUTTON_MINI_ROUTES_DEPART'\)/);
     assert.match(source, /route\.loadingPlace/);
     assert.match(source, /route\.unloadingPlace/);
   }]

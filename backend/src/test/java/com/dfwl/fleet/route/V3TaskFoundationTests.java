@@ -1,5 +1,7 @@
 package com.dfwl.fleet.route;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -9,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.master.repository.MasterDataRepository;
+import com.dfwl.fleet.master.service.MasterDataService;
+import com.dfwl.fleet.master.dto.request.DriverRequest;
 import com.dfwl.fleet.route.dto.request.DispatchBatchRequest;
 import com.dfwl.fleet.route.dto.request.DispatchConfirmRequest;
 import com.dfwl.fleet.route.dto.request.RouteTemplateRequest;
@@ -32,6 +36,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,11 +64,15 @@ class V3TaskFoundationTests {
     @Autowired SalaryLedgerService salaryLedger;
     @Autowired MonthlyOperationsService monthlyOperations;
     @Autowired MasterDataRepository masterData;
+    @Autowired MasterDataService masterService;
     @Autowired MockMvc mvc;
     @Autowired TokenAuthenticationService tokens;
 
     @BeforeEach
     void setup() {
+        long driverRole = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='DRIVER'", Long.class);
+        jdbc.update("MERGE INTO sys_user(id,phone,password_hash,role_id,status) KEY(id) VALUES(501,'13911111111','test-only',?,1)", driverRole);
+        jdbc.update("MERGE INTO sys_user(id,phone,password_hash,role_id,status) KEY(id) VALUES(502,'13922222222','test-only',?,1)", driverRole);
         for (String table : List.of("task_unload_evidence", "task_weight_version", "departure_event",
                 "task_command_request", "participant_salary_history", "transport_participant",
                 "task_status_history", "task_amount_history", "dispatch_batch_row", "transport_task",
@@ -71,12 +82,12 @@ class V3TaskFoundationTests {
         }
         jdbc.update("INSERT INTO product (id, name, enabled) VALUES (1, '砂石', 1)");
         jdbc.update("""
-                INSERT INTO vehicle (id, plate_no, insurance_complete, energy_type, max_load,
+                INSERT INTO vehicle (id, plate_no, vehicle_license_no, insurance_complete, energy_type, max_load,
                     load_standard_type, load_standard_percent, status)
-                VALUES (10, '云A001', 1, 'ELECTRIC', 30, 'PERCENT', 0.9000, 1)
+                VALUES (10, '云A001', 'TEST-VL-010', 1, 'ELECTRIC', 30, 'PERCENT', 0.9000, 1)
                 """);
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) VALUES (11, 501, 'INTERNAL', '自有司机', '13911111111', 1)");
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (11, 501, 'INTERNAL', '自有司机', '13911111111', '110105199001010117', 'TEST-DL-011', 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', '110105199001010125', 'TEST-DL-012', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (11, 10, CURRENT_TIMESTAMP, 1)");
         templates.create(new RouteTemplateRequest("TEMP-001", "昆明至曲靖", "昆明客户", 1L,
                 "昆明", "曲靖", money("100.00"), money("20.00"), money("30.00"), null, null), 1);
@@ -110,6 +121,106 @@ class V3TaskFoundationTests {
     }
 
     @Test
+    void currentPublishedDriverCannotBeDisabledButCompletedAndCancelledDoNotBlock() {
+        DispatchBatchRequest request = batch(false);
+        long taskId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "disable-block", request), 1).rows().getFirst().taskId();
+        DriverRequest disabled = new DriverRequest("INTERNAL", "自有司机", "13911111111",
+                "TEST-DL-011", "110105199001010117", 0);
+        assertThatThrownBy(() -> masterService.updateDriver(11, disabled, 1))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("1 条未完成运输任务");
+        assertThat(jdbc.queryForObject("SELECT status FROM driver WHERE id=11", Integer.class)).isEqualTo(1);
+        jdbc.update("UPDATE transport_task SET status='COMPLETED' WHERE id=?", taskId);
+        assertThat(masterService.updateDriver(11, disabled, 1).status()).isZero();
+        assertThat(dispatch.preview(request, 1).valid()).isFalse();
+        masterService.updateDriver(11, new DriverRequest("INTERNAL", "自有司机", "13911111111",
+                "TEST-DL-011", "110105199001010117", 1), 1);
+        assertThat(dispatch.preview(request, 1).valid()).isTrue();
+    }
+
+    @Test
+    void currentOutsourcedDriverIsBlockedButHistoricalTransferredDriverIsNot() {
+        DispatchBatchRequest request = batch(true);
+        long taskId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "disable-outsource", request), 1).rows().getFirst().taskId();
+        DriverRequest disabled = new DriverRequest("OUTSOURCED", "外协司机", "13922222222",
+                "TEST-DL-012", "110105199001010125", 0);
+        assertThatThrownBy(() -> masterService.updateDriver(12, disabled, 1))
+                .isInstanceOf(BusinessException.class);
+        jdbc.update("UPDATE transport_participant SET is_current=0,status='TRANSFERRED' WHERE task_id=?", taskId);
+        jdbc.update("""
+                INSERT INTO transport_participant(task_id,sequence_no,driver_id,driver_type_snapshot,
+                    company_vehicle_id,vehicle_plate_snapshot,source_type,status,is_current,assigned_at,salary_amount,created_by)
+                VALUES(?,2,11,'INTERNAL',10,'云A001','TRANSFER','ASSIGNED',1,CURRENT_TIMESTAMP,0,1)
+                """, taskId);
+        Long current = jdbc.queryForObject("SELECT id FROM transport_participant WHERE task_id=? AND sequence_no=2",
+                Long.class, taskId);
+        jdbc.update("UPDATE transport_task SET current_participant_id=?,status='TRANSFER_PENDING' WHERE id=?", current, taskId);
+        assertThat(masterService.updateDriver(12, disabled, 1).status()).isZero();
+    }
+
+    @Test
+    void disablingAndPublishingTheSameDriverCannotBothSucceed() throws Exception {
+        DispatchBatchRequest request = batch(false);
+        var preview = dispatch.preview(request, 1);
+        var confirm = new DispatchConfirmRequest(preview.previewId(), "disable-publish-race", request);
+        var disabled = new DriverRequest("INTERNAL", "自有司机", "13911111111",
+                "TEST-DL-011", "110105199001010117", 0);
+        var gate = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var publish = workers.submit(() -> {
+                gate.await();
+                try { dispatch.confirm(confirm, 1); return true; }
+                catch (RuntimeException ex) { return false; }
+            });
+            var disable = workers.submit(() -> {
+                gate.await();
+                try { masterService.updateDriver(11, disabled, 1); return true; }
+                catch (RuntimeException ex) { return false; }
+            });
+            gate.countDown();
+            boolean published = publish.get(10, TimeUnit.SECONDS);
+            boolean turnedOff = disable.get(10, TimeUnit.SECONDS);
+            assertThat(published && turnedOff).isFalse();
+            assertThat(published || turnedOff).isTrue();
+            if (published) {
+                assertThat(jdbc.queryForObject("SELECT status FROM driver WHERE id=11", Integer.class)).isEqualTo(1);
+            } else {
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isZero();
+            }
+        }
+    }
+
+    @Test
+    void disablingAndDepartingAClosedAllocationKeepsDriverActive() throws Exception {
+        DispatchBatchRequest request = batch(false);
+        long taskId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "disable-depart-race", request), 1).rows().getFirst().taskId();
+        var disabled = new DriverRequest("INTERNAL", "自有司机", "13911111111",
+                "TEST-DL-011", "110105199001010117", 0);
+        var driver = new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机",
+                grants("PAGE_ROUTES", "BUTTON_MINI_ROUTES_DEPART"));
+        int version = tasks.find(taskId).version();
+        var gate = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var departure = workers.submit(() -> {
+                gate.await();
+                return tasks.depart(taskId, new TaskDepartRequest("race-depart", version), driver);
+            });
+            var disable = workers.submit(() -> {
+                gate.await();
+                try { masterService.updateDriver(11, disabled, 1); return true; }
+                catch (BusinessException ex) { return false; }
+            });
+            gate.countDown();
+            assertThat(departure.get(10, TimeUnit.SECONDS).status()).isEqualTo("IN_TRANSIT");
+            assertThat(disable.get(10, TimeUnit.SECONDS)).isFalse();
+            assertThat(jdbc.queryForObject("SELECT status FROM driver WHERE id=11", Integer.class)).isEqualTo(1);
+        }
+    }
+
+    @Test
     void invalidRowAbortsWholeBatchAndOutsourcedRequiresRealPlate() {
         DispatchBatchRequest valid = batch(false);
         DispatchBatchRequest all = new DispatchBatchRequest(valid.businessDate(), List.of(valid.rows().getFirst(),
@@ -140,7 +251,7 @@ class V3TaskFoundationTests {
         long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(), "trip-1", request), 1)
                 .rows().getFirst().taskId();
         AuthenticatedUser driver = new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机",
-                Set.of("task:view", "task:depart", "task:unload"));
+                grants("PAGE_ROUTES", "BUTTON_MINI_ROUTES_DEPART", "BUTTON_MINI_ROUTES_UNLOAD"));
         var departed = tasks.depart(id, new TaskDepartRequest("depart-1", tasks.find(id).version()), driver);
         assertThat(departed.status()).isEqualTo("IN_TRANSIT");
         assertThat(masterData.hasInTransitDriverOrVehicle(11, 10)).isTrue();
@@ -243,10 +354,10 @@ class V3TaskFoundationTests {
         DispatchBatchRequest request = batch(false);
         long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
                 "driver-api", request), 1).rows().getFirst().taskId();
-        String driverToken = tokens.issueToken(new AuthenticatedUser(501L, "13911111111", 2L,
-                "DRIVER", "司机", Set.of("task:view", "salary:mine")));
-        String otherToken = tokens.issueToken(new AuthenticatedUser(502L, "13922222222", 2L,
-                "DRIVER", "司机", Set.of("task:view", "salary:mine")));
+        String driverToken = tokens.issueToken(new AuthenticatedUser(501L, "13911111111", driverRoleId(),
+                "DRIVER", "司机", grants("PAGE_MINI_ROUTES", "PAGE_MINI_SALARY")));
+        String otherToken = tokens.issueToken(new AuthenticatedUser(502L, "13922222222", driverRoleId(),
+                "DRIVER", "司机", grants("PAGE_MINI_ROUTES", "PAGE_MINI_SALARY")));
         mvc.perform(get("/api/v1/driver/transport-tasks/" + id).header("Authorization", "Bearer " + driverToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.taskNo").exists())
@@ -298,9 +409,9 @@ class V3TaskFoundationTests {
             assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(2);
             assertThat(book.getSheetAt(0).getRow(2).getCell(6).getStringCellValue()).isEqualTo("外协司机");
         }
-        String driverToken = tokens.issueToken(new AuthenticatedUser(501L, "13911111111", 2L,
-                "DRIVER", "司机", Set.of("salary:view", "salary:export", "attendance:view",
-                        "attendance:export", "dispatch:ledger:view", "dispatch:ledger:export")));
+        String driverToken = tokens.issueToken(new AuthenticatedUser(501L, "13911111111", driverRoleId(),
+                "DRIVER", "司机", grants("PAGE_SALARIES", "BUTTON_SALARIES_EXPORT", "PAGE_ATTENDANCE",
+                        "BUTTON_ATTENDANCE_EXPORT", "PAGE_DISPATCH_INTERNAL", "BUTTON_DISPATCH_INTERNAL_EXPORT")));
         for (String path : List.of("/api/v1/driver-salaries?month=2026-09", "/api/v1/attendance?month=2026-09",
                 "/api/v1/dispatch-ledger/internal?month=2026-09",
                 "/api/v1/driver-salaries/export?month=2026-09",
@@ -424,7 +535,7 @@ class V3TaskFoundationTests {
                 """, firstTask);
         tasks.unload(firstTask, new TaskUnloadRequest(money("30"), money("5"), List.of(121L), "same-car-unload"), firstDriver);
         jdbc.update("DELETE FROM driver_vehicle_current WHERE driver_id=11");
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) VALUES (13, 503, 'INTERNAL', '第二司机', '13933333333', 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (13, 503, 'INTERNAL', '第二司机', '13933333333', '110105199001010133', 'TEST-DL-013', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (13, 10, CURRENT_TIMESTAMP, 1)");
         var second = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
                 new DispatchBatchRequest.Row("TEMP-001", 13L, null, null, null, null, null)));
@@ -449,6 +560,10 @@ class V3TaskFoundationTests {
                 new DispatchBatchRequest.Row("TEMP-001", outsourced ? 12L : 11L,
                         outsourced ? "外协A001" : null, null, null,
                         outsourced ? money("0.00") : null, null)));
+    }
+
+    private long driverRoleId() {
+        return jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='DRIVER'", Long.class);
     }
 
     private BigDecimal money(String value) { return new BigDecimal(value); }

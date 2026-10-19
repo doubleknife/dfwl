@@ -41,7 +41,7 @@ authStore.login = async (form) => {
   authStore.loading = true;
   authStore.error = '';
   try {
-    const data = await apiClient.post('/auth/login', form);
+    const data = await apiClient.post('/auth/login', { ...form, terminal: 'WEB' });
     setSession(data);
   } catch (error) {
     authStore.error = error.message;
@@ -51,8 +51,19 @@ authStore.login = async (form) => {
   }
 };
 
-authStore.logout = () => {
-  clearSession();
+authStore.logout = async () => {
+  let serverRevoked = !authStore.token;
+  try {
+    if (authStore.token) {
+      await apiClient.post('/auth/logout');
+      serverRevoked = true;
+    }
+  } catch {
+    // The API client shows the business error. The local credential must still be cleared.
+  } finally {
+    clearSession();
+    if (!serverRevoked) sessionStorage.setItem('admin.loginNotice', '本机已退出，服务端会话撤销未确认');
+  }
 };
 
 authStore.loadMe = async () => {

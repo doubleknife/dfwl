@@ -1,0 +1,13 @@
+@import "../../design/tokens.wxss";
+.password-page { min-height: 100vh; box-sizing: border-box; background: #f4f8f7; color: #173b36; padding: 28rpx; }
+.password-heading { font-size: 38rpx; font-weight: 700; margin: 12rpx 0 8rpx; }
+.password-hint { color: #59716a; font-size: 26rpx; margin-bottom: 28rpx; }
+.password-card { background: #fff; border-radius: 24rpx; padding: 30rpx; }
+.password-field { margin-bottom: 28rpx; }
+.password-label { display: block; font-size: 27rpx; font-weight: 650; margin-bottom: 12rpx; }
+.password-input-row { min-height: 88rpx; border-radius: 15rpx; background: #f4f8f7; display: flex; align-items: center; padding: 0 20rpx; }
+.password-input { min-width: 0; flex: 1; font-size: 30rpx; }
+.password-visibility { color: #14796b; font-size: 26rpx; padding: 18rpx 4rpx 18rpx 20rpx; }
+.password-error { display: block; color: #a04436; font-size: 25rpx; margin-top: 8rpx; }
+.password-api-error { color: #a04436; background: #fff2f0; border-radius: 12rpx; padding: 18rpx; font-size: 26rpx; margin-bottom: 20rpx; }
+.password-submit { min-height: 90rpx; border-radius: 16rpx; color: #fff; background: #147568; margin-top: 8rpx; }

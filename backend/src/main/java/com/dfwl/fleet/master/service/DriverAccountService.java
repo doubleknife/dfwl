@@ -30,6 +30,9 @@ public class DriverAccountService {
     /** An existing DRIVER user is linked without changing its password; a new user needs an explicit password. */
     @Transactional
     public long createOrLink(long driverId, String initialPassword, long operatorId) {
+        if (!StringUtils.hasText(initialPassword) || initialPassword.length() < 6) {
+            throw new BusinessException("SYS_002", "司机初始密码至少 6 位");
+        }
         drivers.lockDriver(driverId);
         DriverResponse driver = drivers.findDriver(driverId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DATA_001));

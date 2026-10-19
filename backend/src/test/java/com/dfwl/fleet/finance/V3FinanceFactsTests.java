@@ -36,12 +36,12 @@ class V3FinanceFactsTests {
                 "task_weight_version","transport_participant","transport_task","route_template",
                 "vehicle","driver","sys_user","product")) jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO sys_user(id,phone,password_hash,role_id,status) VALUES(1,'13900000001','HASH',2,1)");
-        jdbc.update("INSERT INTO driver(id,user_id,driver_type,name,phone,status) "
-                + "VALUES(1,1,'INTERNAL','司机甲','13900000001',1)");
-        jdbc.update("INSERT INTO vehicle(id,plate_no,insurance_complete,energy_type,max_load,load_standard_type,load_standard_percent,status) "
-                + "VALUES(1,'云A001',1,'ELECTRIC',30,'PERCENT',0.9,1),"
-                + "(2,'云A002',1,'ELECTRIC',30,'PERCENT',0.9,1),"
-                + "(3,'云A003',1,'ELECTRIC',30,'PERCENT',0.9,1)");
+        jdbc.update("INSERT INTO driver(id,user_id,driver_type,name,phone,id_card_no,driving_license_no,status) "
+                + "VALUES(1,1,'INTERNAL','司机甲','13900000001','110105199001010010','TEST-DL-001',1)");
+        jdbc.update("INSERT INTO vehicle(id,plate_no,vehicle_license_no,insurance_complete,energy_type,max_load,load_standard_type,load_standard_percent,status) "
+                + "VALUES(1,'云A001','TEST-VL-001',1,'ELECTRIC',30,'PERCENT',0.9,1),"
+                + "(2,'云A002','TEST-VL-002',1,'ELECTRIC',30,'PERCENT',0.9,1),"
+                + "(3,'云A003','TEST-VL-003',1,'ELECTRIC',30,'PERCENT',0.9,1)");
         jdbc.update("INSERT INTO product(id,name) VALUES(1,'货物')");
         jdbc.update("""
                 INSERT INTO route_template(id,stable_code,name,customer_name,product_id,loading_place,
@@ -127,6 +127,20 @@ class V3FinanceFactsTests {
             assertThat(sheet.getLastRowNum()).isEqualTo(2);
             assertThat(sheet.getRow(0).getCell(0).getStringCellValue()).isEqualTo("日期");
         }
+    }
+
+    @Test void pendingAttributionCountUsesAllActiveUnboundExpensesAcrossMonthsAndPages() {
+        var pending = new ExpenseLedgerService.Filter(null, null, null, null,
+                null, false, null, null, "ACTIVE");
+        assertThat(ledger.list(pending, 1, 1).total()).isEqualTo(2);
+        assertThat(((Number) ledger.summary(pending).get("entry_count")).longValue()).isEqualTo(2);
+        jdbc.update("UPDATE expense_entry SET business_date=DATE '2026-09-30' WHERE id=3");
+        assertThat(((Number) ledger.summary(pending).get("entry_count")).longValue()).isEqualTo(2);
+        jdbc.update("UPDATE expense_entry SET current_task_id=1 WHERE id=2");
+        assertThat(((Number) ledger.summary(pending).get("entry_count")).longValue()).isEqualTo(1);
+        ledger.reverse(3, new ExpenseLedgerService.Reversal("测试冲销", "pending-count-reversal"), 1);
+        assertThat(((Number) ledger.summary(pending).get("entry_count")).longValue()).isZero();
+        assertThat(ledger.list(pending, 1, 1).total()).isZero();
     }
 
     @Test void settlementVersionsAreImmutableAndExplainChangedFacts() {

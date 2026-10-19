@@ -8,8 +8,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dfwl.fleet.common.web.RequestIdHolder;
+import com.dfwl.fleet.auth.repository.UserAccountRepository;
+import com.dfwl.fleet.security.AuthSessionRepository;
+import com.dfwl.fleet.security.TokenAuthenticationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.HexFormat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,8 +52,21 @@ class AuthApiTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private UserAccountRepository accounts;
+
+    @Autowired
+    private AuthSessionRepository storedSessions;
+
+    @Autowired
+    private com.dfwl.fleet.system.service.SystemManagementService management;
+
+    @Autowired
+    private com.dfwl.fleet.auth.service.AuthService authService;
+
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM auth_session");
         jdbcTemplate.update("DELETE FROM sys_role_permission");
         jdbcTemplate.update("DELETE FROM sys_permission");
         jdbcTemplate.update("DELETE FROM sys_user");
@@ -56,9 +76,10 @@ class AuthApiTests {
         jdbcTemplate.update("INSERT INTO sys_role (id, role_code, role_name) VALUES (2, 'viewer', '查看员')");
         jdbcTemplate.update("""
                 INSERT INTO sys_permission (id, permission_code, permission_name, permission_type)
-                VALUES (1, 'user:manage', '用户管理', 'API')
+                VALUES (1, 'PAGE_USERS', '用户管理', 'PAGE'),
+                       (2, 'BUTTON_USERS_RESET_PASSWORD', '重置用户密码', 'BUTTON')
                 """);
-        jdbcTemplate.update("INSERT INTO sys_role_permission (role_id, permission_id) VALUES (1, 1)");
+        jdbcTemplate.update("INSERT INTO sys_role_permission (role_id, permission_id) VALUES (1, 1), (1, 2)");
         jdbcTemplate.update("""
                 INSERT INTO sys_user (id, phone, password_hash, role_id, status)
                 VALUES (1, '13800000000', ?, 1, 1)
@@ -83,7 +104,7 @@ class AuthApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.phone").value("13800000000"))
                 .andExpect(jsonPath("$.data.role.code").value("admin"))
-                .andExpect(jsonPath("$.data.permissions[0]").value("user:manage"));
+                .andExpect(jsonPath("$.data.permissions").isArray());
 
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header("Authorization", "Bearer " + token))
@@ -92,6 +113,66 @@ class AuthApiTests {
         mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("SYS_004"));
+    }
+
+    @Test
+    void sessionsSurviveServiceRestartAndStoreOnlyUniqueDigests() throws Exception {
+        String web = login("13800000000", "oldPass", "WEB");
+        String mini = login("13800000000", "oldPass", "MINI");
+        assertThat(web).isNotEqualTo(mini);
+        String webDigest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(web.getBytes(StandardCharsets.UTF_8)));
+        assertThat(jdbcTemplate.queryForObject("SELECT token_hash FROM auth_session WHERE terminal='WEB'", String.class))
+                .isEqualTo(webDigest).doesNotContain(web);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(DISTINCT token_hash) FROM auth_session", Integer.class))
+                .isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT DATEDIFF('DAY', issued_at, expires_at) FROM auth_session WHERE terminal='WEB'", Integer.class))
+                .isEqualTo(7);
+        assertThat(jdbcTemplate.queryForObject("SELECT DATEDIFF('DAY', issued_at, expires_at) FROM auth_session WHERE terminal='MINI'", Integer.class))
+                .isEqualTo(30);
+
+        TokenAuthenticationService restarted = new TokenAuthenticationService(accounts, storedSessions);
+        assertThat(restarted.authenticate(web)).isPresent();
+        assertThat(restarted.authenticate(mini)).isPresent();
+        restarted.revokeToken(web);
+        assertThat(new TokenAuthenticationService(accounts, storedSessions).authenticate(web)).isEmpty();
+        assertThat(new TokenAuthenticationService(accounts, storedSessions).authenticate(mini)).isPresent();
+    }
+
+    @Test
+    void expiredOrDisabledSessionsCannotBeRecoveredAfterRestart() throws Exception {
+        String token = login("13900000000", "viewerPass", "MINI");
+        jdbcTemplate.update("UPDATE auth_session SET expires_at=?", java.sql.Timestamp.from(Instant.now().minusSeconds(1)));
+        assertThat(new TokenAuthenticationService(accounts, storedSessions).authenticate(token)).isEmpty();
+
+        jdbcTemplate.update("DELETE FROM auth_session");
+        String next = login("13900000000", "viewerPass", "WEB");
+        jdbcTemplate.update("UPDATE sys_user SET status=0 WHERE id=2");
+        assertThat(new TokenAuthenticationService(accounts, storedSessions).authenticate(next)).isEmpty();
+    }
+
+    @Test
+    void disablingRoleRevokesAllItsTerminalSessions() throws Exception {
+        String web = login("13900000000", "viewerPass", "WEB");
+        String mini = login("13900000000", "viewerPass", "MINI");
+        management.updateRoleStatus(2L, 0);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM auth_session WHERE user_id=2 AND revoked_at IS NOT NULL", Integer.class))
+                .isEqualTo(2);
+        for (String token : new String[]{web, mini})
+            mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + token))
+                    .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void disablingUserRevokesOnlyThatUsersSessions() throws Exception {
+        String viewer = login("13900000000", "viewerPass");
+        String admin = login("13800000000", "oldPass");
+        authService.updateStatus(2L, new com.dfwl.fleet.auth.dto.request.UpdateUserStatusRequest(0));
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + viewer))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + admin))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -147,11 +228,15 @@ class AuthApiTests {
     }
 
     private String login(String phone, String password) throws Exception {
+        return login(phone, password, "WEB");
+    }
+
+    private String login(String phone, String password, String terminal) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"phone":"%s","password":"%s"}
-                                """.formatted(phone, password)))
+                                {"phone":"%s","password":"%s","terminal":"%s"}
+                                """.formatted(phone, password, terminal)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
                 .andReturn();

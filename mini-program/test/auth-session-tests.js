@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { request, uploadFile } = require('../utils/request');
 
-async function sessionScenario(kind, stale) {
+async function sessionScenario(kind, stale, url = '/me') {
   const previousWx = global.wx;
   const previousGetApp = global.getApp;
   const calls = { clear: 0, redirect: 0 };
@@ -21,7 +21,7 @@ async function sessionScenario(kind, stale) {
   try {
     const pending = kind === 'upload'
       ? uploadFile({ url: '/attachments', filePath: 'photo.jpg' })
-      : request({ url: '/me' });
+      : request({ url });
     if (stale) app.globalData.token = 'new-token';
     respond({ statusCode: 401, data: kind === 'upload' ? '{}' : {} });
     await assert.rejects(pending, (error) => error.statusCode === 401);
@@ -83,11 +83,52 @@ async function loginPageErrorScenario() {
   }
 }
 
+async function profileLogoutScenario(shouldFail) {
+  const requestModule = require('../utils/request');
+  const originalRequest = requestModule.request;
+  const originalPage = global.Page;
+  const originalWx = global.wx;
+  const originalGetApp = global.getApp;
+  const pagePath = require.resolve('../pages/profile/index.js');
+  let definition;
+  const calls = { revoke: 0, clear: 0, redirect: 0, warning: 0 };
+  requestModule.request = async (options) => {
+    assert.deepEqual(options, { url: '/auth/logout', method: 'POST' });
+    calls.revoke += 1;
+    if (shouldFail) throw new Error('network');
+  };
+  global.Page = (value) => { definition = value; };
+  global.getApp = () => ({ clearSession() { calls.clear += 1; } });
+  global.wx = {
+    showModal(options) {
+      if (options.title === '退出登录') options.success({ confirm: true });
+      else { calls.warning += 1; options.complete(); }
+    },
+    redirectTo() { calls.redirect += 1; }
+  };
+  try {
+    delete require.cache[pagePath];
+    require(pagePath);
+    definition.logout();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls, { revoke: 1, clear: 1, redirect: 1, warning: shouldFail ? 1 : 0 });
+  } finally {
+    requestModule.request = originalRequest;
+    global.Page = originalPage;
+    global.wx = originalWx;
+    global.getApp = originalGetApp;
+    delete require.cache[pagePath];
+  }
+}
+
 module.exports = [
   ['stale 401 cannot clear a newly logged-in session', () => sessionScenario('request', true)],
   ['current session 401 still requires login', () => sessionScenario('request', false)],
+  ['expired password session requires login', () => sessionScenario('request', false, '/auth/password')],
   ['stale upload 401 cannot clear a newly logged-in session', () => sessionScenario('upload', true)],
   ['current session upload 401 still requires login', () => sessionScenario('upload', false)],
   ['login 401 stays on the login page and explains the failure', failedLoginScenario],
-  ['login page displays authentication failure and resets loading', loginPageErrorScenario]
+  ['login page displays authentication failure and resets loading', loginPageErrorScenario],
+  ['mini logout revokes the server session', () => profileLogoutScenario(false)],
+  ['mini logout clears local credentials and reports failed revocation', () => profileLogoutScenario(true)]
 ];

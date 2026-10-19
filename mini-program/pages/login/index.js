@@ -11,7 +11,7 @@ Page({
       const data = await request({
         url: '/auth/login',
         method: 'POST',
-        data: { phone: this.data.phone, password: this.data.password }
+        data: { phone: this.data.phone, password: this.data.password, terminal: 'MINI' }
       });
       getApp().setSession(data.accessToken, data.user);
       wx.redirectTo({ url: '/pages/home/index' });

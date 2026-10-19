@@ -13,11 +13,13 @@ Page({
     this.setData({ loading: true, error: '' });
     try {
       const user = await request({ url: '/me' });
-      if (user.driverType === 'OUTSOURCED' || !['approval:create', 'approval:process', 'approval:return']
+      if (user.driverType === 'OUTSOURCED' || !['BUTTON_MINI_EXPENSE_APPLY_SUBMIT', 'BUTTON_MINI_APPROVALS_APPROVE', 'BUTTON_MINI_APPROVALS_RETURN']
         .some((code) => hasPermission(user, code))) {
         this.setData({ error: '当前账号无审批权限', rows: [], user }); return;
       }
-      this.setData({ user, canTodo: hasPermission(user, 'approval:process') || hasPermission(user, 'approval:return') });
+      this.setData({ user, canTodo: hasPermission(user, 'BUTTON_MINI_APPROVALS_APPROVE') || hasPermission(user, 'BUTTON_MINI_APPROVALS_RETURN') });
+      if (!user.driverId && (hasPermission(user, 'BUTTON_MINI_APPROVALS_APPROVE') || hasPermission(user, 'BUTTON_MINI_APPROVALS_RETURN'))
+        && !this._scopeChosen) this.setData({ scope: 'TODO' });
       await this.load();
     } catch (error) { this.setData({ error: error.message || '审批中心加载失败' }); }
     finally { this.setData({ loading: false }); }
@@ -35,6 +37,7 @@ Page({
   },
   changeScope(e) {
     const scope = e.currentTarget.dataset.scope;
+    this._scopeChosen = true;
     this.setData({ scope, rows: [], detail: null, pageNo: 1 }); this.load();
   },
   more() { if (this.data.hasMore && !this.data.loading) this.load(this.data.pageNo + 1); },
@@ -54,11 +57,11 @@ Page({
         .map((entry) => ({ id: entry.attachmentId, path: '', error: '' }));
       this.setData({ detail: { ...result, statusLabel: labels[approval.status] || approval.status,
         businessLabel: labels[approval.business_type] || approval.template_name, task,
-        canProcess: task && Number(task.approver_user_id) === Number(this.data.user.id),
-        canApprove: task && Number(task.approver_user_id) === Number(this.data.user.id)
-          && hasPermission(this.data.user, 'approval:process'),
-        canReturn: task && Number(task.approver_user_id) === Number(this.data.user.id)
-          && hasPermission(this.data.user, 'approval:return'),
+        canProcess: !!task && (result.canProcess || result.canReturn),
+        canApprove: !!task && !!result.canProcess
+          && hasPermission(this.data.user, 'BUTTON_MINI_APPROVALS_APPROVE'),
+        canReturn: !!task && !!result.canReturn
+          && hasPermission(this.data.user, 'BUTTON_MINI_APPROVALS_RETURN'),
         canResubmitExpense: approval.status === 'RETURNED_TO_APPLICANT'
           && approval.business_type === 'EXPENSE'
           && Number(approval.applicant_user_id) === Number(this.data.user.id)

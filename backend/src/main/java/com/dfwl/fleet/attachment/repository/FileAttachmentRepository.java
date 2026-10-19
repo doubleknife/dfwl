@@ -22,6 +22,16 @@ public class FileAttachmentRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public boolean canCreateTireRequest(long userId, String phone) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM driver d
+                JOIN driver_vehicle_current binding ON binding.driver_id=d.id
+                WHERE (d.user_id=? OR (d.user_id IS NULL AND d.phone=?))
+                  AND d.driver_type='INTERNAL' AND d.status=1 AND d.deleted_at IS NULL
+                """, Integer.class, userId, phone);
+        return count != null && count > 0;
+    }
+
     public List<FileAttachment> list(String ownerType, Long ownerId, String purpose) {
         return jdbcTemplate.query("""
                 SELECT id, owner_type, owner_id, purpose, storage_key, original_filename,
@@ -161,6 +171,13 @@ public class FileAttachmentRepository {
         return count != null && count == 1;
     }
 
+    public String importFileBusinessType(long importId, long attachmentId) {
+        return jdbcTemplate.query("""
+                SELECT business_type FROM import_task
+                WHERE id = ? AND source_attachment_id = ?
+                """, rs -> rs.next() ? rs.getString(1) : null, importId, attachmentId);
+    }
+
     public int bindImportFile(long attachmentId, long taskId, long operatorId) {
         return jdbcTemplate.update("""
                 UPDATE file_attachment
@@ -197,51 +214,63 @@ public class FileAttachmentRepository {
         return count != null && count > 0;
     }
 
-    public boolean canViewSubmissionEvidence(long attachmentId, long userId, boolean canViewAll) {
+    public boolean canViewSubmissionEvidence(long attachmentId, long userId, boolean canViewAll, boolean canApprove) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM approval_submission_attachment e
                 JOIN approval_submission_version s ON s.id = e.submission_version_id
                 JOIN approval_instance i ON i.id = s.instance_id
                 WHERE e.attachment_id = ? AND (
                     ? = 1 OR i.applicant_user_id = ? OR EXISTS (
-                        SELECT 1 FROM approval_task t
-                        WHERE t.instance_id = i.id AND t.approver_user_id = ?
+                        SELECT 1 FROM approval_task t JOIN approval_flow_node n ON n.id=t.node_id
+                        JOIN sys_user u ON u.id=? AND u.status=1 AND u.role_id=n.approver_role_id
+                        JOIN sys_role r ON r.id=u.role_id AND r.status=1
+                        WHERE t.instance_id=i.id AND t.status='PENDING' AND t.invalidated=0
+                          AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                          AND ?=1
                     ) OR EXISTS (
                         SELECT 1 FROM approval_action a JOIN approval_task t ON t.id = a.task_id
                         WHERE t.instance_id = i.id AND a.operator_id = ?
                     )
                 )
-                """, Integer.class, attachmentId, canViewAll ? 1 : 0, userId, userId, userId);
+                """, Integer.class, attachmentId, canViewAll ? 1 : 0, userId, userId, canApprove ? 1 : 0, userId);
         return count != null && count > 0;
     }
 
-    public boolean canViewApprovalInstance(long instanceId, long userId, boolean canViewAll) {
+    public boolean canViewApprovalInstance(long instanceId, long userId, boolean canViewAll, boolean canApprove) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM approval_instance i
                 WHERE i.id = ? AND (? = 1 OR i.applicant_user_id = ? OR EXISTS (
-                    SELECT 1 FROM approval_task t
-                    WHERE t.instance_id = i.id AND t.approver_user_id = ?
+                    SELECT 1 FROM approval_task t JOIN approval_flow_node n ON n.id=t.node_id
+                    JOIN sys_user u ON u.id=? AND u.status=1 AND u.role_id=n.approver_role_id
+                    JOIN sys_role r ON r.id=u.role_id AND r.status=1
+                    WHERE t.instance_id=i.id AND t.status='PENDING' AND t.invalidated=0
+                      AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                      AND ?=1
                 ) OR EXISTS (
                     SELECT 1 FROM approval_action a JOIN approval_task t ON t.id = a.task_id
                     WHERE t.instance_id = i.id AND a.operator_id = ?
                 ))
-                """, Integer.class, instanceId, canViewAll ? 1 : 0, userId, userId, userId);
+                """, Integer.class, instanceId, canViewAll ? 1 : 0, userId, userId, canApprove ? 1 : 0, userId);
         return count != null && count > 0;
     }
 
-    public boolean canViewApprovalAction(long actionId, long userId, boolean canViewAll) {
+    public boolean canViewApprovalAction(long actionId, long userId, boolean canViewAll, boolean canApprove) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM approval_action a
                 JOIN approval_task t ON t.id = a.task_id
                 JOIN approval_instance i ON i.id = t.instance_id
                 WHERE a.id = ? AND (? = 1 OR i.applicant_user_id = ? OR EXISTS (
-                    SELECT 1 FROM approval_task visible
-                    WHERE visible.instance_id = i.id AND visible.approver_user_id = ?
+                    SELECT 1 FROM approval_task visible JOIN approval_flow_node n ON n.id=visible.node_id
+                    JOIN sys_user u ON u.id=? AND u.status=1 AND u.role_id=n.approver_role_id
+                    JOIN sys_role r ON r.id=u.role_id AND r.status=1
+                    WHERE visible.instance_id=i.id AND visible.status='PENDING' AND visible.invalidated=0
+                      AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                      AND ?=1
                 ) OR EXISTS (
                     SELECT 1 FROM approval_action own JOIN approval_task task ON task.id = own.task_id
                     WHERE task.instance_id = i.id AND own.operator_id = ?
                 ))
-                """, Integer.class, actionId, canViewAll ? 1 : 0, userId, userId, userId);
+                """, Integer.class, actionId, canViewAll ? 1 : 0, userId, userId, canApprove ? 1 : 0, userId);
         return count != null && count > 0;
     }
 

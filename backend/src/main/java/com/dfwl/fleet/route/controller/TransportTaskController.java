@@ -19,7 +19,7 @@ import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,7 +41,7 @@ public class TransportTaskController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('task:view')")
+    @FunctionAccess(anyOf={"PAGE_ROUTES"})
     public ApiResponse<PageResponse<TransportTaskResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize,
@@ -54,7 +54,7 @@ public class TransportTaskController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('task:view')")
+    @FunctionAccess(anyOf={"PAGE_ROUTES"})
     public ApiResponse<TransportTaskResponse> find(@AuthenticationPrincipal AuthenticatedUser user,
                                                    @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -62,15 +62,17 @@ public class TransportTaskController {
     }
 
     @GetMapping("/{id}/participants")
-    @PreAuthorize("hasAnyAuthority('task:participants:view', 'salary:view')")
+    @FunctionAccess(anyOf={"PAGE_ROUTES", "PAGE_SALARIES", "PAGE_SALARY_TRANSFERS"})
     public ApiResponse<List<TransportParticipantResponse>> participants(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);
-        return ApiResponse.success(tasks.participants(id, user.permissions().contains("salary:view")), RequestIdHolder.get());
+        return ApiResponse.success(tasks.participants(id,
+                user.permissions().contains("PAGE_SALARIES") || user.permissions().contains("PAGE_SALARY_TRANSFERS")),
+                RequestIdHolder.get());
     }
 
     @GetMapping("/{id}/weight-versions")
-    @PreAuthorize("hasAuthority('task:weight:view')")
+    @FunctionAccess(anyOf={"PAGE_ROUTES"})
     public ApiResponse<List<TaskWeightVersionResponse>> weightVersions(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);
@@ -78,7 +80,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/participant-salaries/confirm")
-    @PreAuthorize("hasAuthority('salary:adjust')")
+    @FunctionAccess(anyOf={"BUTTON_SALARIES_ADJUST", "BUTTON_SALARY_TRANSFERS_ADJUST"})
     public ApiResponse<List<TransportParticipantResponse>> confirmParticipantSalaries(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
             @Valid @RequestBody TaskSalariesConfirmRequest request) {
@@ -88,7 +90,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/transfer")
-    @PreAuthorize("hasAuthority('task:transfer')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_TRANSFER"})
     public ApiResponse<TransportTaskResponse> transfer(@AuthenticationPrincipal AuthenticatedUser user,
                                                        @PathVariable long id,
                                                        @Valid @RequestBody TaskTransferRequest request) {
@@ -97,7 +99,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/depart")
-    @PreAuthorize("hasAuthority('task:depart')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_DEPART", "BUTTON_MINI_ROUTES_DEPART"})
     public ApiResponse<?> depart(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
                                  @Valid @RequestBody TaskDepartRequest request) {
         TransportTaskResponse result = tasks.depart(id, request, user);
@@ -105,7 +107,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/unload")
-    @PreAuthorize("hasAuthority('task:unload')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_UNLOAD", "BUTTON_MINI_ROUTES_UNLOAD"})
     public ApiResponse<?> unload(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
                                  @Valid @RequestBody TaskUnloadRequest request) {
         TransportTaskResponse result = tasks.unload(id, request, user);
@@ -113,7 +115,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/weight-adjustments")
-    @PreAuthorize("hasAuthority('task:weight:adjust')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_WEIGHT_ADJUST"})
     public ApiResponse<TransportTaskResponse> adjustWeight(@AuthenticationPrincipal AuthenticatedUser user,
                                                             @PathVariable long id,
                                                             @Valid @RequestBody TaskWeightAdjustmentRequest request) {
@@ -122,7 +124,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasAuthority('task:cancel')")
+    @FunctionAccess(anyOf={"BUTTON_ROUTES_CANCEL"})
     public ApiResponse<TransportTaskResponse> cancel(@AuthenticationPrincipal AuthenticatedUser user,
                                                      @PathVariable long id,
                                                      @Valid @RequestBody TaskCancelRequest request) {

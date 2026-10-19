@@ -1,13 +1,17 @@
 import { apiClient } from './client.js';
 
 export const masterApi = {
-  drivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers?pageNo=${pageNo}&pageSize=${pageSize}`),
+  drivers: (pageNo = 1, pageSize = 100, filters = {}) => apiClient.get(`/drivers?${query(filters, pageNo, pageSize)}`),
+  bindingDrivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers/binding-candidates?pageNo=${pageNo}&pageSize=${pageSize}`),
+  bindingVehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/vehicle-options?pageNo=${pageNo}&pageSize=${pageSize}`),
+  bindingTrailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/trailer-options?pageNo=${pageNo}&pageSize=${pageSize}`),
   driver: (id) => apiClient.get(`/drivers/${id}`),
   vehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=${pageSize}`),
   vehicle: (id) => apiClient.get(`/vehicles/${id}`),
   trailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/trailers?pageNo=${pageNo}&pageSize=${pageSize}`),
   products: (pageNo = 1, pageSize = 100) => apiClient.get(`/products?pageNo=${pageNo}&pageSize=${pageSize}`),
   createDriver: (body) => apiClient.post('/drivers', body),
+    updateDriver: (id, body) => apiClient.put(`/drivers/${id}`, body),
   createVehicle: (body) => apiClient.post('/vehicles', body),
   updateVehicle: (id, body) => apiClient.put(`/vehicles/${id}`, body),
   createTrailer: (body) => apiClient.post('/trailers', body),
@@ -51,6 +55,8 @@ export const routeTemplateApi = {
 };
 
 export const dispatchApi = {
+  driverOptions: (pageNo = 1, pageSize = 100) => apiClient.get(`/dispatch-batches/driver-options?pageNo=${pageNo}&pageSize=${pageSize}`),
+  vehicleOptions: (pageNo = 1, pageSize = 100) => apiClient.get(`/dispatch-batches/vehicle-options?pageNo=${pageNo}&pageSize=${pageSize}`),
   preview: (batch) => apiClient.post('/dispatch-batches/preview', batch),
   confirm: (body) => apiClient.post('/dispatch-batches/confirm', body),
   detail: (id) => apiClient.get(`/dispatch-batches/${id}`)
@@ -109,6 +115,7 @@ export const v3ApprovalApi = {
   publish: (id) => apiClient.post(`/approval-flows/${id}/publish`, {}),
   create: (body) => apiClient.post('/approvals', body),
   resubmit: (id, body) => apiClient.post(`/approvals/${id}/resubmit`, body),
+  withdraw: (id) => apiClient.post(`/approvals/${id}/withdraw`, {}),
   approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
   returnStep: (id, body) => apiClient.post(`/approvals/${id}/return-step`, body),
   returnApplicant: (id, body) => apiClient.post(`/approvals/${id}/return-applicant`, body),
@@ -177,6 +184,8 @@ export const dispatchLedgerApi = {
 export const v3ExpenseLedgerApi = {
   list: (filters, pageNo = 1) => apiClient.get(`/expense-ledger?${query(filters, pageNo, 20)}`),
   summary: (filters) => apiClient.get(`/expense-ledger/summary?${query(filters)}`),
+  pendingAttribution: (filters = {}, pageNo = 1) => apiClient.get(`/expense-ledger/pending-attribution?${query(filters, pageNo, 20)}`),
+  pendingAttributionSummary: (filters = {}) => apiClient.get(`/expense-ledger/pending-attribution/summary?${query(filters)}`),
   options: (kind, search = '', pageNo = 1, vehicleId = '') => apiClient.get(`/expense-ledger/filter-options?${query({ kind, search, vehicleId, pageNo })}`),
   detail: (id) => apiClient.get(`/expense-ledger/${id}`),
   attribute: (id, body) => apiClient.post(`/expense-ledger/${id}/attribution`, body),
@@ -219,6 +228,7 @@ export const v3SettlementApi = {
 
 export const systemApi = {
   me: () => apiClient.get('/me'),
+  changePassword: (body) => apiClient.put('/auth/password', body),
   users: (pageNo = 1, pageSize = 100) => apiClient.get(`/users?pageNo=${pageNo}&pageSize=${pageSize}`),
   createUser: (body) => apiClient.post('/users', body),
   updateUser: (id, body) => apiClient.put(`/users/${id}`, body),

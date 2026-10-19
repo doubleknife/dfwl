@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 public record RoleRequest(
-        @NotBlank String roleCode,
+        String roleCode,
         @NotBlank String roleName,
         @NotNull @Min(0) @Max(1) Integer status
 ) {

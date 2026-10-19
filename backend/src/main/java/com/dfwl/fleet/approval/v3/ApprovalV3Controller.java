@@ -13,7 +13,7 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.dfwl.fleet.security.FunctionAccess;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,103 +34,112 @@ public class ApprovalV3Controller {
     }
 
     @GetMapping("/api/v1/approval-templates")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"PAGE_APPROVALS_FLOWS"})
     public ApiResponse<List<Map<String, Object>>> templates(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.templates(user, true));
     }
     @GetMapping("/api/v1/approval-templates/available")
-    @PreAuthorize("hasAnyAuthority('approval:create','tire:request:create')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_APPLY", "PAGE_MINI_EXPENSE_APPLY", "PAGE_MINI_TIRE_REQUEST"})
     public ApiResponse<List<Map<String, Object>>> available(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.templates(user, false));
     }
     @GetMapping("/api/v1/approval-templates/options")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"PAGE_APPROVALS_FLOWS"})
     public ApiResponse<Map<String, Object>> flowOptions(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.flowOptions(user));
     }
     @PostMapping("/api/v1/approval-templates")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_FLOWS_MANAGE"})
     public ApiResponse<Map<String, Object>> createTemplate(@RequestBody TemplateInput input,
                                                             @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.createTemplate(input, user));
     }
     @PostMapping("/api/v1/approval-templates/{id}/versions")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_FLOWS_MANAGE"})
     public ApiResponse<Map<String, Object>> nextVersion(@PathVariable long id, @RequestBody TemplateInput input,
                                                          @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.nextVersion(id, input, user));
     }
     @GetMapping("/api/v1/approval-flows/{id}")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"PAGE_APPROVALS_FLOWS"})
     public ApiResponse<Map<String, Object>> flow(@PathVariable long id) {
         return ok(workflows.flow(id));
     }
     @PostMapping("/api/v1/approval-flows/{id}/publish")
-    @PreAuthorize("hasAuthority('approval:flow:manage')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_FLOWS_MANAGE"})
     public ApiResponse<Map<String, Object>> publish(@PathVariable long id,
                                                      @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.publish(id, user));
     }
     @GetMapping("/api/v1/approvals")
+    @FunctionAccess(self=true)
     public ApiResponse<PageResponse<Map<String, Object>>> list(@RequestParam(defaultValue = "TODO") String scope,
             @RequestParam(defaultValue = "1") int pageNo, @RequestParam(defaultValue = "20") int pageSize,
             @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.list(scope, pageNo, pageSize, user));
     }
     @GetMapping("/api/v1/approvals/{id}")
+    @FunctionAccess(self=true)
     public ApiResponse<Map<String, Object>> detail(@PathVariable long id,
                                                     @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.detail(id, user));
     }
     @GetMapping("/api/v1/approvals/{id}/returnable-steps")
-    @PreAuthorize("hasAuthority('approval:return')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_TODO_RETURN", "BUTTON_MINI_APPROVALS_RETURN"})
     public ApiResponse<List<Map<String, Object>>> returnable(@PathVariable long id,
                                                                @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.returnableSteps(id, user));
     }
     @PostMapping("/api/v1/approvals")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT"})
     public ApiResponse<Map<String, Object>> create(@RequestBody Application input,
                                                     @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.create(input, user));
     }
     @PostMapping("/api/v1/approvals/{id}/approve")
-    @PreAuthorize("hasAuthority('approval:process')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_MINI_APPROVALS_APPROVE"})
     public ApiResponse<Map<String, Object>> approve(@PathVariable long id, @RequestBody Action input,
                                                      @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.decide(id, "APPROVE", input, user));
     }
     @PostMapping("/api/v1/approvals/{id}/return-step")
-    @PreAuthorize("hasAuthority('approval:return')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_TODO_RETURN", "BUTTON_MINI_APPROVALS_RETURN"})
     public ApiResponse<Map<String, Object>> returnStep(@PathVariable long id, @RequestBody Action input,
                                                         @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.decide(id, "RETURN_STEP", input, user));
     }
     @PostMapping("/api/v1/approvals/{id}/return-applicant")
-    @PreAuthorize("hasAuthority('approval:return')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_TODO_RETURN", "BUTTON_MINI_APPROVALS_RETURN"})
     public ApiResponse<Map<String, Object>> returnApplicant(@PathVariable long id, @RequestBody Action input,
                                                              @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.decide(id, "RETURN_APPLICANT", input, user));
     }
     @PostMapping("/api/v1/approvals/{id}/resubmit")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_MINE_RESUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT"})
     public ApiResponse<Map<String, Object>> resubmit(@PathVariable long id, @RequestBody Resubmission input,
                                                       @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.resubmit(id, input, user));
     }
+
+    @PostMapping("/api/v1/approvals/{id}/withdraw")
+    @FunctionAccess(anyOf={"BUTTON_APPROVALS_MINE_WITHDRAW", "BUTTON_MINI_APPROVALS_WITHDRAW"})
+    public ApiResponse<Map<String, Object>> withdraw(@PathVariable long id,
+                                                      @AuthenticationPrincipal AuthenticatedUser user) {
+        return ok(workflows.withdraw(id, user));
+    }
     @GetMapping("/api/v1/expense-applications/options")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_APPLY", "PAGE_MINI_EXPENSE_APPLY", "PAGE_APPROVALS_FLOWS"})
     public ApiResponse<Map<String, Object>> expenseOptions(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.expenseOptions(user));
     }
     @GetMapping("/api/v1/expense-applications/task-candidates")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_APPLY", "PAGE_MINI_EXPENSE_APPLY"})
     public ApiResponse<List<Map<String, Object>>> candidates(@RequestParam long driverId,
                                                                @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.taskCandidates(driverId, user));
     }
     @GetMapping("/api/v1/expense-applications/daily-template")
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"PAGE_EXPENSE_APPLY", "PAGE_MINI_EXPENSE_APPLY"})
     public ResponseEntity<byte[]> dailyTemplate(@AuthenticationPrincipal AuthenticatedUser user) {
         workflows.expenseOptions(user);
         return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
@@ -139,7 +148,7 @@ public class ApprovalV3Controller {
                 .body(workbook.template());
     }
     @PostMapping(value = "/api/v1/expense-applications/daily-preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('approval:create')")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT"})
     public ApiResponse<DailyExpenseWorkbook.Preview> preview(@RequestParam MultipartFile file,
                                                                @AuthenticationPrincipal AuthenticatedUser user) {
         workflows.expenseOptions(user);

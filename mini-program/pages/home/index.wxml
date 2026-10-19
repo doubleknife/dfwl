@@ -3,7 +3,21 @@
   <feedback-state wx:if="{{error}}" kind="error" message="{{error}}" bind:retry="load" />
   <block wx:else>
     <view class="mp-home-heading">今天的工作</view>
-    <current-task-card task="{{currentTask}}" loading="{{loading}}" bind:open="openTask" />
+    <feedback-state wx:if="{{loading}}" kind="loading" message="正在加载今天的工作…" />
+    <current-task-card wx:elif="{{driver}}" task="{{currentTask}}" loading="{{loading}}" bind:open="openTask" />
+    <view wx:else class="mp-approval-work">
+      <view class="mp-approval-work-heading"><text>待我审批</text><text wx:if="{{canApprove && !todoError}}" class="mp-approval-count">{{todoCount}} 项</text></view>
+      <view wx:if="{{!canApprove}}" class="mp-approval-empty">当前账号没有审批处理权限。</view>
+      <view wx:elif="{{todoError}}" class="mp-approval-error">{{todoError}}<button size="mini" bindtap="load">重试</button></view>
+      <block wx:else>
+        <view wx:if="{{!approvalTasks.length}}" class="mp-approval-empty">当前没有待处理的审批任务。</view>
+        <view wx:for="{{approvalTasks}}" wx:key="id" class="mp-approval-row">
+          <text class="mp-approval-name">{{item.templateName || '审批申请'}}</text>
+          <text class="mp-approval-meta">{{item.currentStepName || '当前步骤待处理'}} · {{item.approvalNo}}</text>
+        </view>
+        <button class="mp-approval-action" bindtap="openApprovals">进入审批中心处理</button>
+      </block>
+    </view>
     <view class="mp-section-heading">常用功能</view>
     <function-grid wx:if="{{actions.length}}" actions="{{actions}}" bind:open="openAction" />
     <feedback-state wx:else kind="empty" message="当前账号暂无可用功能，请联系管理员确认权限。" />

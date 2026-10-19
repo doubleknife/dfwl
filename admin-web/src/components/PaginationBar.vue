@@ -5,7 +5,7 @@ function move(page) { if (page >= 1 && page <= Math.max(1, Math.ceil(props.total
 </script>
 
 <template>
-  <nav class="ui-pagination" aria-label="分页">
+  <nav v-if="total > 0" class="ui-pagination" aria-label="分页">
     <span>共 {{ total }} 条 · 第 {{ pageNo }} / {{ Math.max(1, Math.ceil(total / pageSize)) }} 页</span>
     <button type="button" :disabled="pageNo <= 1" @click="move(pageNo - 1)">上一页</button>
     <button type="button" :disabled="pageNo * pageSize >= total" @click="move(pageNo + 1)">下一页</button>

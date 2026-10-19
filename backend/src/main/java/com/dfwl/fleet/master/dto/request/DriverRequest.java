@@ -2,21 +2,18 @@ package com.dfwl.fleet.master.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import java.time.LocalDate;
 
 public record DriverRequest(
         @NotBlank String driverType,
         @NotBlank String name,
         @NotBlank String phone,
-        String vehicleLicenseNo,
-        String drivingLicenseNo,
-        String idCardNo,
-        LocalDate birthDate,
+        @NotBlank String drivingLicenseNo,
+        @NotBlank String idCardNo,
         @NotNull Integer status,
         String initialPassword
 ) {
-    public DriverRequest(String driverType, String name, String phone, String vehicleLicenseNo,
-                         String drivingLicenseNo, String idCardNo, LocalDate birthDate, Integer status) {
-        this(driverType, name, phone, vehicleLicenseNo, drivingLicenseNo, idCardNo, birthDate, status, null);
+    public DriverRequest(String driverType, String name, String phone,
+                         String drivingLicenseNo, String idCardNo, Integer status) {
+        this(driverType, name, phone, drivingLicenseNo, idCardNo, status, null);
     }
 }

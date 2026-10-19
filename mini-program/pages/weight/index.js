@@ -23,7 +23,7 @@ Page({
       const safe = routePresentation(sanitizeRoute(route));
       this.setData({
         route: safe,
-        canUnload: hasPermission(user, 'task:unload') && !!safe.currentParticipant,
+        canUnload: hasPermission(user, 'BUTTON_MINI_ROUTES_UNLOAD') && !!safe.currentParticipant,
         grossWeight: this._hasInput ? this.data.grossWeight : (safe.grossWeight || ''),
         tareWeight: this._hasInput ? this.data.tareWeight : (safe.tareWeight || ''),
         resultUnknown: false,

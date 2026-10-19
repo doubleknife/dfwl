@@ -4,9 +4,9 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.attachment.service.AttachmentService;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
-import com.dfwl.fleet.expense.domain.ExpenseType;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
+import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
 import com.dfwl.fleet.system.service.AuditWriteService;
 import com.dfwl.fleet.tire.v3.TireApprovalEffect;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,19 +42,21 @@ public class ApprovalWorkflowService {
     private final AuditWriteService audit;
     private final AttachmentService attachments;
     private final TireApprovalEffect tireEffect;
+    private final TransactionalAuthorizationGuard authorization;
 
     public ApprovalWorkflowService(JdbcTemplate jdbc, ObjectMapper mapper, CurrentUserService users,
                                    AuditWriteService audit, AttachmentService attachments,
-                                   TireApprovalEffect tireEffect) {
+                                   TireApprovalEffect tireEffect, TransactionalAuthorizationGuard authorization) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.users = users;
         this.audit = audit;
         this.attachments = attachments;
         this.tireEffect = tireEffect;
+        this.authorization = authorization;
     }
 
-    public record FlowNodeInput(String name, Long approverUserId, Boolean allowReturn) {}
+    public record FlowNodeInput(String name, Long approverRoleId, Long approverUserId, Boolean allowReturn) {}
     public record TemplateInput(String stableCode, String name, String businessType, String expenseType,
                                 List<Long> initiatorRoleIds, List<FlowNodeInput> nodes) {}
     public record ExpenseItem(LocalDate businessDate, Long vehicleId, Long driverId, Long targetTaskId,
@@ -70,7 +72,7 @@ public class ApprovalWorkflowService {
 
     public List<Map<String, Object>> templates(AuthenticatedUser user, boolean manage) {
         if (manage) {
-            require(user, "approval:flow:manage");
+            require(user, "PAGE_APPROVALS_FLOWS");
             users.denyAllDrivers(user);
             return jdbc.queryForList("""
                     SELECT t.*, f.id flow_id, f.version_no, f.status flow_status
@@ -79,7 +81,7 @@ public class ApprovalWorkflowService {
                     ORDER BY t.id DESC
                     """);
         }
-        requireAny(user, "approval:create", "tire:request:create");
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
         if (isOutsourced(user)) return List.of();
         List<Map<String, Object>> available = jdbc.queryForList("""
                 SELECT t.id,t.stable_code,t.name,t.business_type,t.expense_type,
@@ -89,20 +91,34 @@ public class ApprovalWorkflowService {
                 WHERE t.enabled=1 ORDER BY t.name
                 """, user.roleId());
         return available.stream().filter(template -> "TIRE_REPLACEMENT".equals(template.get("business_type"))
-                ? user.permissions().contains("tire:request:create")
-                : user.permissions().contains("approval:create")).toList();
+                ? has(user, "BUTTON_MINI_TIRE_REQUEST_SUBMIT")
+                : has(user, "BUTTON_EXPENSE_APPLY_SUBMIT")).toList();
     }
 
     @Transactional
     public Map<String, Object> createTemplate(TemplateInput input, AuthenticatedUser user) {
-        require(user, "approval:flow:manage");
+        authorization.require(user.id(), "BUTTON_APPROVALS_FLOWS_MANAGE");
+        require(user, "BUTTON_APPROVALS_FLOWS_MANAGE");
         users.denyAllDrivers(user);
         validateTemplate(input);
-        long templateId = insert("""
-                INSERT INTO approval_template(stable_code,name,business_type,expense_type)
-                VALUES(?,?,?,?)
-                """, input.stableCode().trim(), input.name().trim(), input.businessType(),
-                "EXPENSE".equals(input.businessType()) ? input.expenseType() : null);
+        if ("GENERAL".equals(input.businessType())) throw invalid("普通审批仅保留历史读取，不能新建模板");
+        String name = templateName(input.businessType(), input.expenseType());
+        Long duplicate = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM approval_template WHERE enabled=1 AND business_type=?
+                  AND (expense_type=? OR (expense_type IS NULL AND ? IS NULL))
+                """, Long.class, input.businessType(), input.expenseType(), input.expenseType());
+        if (duplicate != null && duplicate > 0) throw invalid("该业务类型和费用大类已有模板，请维护现有模板版本");
+        String stableCode = "APP_" + UUID.randomUUID().toString().replace("-", "").toUpperCase();
+        long templateId;
+        try {
+            templateId = insert("""
+                    INSERT INTO approval_template(stable_code,name,business_type,expense_type)
+                    VALUES(?,?,?,?)
+                    """, stableCode, name, input.businessType(),
+                    "EXPENSE".equals(input.businessType()) ? input.expenseType() : null);
+        } catch (org.springframework.dao.DuplicateKeyException ex) {
+            throw invalid("该业务类型和费用大类已有模板，请维护现有模板版本");
+        }
         long flowId = createVersion(templateId, 1, input.nodes(), input.initiatorRoleIds(), user.id());
         audit.write("APPROVAL", "TEMPLATE", templateId, "CREATE", null,
                 Map.of("flowId", flowId, "type", input.businessType()), user.id(), null);
@@ -111,15 +127,16 @@ public class ApprovalWorkflowService {
 
     @Transactional
     public Map<String, Object> nextVersion(long templateId, TemplateInput input, AuthenticatedUser user) {
-        require(user, "approval:flow:manage");
+        authorization.require(user.id(), "BUTTON_APPROVALS_FLOWS_MANAGE");
+        require(user, "BUTTON_APPROVALS_FLOWS_MANAGE");
         users.denyAllDrivers(user);
         Map<String, Object> template = one("SELECT * FROM approval_template WHERE id=? FOR UPDATE", templateId);
         if (template == null) throw new BusinessException(ErrorCode.DATA_001);
+        if ("GENERAL".equals(template.get("business_type"))) throw invalid("普通审批模板仅保留历史读取");
         validateTemplate(input);
         if (!Objects.equals(template.get("business_type"), input.businessType())
-                || !Objects.equals(template.get("stable_code"), input.stableCode())
                 || !Objects.equals(template.get("expense_type"), input.expenseType())) {
-            throw invalid("模板稳定业务类型、编号和费用大类不能在新版本中改变");
+            throw invalid("模板稳定业务类型和费用大类不能在新版本中改变");
         }
         Long pending = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM approval_instance WHERE template_id=? AND status IN ('PENDING','RETURNED_TO_APPLICANT')
@@ -131,7 +148,7 @@ public class ApprovalWorkflowService {
         Integer next = jdbc.queryForObject("SELECT COALESCE(MAX(version_no),0)+1 FROM approval_flow WHERE template_id=?",
                 Integer.class, templateId);
         long flowId = createVersion(templateId, next, input.nodes(), input.initiatorRoleIds(), user.id());
-        jdbc.update("UPDATE approval_template SET name=?,version=version+1 WHERE id=?", input.name().trim(), templateId);
+        jdbc.update("UPDATE approval_template SET version=version+1 WHERE id=?", templateId);
         audit.write("APPROVAL", "TEMPLATE", templateId, "NEW_VERSION", null,
                 Map.of("flowId", flowId), user.id(), null);
         return flow(flowId);
@@ -145,9 +162,9 @@ public class ApprovalWorkflowService {
         for (int i = 0; i < nodes.size(); i++) {
             FlowNodeInput node = nodes.get(i);
             jdbc.update("""
-                    INSERT INTO approval_flow_node(flow_id,node_order,node_name,approver_user_id,allow_return)
-                    VALUES(?,?,?,?,?)
-                    """, flowId, i + 1, node.name().trim(), node.approverUserId(),
+                    INSERT INTO approval_flow_node(flow_id,node_order,node_name,approver_role_id,approver_user_id,allow_return)
+                    VALUES(?,?,?,?,?,?)
+                    """, flowId, i + 1, node.name().trim(), node.approverRoleId(), node.approverUserId(),
                     Boolean.FALSE.equals(node.allowReturn()) ? 0 : 1);
         }
         for (Long role : roles.stream().distinct().toList()) {
@@ -160,7 +177,8 @@ public class ApprovalWorkflowService {
 
     @Transactional
     public Map<String, Object> publish(long flowId, AuthenticatedUser user) {
-        require(user, "approval:flow:manage");
+        authorization.require(user.id(), "BUTTON_APPROVALS_FLOWS_MANAGE");
+        require(user, "BUTTON_APPROVALS_FLOWS_MANAGE");
         users.denyAllDrivers(user);
         Map<String, Object> version = one("SELECT * FROM approval_flow WHERE id=? FOR UPDATE", flowId);
         if (version == null) throw new BusinessException(ErrorCode.DATA_001);
@@ -180,9 +198,11 @@ public class ApprovalWorkflowService {
                 """, flowId);
         if (row == null) throw new BusinessException(ErrorCode.DATA_001);
         row.put("nodes", jdbc.queryForList("""
-                SELECT n.id flowNodeId,n.node_order,n.node_name,u.phone approverPhone,n.approver_user_id,
+                SELECT n.id flowNodeId,n.node_order,n.node_name,r.role_name approverRoleName,
+                       u.phone approverPhone,n.approver_role_id,n.approver_user_id,
                        n.allow_return
-                FROM approval_flow_node n JOIN sys_user u ON u.id=n.approver_user_id
+                FROM approval_flow_node n JOIN sys_role r ON r.id=n.approver_role_id
+                LEFT JOIN sys_user u ON u.id=n.approver_user_id
                 WHERE n.flow_id=? ORDER BY n.node_order
                 """, flowId));
         row.put("initiatorRoles", jdbc.queryForList("""
@@ -193,29 +213,51 @@ public class ApprovalWorkflowService {
     }
 
     private void validateTemplate(TemplateInput input) {
-        if (input == null || blank(input.stableCode()) || blank(input.name())
+        if (input == null
                 || !List.of("EXPENSE", "GENERAL", "TIRE_REPLACEMENT").contains(input.businessType())
                 || input.nodes() == null || input.nodes().isEmpty()
                 || input.initiatorRoleIds() == null || input.initiatorRoleIds().isEmpty())
-            throw invalid("请完整填写模板名称、业务类型、发起角色和审批步骤");
+            throw invalid("请完整填写业务类型、发起角色和审批步骤");
         if ("EXPENSE".equals(input.businessType())) expenseType(input.expenseType());
         else if (!blank(input.expenseType())) throw invalid("非费用模板不能配置费用大类");
         for (FlowNodeInput node : input.nodes()) {
-            if (node == null || blank(node.name()) || node.approverUserId() == null)
-                throw invalid("审批步骤名称和审批人不能为空");
-            Long active = jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE id=? AND status=1",
-                    Long.class, node.approverUserId());
-            if (active == null || active == 0) throw invalid("审批人不存在或已停用");
+            if (node == null || blank(node.name()) || node.approverRoleId() == null)
+                throw invalid("审批步骤名称和审批角色不能为空");
+            Long activeRole = jdbc.queryForObject("SELECT COUNT(*) FROM sys_role WHERE id=? AND status=1 AND role_code<>'DRIVER'",
+                    Long.class, node.approverRoleId());
+            if (activeRole == null || activeRole == 0) throw invalid("审批角色不存在或已停用");
+            Long mayProcess = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM sys_role_permission rp JOIN sys_permission p ON p.id=rp.permission_id
+                    WHERE rp.role_id=? AND p.permission_code IN ('BUTTON_APPROVALS_TODO_APPROVE','BUTTON_MINI_APPROVALS_APPROVE') AND p.status=1
+                    """, Long.class, node.approverRoleId());
+            if (mayProcess == null || mayProcess == 0) throw invalid("审批角色缺少审批通过权限");
+            if (node.approverUserId() != null) {
+                Long activeUser = jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE id=? AND status=1 AND role_id=?",
+                        Long.class, node.approverUserId(), node.approverRoleId());
+                if (activeUser == null || activeUser == 0) throw invalid("指定审批人须为该角色下的有效用户");
+            }
         }
     }
 
     private String expenseType(String type) {
-        try { return ExpenseType.valueOf(type).name(); }
-        catch (RuntimeException ex) { throw invalid("费用大类不合法"); }
+        if (blank(type)) throw invalid("请选择正式费用大类");
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM expense_category WHERE category_code=? AND enabled=1",
+                Long.class, type);
+        if (count == null || count == 0) throw invalid("费用大类不合法");
+        return type;
+    }
+
+    private String templateName(String businessType, String expenseType) {
+        if ("TIRE_REPLACEMENT".equals(businessType)) return "换胎申请";
+        String categoryName = jdbc.queryForObject("""
+                SELECT category_name FROM expense_category WHERE category_code=? AND enabled=1
+                """, String.class, expenseType);
+        if (blank(categoryName)) throw invalid("费用大类不合法");
+        return categoryName + "申请";
     }
 
     public List<Map<String, Object>> taskCandidates(long driverId, AuthenticatedUser user) {
-        require(user, "approval:create");
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
         if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能申请费用");
         if (users.isDriverUser(user) && users.requireDriver(user).driverId() != driverId)
             throw new AccessDeniedException("司机只能选择本人参与的任务");
@@ -232,7 +274,7 @@ public class ApprovalWorkflowService {
     }
 
     public Map<String, Object> expenseOptions(AuthenticatedUser user) {
-        require(user, "approval:create");
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
         if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能申请费用");
         Long ownDriver = users.isDriverUser(user) ? users.requireDriver(user).driverId() : null;
         List<Map<String, Object>> drivers = ownDriver == null
@@ -241,22 +283,33 @@ public class ApprovalWorkflowService {
         return Map.of(
                 "drivers", drivers,
                 "vehicles", jdbc.queryForList("SELECT id,plate_no plateNo FROM vehicle WHERE status=1 AND deleted_at IS NULL ORDER BY plate_no LIMIT 500"),
-                "expenseTypes", List.of(ExpenseType.values()));
+                "expenseTypes", jdbc.queryForList("SELECT category_code FROM expense_category WHERE enabled=1 ORDER BY display_order,category_code", String.class));
     }
 
     public Map<String, Object> flowOptions(AuthenticatedUser user) {
-        require(user, "approval:flow:manage");
+        require(user, "PAGE_APPROVALS_FLOWS");
         users.denyAllDrivers(user);
         return Map.of(
                 "roles", jdbc.queryForList("SELECT id,role_name roleName FROM sys_role WHERE status=1 ORDER BY id"),
+                "approverRoles", jdbc.queryForList("""
+                        SELECT r.id,r.role_name roleName,
+                          EXISTS(SELECT 1 FROM sys_role_permission arp JOIN sys_permission ap ON ap.id=arp.permission_id
+                            WHERE arp.role_id=r.id AND ap.status=1 AND ap.permission_code IN ('BUTTON_APPROVALS_TODO_APPROVE','BUTTON_MINI_APPROVALS_APPROVE')) canProcessApproval,
+                          EXISTS(SELECT 1 FROM sys_role_permission trp JOIN sys_permission tp ON tp.id=trp.permission_id
+                            WHERE trp.role_id=r.id AND tp.status=1 AND tp.permission_code IN ('BUTTON_APPROVALS_TODO_RETURN','BUTTON_MINI_APPROVALS_RETURN')) canReturnApproval
+                        FROM sys_role r WHERE r.status=1 AND r.role_code<>'DRIVER'
+                        ORDER BY r.id
+                        """),
                 "approvers", jdbc.queryForList("""
-                        SELECT id,phone FROM sys_user WHERE status=1 ORDER BY id DESC LIMIT 500
-                        """));
+                        SELECT id,phone,role_id roleId FROM sys_user WHERE status=1 ORDER BY id DESC LIMIT 500
+                        """),
+                "expenseTypes", jdbc.queryForList("SELECT category_code categoryCode,category_name categoryName FROM expense_category WHERE enabled=1 ORDER BY display_order,category_code"));
     }
 
     @Transactional
     public Map<String, Object> create(Application input, AuthenticatedUser user) {
-        requireAny(user, "approval:create", "tire:request:create");
+        authorization.require(user.id(), "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
         if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能发起审批或费用申请");
         if (input == null || input.templateId() == null || blank(input.requestKey())
                 || input.requestKey().length() > 128) throw invalid("申请模板和请求标识不能为空");
@@ -283,7 +336,8 @@ public class ApprovalWorkflowService {
                 """, Long.class, flowId, user.roleId());
         if (allowed == null || allowed == 0) throw new AccessDeniedException("无权使用该审批模板");
         String type = (String) template.get("business_type");
-        require(user, "TIRE_REPLACEMENT".equals(type) ? "tire:request:create" : "approval:create");
+        if ("TIRE_REPLACEMENT".equals(type)) require(user, "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
+        else requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
         String scope = input.applicationScope();
         List<ExpenseItem> items = input.items();
         if ("EXPENSE".equals(type)) {
@@ -321,9 +375,9 @@ public class ApprovalWorkflowService {
         if ("EXPENSE".equals(type))
             saveItems(instanceId, submissionId, (String) template.get("expense_type"), items);
         insert("""
-                INSERT INTO approval_task(instance_id,submission_version_id,node_id,approver_user_id)
-                VALUES(?,?,?,?)
-                """, instanceId, submissionId, num(first.get("id")), num(first.get("approver_user_id")));
+                INSERT INTO approval_task(instance_id,submission_version_id,node_id)
+                VALUES(?,?,?)
+                """, instanceId, submissionId, num(first.get("id")));
         if ("TIRE_REPLACEMENT".equals(type)) tireEffect.onCreated(input.tireRequestId(), instanceId);
         audit.write("APPROVAL", "INSTANCE", instanceId, "CREATE", null,
                 Map.of("type", type, "flowId", flowId), user.id(), null);
@@ -386,14 +440,25 @@ public class ApprovalWorkflowService {
         String where;
         Object[] args;
         if ("TODO".equals(scope)) {
-            requireAny(user, "approval:process", "approval:return");
-            where = " AND EXISTS(SELECT 1 FROM approval_task k WHERE k.instance_id=a.id AND k.status='PENDING' AND k.invalidated=0 AND k.approver_user_id=?)";
-            args = new Object[]{user.id()};
+            requireAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN");
+            where = """
+                     AND EXISTS(SELECT 1 FROM approval_task k
+                       JOIN approval_flow_node n ON n.id=k.node_id
+                       JOIN sys_user u ON u.id=? AND u.status=1 AND u.role_id=n.approver_role_id
+                       JOIN sys_role r ON r.id=u.role_id AND r.status=1
+                       WHERE k.instance_id=a.id AND a.status='PENDING'
+                         AND k.status='PENDING' AND k.invalidated=0
+                         AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                         AND (?=1 OR ?=1)
+                     )
+                    """;
+            args = new Object[]{user.id(), has(user, "BUTTON_APPROVALS_TODO_APPROVE") ? 1 : 0,
+                    has(user, "BUTTON_APPROVALS_TODO_RETURN") ? 1 : 0};
         } else if ("MINE".equals(scope)) {
             where = " AND a.applicant_user_id=?";
             args = new Object[]{user.id()};
         } else if ("HISTORY".equals(scope)) {
-            require(user, "approval:history:view");
+            require(user, "PAGE_APPROVALS_HISTORY");
             where = "";
             args = new Object[]{};
         } else throw invalid("审批列表范围不合法");
@@ -423,9 +488,12 @@ public class ApprovalWorkflowService {
                 """, id);
         if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
         boolean visible = Objects.equals(num(approval.get("applicant_user_id")), user.id())
-                || user.permissions().contains("approval:history:view")
+                || has(user, "PAGE_APPROVALS_HISTORY")
+                || canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_APPROVE")
+                || canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_RETURN")
                 || !jdbc.queryForList("""
-                        SELECT id FROM approval_task WHERE instance_id=? AND approver_user_id=? LIMIT 1
+                        SELECT x.id FROM approval_action x JOIN approval_task k ON k.id=x.task_id
+                        WHERE k.instance_id=? AND x.operator_id=? LIMIT 1
                         """, id, user.id()).isEmpty();
         if (!visible) throw new AccessDeniedException("无权查看该审批");
         Map<String, Object> result = new LinkedHashMap<>();
@@ -436,10 +504,10 @@ public class ApprovalWorkflowService {
                 FROM approval_submission_version WHERE instance_id=? ORDER BY version_no
                 """, id));
         result.put("tasks", jdbc.queryForList("""
-                SELECT k.id,k.submission_version_id,k.node_id,n.node_name,k.approver_user_id,
-                       u.phone approver_phone,k.status,k.invalidated,k.created_at,k.completed_at
+                SELECT k.id,k.submission_version_id,k.node_id,n.node_name,n.approver_role_id,
+                       n.approver_user_id,u.phone approver_phone,k.status,k.invalidated,k.created_at,k.completed_at
                 FROM approval_task k JOIN approval_flow_node n ON n.id=k.node_id
-                JOIN sys_user u ON u.id=k.approver_user_id
+                LEFT JOIN sys_user u ON u.id=n.approver_user_id
                 WHERE k.instance_id=? ORDER BY k.id
                 """, id));
         result.put("actions", jdbc.queryForList("""
@@ -448,6 +516,8 @@ public class ApprovalWorkflowService {
                 FROM approval_action x JOIN approval_task k ON k.id=x.task_id
                 WHERE k.instance_id=? ORDER BY x.id
                 """, id));
+        result.put("canProcess", canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_APPROVE"));
+        result.put("canReturn", canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_RETURN"));
         result.put("expenseItems", jdbc.queryForList("""
                 SELECT * FROM approval_expense_item WHERE instance_id=?
                 ORDER BY submission_version_id,item_no
@@ -489,11 +559,10 @@ public class ApprovalWorkflowService {
                 WHERE k.instance_id=? AND k.status='PENDING' AND k.invalidated=0
                 ORDER BY k.id DESC LIMIT 1
                 """, id);
-        if (current == null || !Objects.equals(num(current.get("approver_user_id")), user.id())
-                || !user.permissions().contains("approval:return")) return List.of();
+        if (current == null || !canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_RETURN")) return List.of();
         return jdbc.queryForList("""
                 SELECT n.id flowNodeId,n.node_name stepName,n.node_order,u.phone approverPhone
-                FROM approval_flow_node n JOIN sys_user u ON u.id=n.approver_user_id
+                FROM approval_flow_node n LEFT JOIN sys_user u ON u.id=n.approver_user_id
                 WHERE n.flow_id=? AND n.node_order<? AND n.allow_return=1
                   AND EXISTS (SELECT 1 FROM approval_task k WHERE k.instance_id=?
                     AND k.submission_version_id=? AND k.node_id=n.id
@@ -503,20 +572,69 @@ public class ApprovalWorkflowService {
                 current.get("submission_version_id"));
     }
 
-    private void requireAny(AuthenticatedUser user, String a, String b) {
-        if (user == null || user.permissions() == null
-                || !user.permissions().contains(a) && !user.permissions().contains(b))
+    private boolean canHandleCurrent(long instanceId, AuthenticatedUser user, String permission) {
+        if (!has(user, permission)) return false;
+        List<Long> nodes = jdbc.queryForList("""
+                SELECT k.node_id FROM approval_task k JOIN approval_instance a ON a.id=k.instance_id
+                WHERE k.instance_id=? AND a.status='PENDING' AND k.status='PENDING' AND k.invalidated=0
+                ORDER BY k.id DESC LIMIT 1
+                """, Long.class, instanceId);
+        return !nodes.isEmpty() && eligibleForNode(nodes.getFirst(), user, permission);
+    }
+
+    private boolean eligibleForNode(long nodeId, AuthenticatedUser user, String permission) {
+        if (!has(user, permission)) return false;
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM approval_flow_node n
+                JOIN sys_role r ON r.id=n.approver_role_id AND r.status=1
+                JOIN sys_user u ON u.role_id=r.id AND u.status=1
+                WHERE n.id=? AND u.id=? AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                """, Long.class, nodeId, user.id());
+        return count != null && count > 0;
+    }
+
+    @Transactional
+    public Map<String, Object> withdraw(long id, AuthenticatedUser user) {
+        authorization.require(user.id(), "BUTTON_APPROVALS_MINE_WITHDRAW", "BUTTON_MINI_APPROVALS_WITHDRAW");
+        Map<String, Object> approval = one("SELECT * FROM approval_instance WHERE id=? FOR UPDATE", id);
+        if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
+        if (user == null || num(approval.get("applicant_user_id")) != user.id())
+            throw new AccessDeniedException("仅申请人本人可撤回");
+        if (!List.of("PENDING", "RETURNED_TO_APPLICANT").contains(approval.get("status")))
+            throw invalid("申请已生效或进入终态，不能撤回；已生效费用请按冲销规则处理");
+        Map<String, Object> lastTask = one("SELECT id FROM approval_task WHERE instance_id=? ORDER BY id DESC LIMIT 1", id);
+        if (lastTask == null) throw invalid("审批待办不存在");
+        jdbc.update("""
+                UPDATE approval_task SET status='WITHDRAWN',invalidated=1,completed_at=NOW(3)
+                WHERE instance_id=? AND status='PENDING' AND invalidated=0
+                """, id);
+        jdbc.update("""
+                UPDATE approval_instance SET status='WITHDRAWN',current_node_id=NULL,
+                    completed_at=NOW(3),version=version+1 WHERE id=?
+                """, id);
+        if ("TIRE_REPLACEMENT".equals(approval.get("business_type"))) tireEffect.onWithdrawn(id);
+        insert("INSERT INTO approval_action(task_id,action_type,operator_id,comment) VALUES(?,'WITHDRAW',?,?)",
+                lastTask.get("id"), user.id(), "申请人撤回");
+        audit.write("APPROVAL", "INSTANCE", id, "WITHDRAW", null,
+                Map.of("status", "WITHDRAWN"), user.id(), null);
+        return detail(id, user);
+    }
+
+    private void requireAny(AuthenticatedUser user, String... permissions) {
+        if (user == null || java.util.Arrays.stream(permissions).noneMatch(permission -> has(user, permission)))
             throw new AccessDeniedException("缺少审批处理权限");
     }
 
     @Transactional
     public Map<String, Object> decide(long id, String decision, Action input, AuthenticatedUser user) {
-        if ("APPROVE".equals(decision)) require(user, "approval:process");
-        else if (List.of("RETURN_STEP", "RETURN_APPLICANT").contains(decision)) require(user, "approval:return");
+        if ("APPROVE".equals(decision)) authorization.require(user.id(),
+                "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_MINI_APPROVALS_APPROVE");
+        else authorization.require(user.id(), "BUTTON_APPROVALS_TODO_RETURN", "BUTTON_MINI_APPROVALS_RETURN");
+        if ("APPROVE".equals(decision)) require(user, "BUTTON_APPROVALS_TODO_APPROVE");
+        else if (List.of("RETURN_STEP", "RETURN_APPLICANT").contains(decision)) require(user, "BUTTON_APPROVALS_TODO_RETURN");
         else throw invalid("审批动作不合法");
         Map<String, Object> approval = one("SELECT * FROM approval_instance WHERE id=? FOR UPDATE", id);
         if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
-        if ("TIRE_REPLACEMENT".equals(approval.get("business_type"))) require(user, "tire:request:process");
         if (!"PENDING".equals(approval.get("status"))) throw invalid("当前审批不在待处理状态");
         if (input == null || input.expectedVersion() == null
                 || input.expectedVersion() != ((Number) approval.get("version")).intValue())
@@ -527,7 +645,8 @@ public class ApprovalWorkflowService {
                 WHERE k.instance_id=? AND k.status='PENDING' AND k.invalidated=0
                 ORDER BY k.id DESC LIMIT 1 FOR UPDATE
                 """, id);
-        if (task == null || num(task.get("approver_user_id")) != user.id())
+        if (task == null || !eligibleForNode(num(task.get("node_id")), user, "APPROVE".equals(decision)
+                ? "BUTTON_APPROVALS_TODO_APPROVE" : "BUTTON_APPROVALS_TODO_RETURN"))
             throw new AccessDeniedException("当前步骤不由你审批");
         if ("RETURN_STEP".equals(decision)) {
             if (input.targetFlowNodeId() == null || returnableSteps(id, user).stream()
@@ -579,9 +698,9 @@ public class ApprovalWorkflowService {
                     """, id, versionNo, submission.get("business_snapshot_json"), user.id());
             if ("EXPENSE".equals(approval.get("business_type"))) copyItems(id, num(submission.get("id")), newSubmission);
             insert("""
-                    INSERT INTO approval_task(instance_id,submission_version_id,node_id,approver_user_id)
-                    VALUES(?,?,?,?)
-                    """, id, newSubmission, target.get("id"), target.get("approver_user_id"));
+                    INSERT INTO approval_task(instance_id,submission_version_id,node_id)
+                    VALUES(?,?,?)
+                    """, id, newSubmission, target.get("id"));
             jdbc.update("""
                     UPDATE approval_instance SET current_node_id=?,version=version+1 WHERE id=?
                     """, target.get("id"), id);
@@ -592,10 +711,9 @@ public class ApprovalWorkflowService {
                     """, approval.get("flow_id"), task.get("node_order"));
             if (next != null) {
                 insert("""
-                        INSERT INTO approval_task(instance_id,submission_version_id,node_id,approver_user_id)
-                        VALUES(?,?,?,?)
-                        """, id, task.get("submission_version_id"), next.get("id"),
-                        next.get("approver_user_id"));
+                        INSERT INTO approval_task(instance_id,submission_version_id,node_id)
+                        VALUES(?,?,?)
+                        """, id, task.get("submission_version_id"), next.get("id"));
                 jdbc.update("""
                         UPDATE approval_instance SET current_node_id=?,version=version+1 WHERE id=?
                         """, next.get("id"), id);
@@ -618,7 +736,8 @@ public class ApprovalWorkflowService {
 
     @Transactional
     public Map<String, Object> resubmit(long id, Resubmission input, AuthenticatedUser user) {
-        require(user, "approval:create");
+        authorization.require(user.id(), "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
         Map<String, Object> approval = one("SELECT * FROM approval_instance WHERE id=? FOR UPDATE", id);
         if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
         if (!"RETURNED_TO_APPLICANT".equals(approval.get("status"))
@@ -656,9 +775,9 @@ public class ApprovalWorkflowService {
                 SELECT * FROM approval_flow_node WHERE flow_id=? ORDER BY node_order LIMIT 1
                 """, approval.get("flow_id"));
         insert("""
-                INSERT INTO approval_task(instance_id,submission_version_id,node_id,approver_user_id)
-                VALUES(?,?,?,?)
-                """, id, submissionId, first.get("id"), first.get("approver_user_id"));
+                INSERT INTO approval_task(instance_id,submission_version_id,node_id)
+                VALUES(?,?,?)
+                """, id, submissionId, first.get("id"));
         jdbc.update("""
                 UPDATE approval_instance SET status='PENDING',current_node_id=?,version=version+1 WHERE id=?
                 """, first.get("id"), id);
@@ -718,8 +837,34 @@ public class ApprovalWorkflowService {
     }
 
     private void require(AuthenticatedUser user, String permission) {
-        if (user == null || user.permissions() == null || !user.permissions().contains(permission))
+        if (!has(user, permission))
             throw new AccessDeniedException(permission + " required");
+    }
+
+    private boolean has(AuthenticatedUser user, String code) {
+        if (user == null || user.permissions() == null) return false;
+        String alternate = switch (code) {
+            case "BUTTON_APPROVALS_TODO_APPROVE" -> "BUTTON_MINI_APPROVALS_APPROVE";
+            case "BUTTON_APPROVALS_TODO_RETURN" -> "BUTTON_MINI_APPROVALS_RETURN";
+            case "BUTTON_EXPENSE_APPLY_SUBMIT" -> "BUTTON_MINI_EXPENSE_APPLY_SUBMIT";
+            default -> null;
+        };
+        return hasDirect(user, code) || alternate != null && hasDirect(user, alternate);
+    }
+
+    private boolean hasDirect(AuthenticatedUser user, String code) {
+        if (!user.permissions().contains(code)) return false;
+        if (!code.startsWith("BUTTON_")) return true;
+        String parent = switch (code) {
+            case "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN" -> "PAGE_APPROVALS_TODO";
+            case "BUTTON_MINI_APPROVALS_APPROVE", "BUTTON_MINI_APPROVALS_RETURN" -> "PAGE_MINI_APPROVALS";
+            case "BUTTON_EXPENSE_APPLY_SUBMIT" -> "PAGE_EXPENSE_APPLY";
+            case "BUTTON_MINI_EXPENSE_APPLY_SUBMIT" -> "PAGE_MINI_EXPENSE_APPLY";
+            case "BUTTON_MINI_TIRE_REQUEST_SUBMIT" -> "PAGE_MINI_TIRE_REQUEST";
+            case "BUTTON_APPROVALS_FLOWS_MANAGE" -> "PAGE_APPROVALS_FLOWS";
+            default -> null;
+        };
+        return parent == null || user.permissions().contains(parent);
     }
 
     private boolean blank(String value) { return value == null || value.isBlank(); }

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { v3SettlementApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import PageHeader from '../components/PageHeader.vue';
@@ -7,12 +7,22 @@ import FilterBar from '../components/FilterBar.vue';
 import DataTable from '../components/DataTable.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import ErrorState from '../components/ErrorState.vue';
+import SummaryCards from '../components/SummaryCards.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
 
 const today = new Date();
 const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}` });
 const versions = ref([]); const chosen = ref(null); const mode = ref('details'); const rows = ref([]);
 const pageNo = ref(1); const total = ref(0); const loading = ref(false); const busy = ref(false); const error = ref('');
+const generateConfirmOpen = ref(false);
 const money = (v) => `¥ ${Number(v || 0).toFixed(2)}`;
+const versionCards = computed(() => chosen.value ? [
+  { label: '收入', value: money(chosen.value.income_total) },
+  { label: '信息费', value: money(chosen.value.information_fee_total) },
+  { label: '参与工资', value: money(chosen.value.salary_total) },
+  { label: '总支出', value: money(chosen.value.expense_total) },
+  { label: '利润', value: money(chosen.value.profit_total) }
+] : []);
 const detailCols = [
   { key: 'factType', label: '事实类型' }, { key: 'businessNo', label: '业务编号' },
   { key: 'businessDate', label: '业务日期' }, { key: 'income', label: '收入', numeric: true },
@@ -47,7 +57,12 @@ async function loadVersions() {
   catch (cause) { error.value = cause.message || '月结版本加载失败'; }
   finally { loading.value = false; }
 }
-async function selectVersion(version) { chosen.value = version; mode.value = 'details'; await loadRows(1); }
+async function selectVersion(version) {
+  loading.value = true; error.value = '';
+  try { chosen.value = await v3SettlementApi.version(version.id); mode.value = 'details'; await loadRows(1); }
+  catch (cause) { chosen.value = null; error.value = cause.message || '月结版本详情加载失败'; }
+  finally { loading.value = false; }
+}
 async function loadRows(page = 1) {
   if (!chosen.value) return;
   loading.value = true; error.value = '';
@@ -59,7 +74,8 @@ async function loadRows(page = 1) {
 }
 function changeMode(next) { mode.value = next; loadRows(1); }
 async function generate() {
-  if (busy.value || !window.confirm(`确定生成 ${filters.month} 的下一版只读月结？旧版本将永久保留。`)) return;
+  if (busy.value || !generateConfirmOpen.value) return;
+  generateConfirmOpen.value = false;
   busy.value = true; error.value = '';
   try { const version = await v3SettlementApi.generate(filters.month); versions.value = await v3SettlementApi.versions(filters.month); await selectVersion(version); }
   catch (cause) { error.value = cause.message || '月结生成失败'; }
@@ -71,26 +87,24 @@ onMounted(loadVersions);
 <template>
   <main class="ui-page-container">
     <PageHeader title="月度结算" description="每次生成只读历史版本；后续事实变化只影响新版本与差异，不改写旧版本。">
-      <template #actions><button v-if="can('settlement:generate')" type="button" :disabled="busy" @click="generate">{{ busy ? '正在生成…' : '生成新版本' }}</button></template>
+      <template #actions><button v-if="can('BUTTON_SETTLEMENTS_GENERATE')" type="button" :disabled="busy" @click="generateConfirmOpen = true">{{ busy ? '正在生成…' : '生成新版本' }}</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="chosen ? loadRows(pageNo) : loadVersions()" />
-    <FilterBar><label>结算月份<input v-model="filters.month" type="month" /></label><button type="button" @click="loadVersions">查看版本</button></FilterBar>
+    <FilterBar><label>结算月份<input v-model="filters.month" type="month" @change="loadVersions" /></label></FilterBar>
     <template v-if="!chosen">
       <DataTable :columns="[
         { key: 'version_no', label: '版本' }, { key: 'generated_at', label: '生成时间' },
         { key: 'income_total', label: '收入', numeric: true }, { key: 'expense_total', label: '总支出', numeric: true },
         { key: 'profit_total', label: '利润', numeric: true }, { key: 'actions', label: '操作' }
       ]" :rows="versions" :loading="loading" empty-text="本月尚无月结版本">
-        <template #version_no="{ row }">第 {{ row.version_no }} 版</template><template #income_total="{ row }">{{ money(row.income_total) }}</template>
+        <template #version_no="{ row }">第 {{ row.version_no }} 版 · 只读</template><template #income_total="{ row }">{{ money(row.income_total) }}</template>
         <template #expense_total="{ row }">{{ money(row.expense_total) }}</template><template #profit_total="{ row }">{{ money(row.profit_total) }}</template>
         <template #actions="{ row }"><button type="button" @click="selectVersion(row)">查看详情</button></template>
       </DataTable>
     </template>
     <template v-else>
-      <button type="button" @click="chosen = null">← 返回版本列表</button>
-      <section class="v3-summary" aria-label="历史版本汇总"><div><small>{{ filters.month }} · 第 {{ chosen.version_no }} 版</small><strong>只读历史</strong></div>
-        <div><small>收入</small><strong>{{ money(chosen.income_total) }}</strong></div><div><small>总支出</small><strong>{{ money(chosen.expense_total) }}</strong></div>
-        <div><small>利润</small><strong>{{ money(chosen.profit_total) }}</strong></div></section>
+      <div class="ui-list-heading"><div><h2>{{ chosen.month_key || filters.month }} · 第 {{ chosen.version_no }} 版</h2><p class="muted">只读历史快照；后续事实变化只进入新版本。</p></div><button type="button" @click="chosen = null">← 返回版本列表</button></div>
+      <SummaryCards label="历史月结版本汇总" :items="versionCards" />
       <div class="ui-tabs" role="tablist"><button type="button" :aria-selected="mode === 'details'" @click="changeMode('details')">版本明细</button><button type="button" :aria-selected="mode === 'diff'" @click="changeMode('diff')">与前版差异</button></div>
       <DataTable :columns="mode === 'details' ? detailCols : diffCols" :rows="rows" row-key="businessNo" :loading="loading" :empty-text="mode === 'diff' ? '与前一版本没有事实差异' : '本版本暂无结算事实'">
         <template #summary="{ row }">{{ summarize(row.snapshot) }}</template>
@@ -102,5 +116,6 @@ onMounted(loadVersions);
       </DataTable>
       <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="loadRows" />
     </template>
+    <ConfirmDialog :open="generateConfirmOpen" title="生成月结版本" :message="`确定生成 ${filters.month} 的下一版只读月结？旧版本将永久保留。`" :busy="busy" @cancel="generateConfirmOpen = false" @confirm="generate" />
   </main>
 </template>

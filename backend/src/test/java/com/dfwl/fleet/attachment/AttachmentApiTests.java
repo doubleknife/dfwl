@@ -1,5 +1,7 @@
 package com.dfwl.fleet.attachment;
 
+import static com.dfwl.fleet.security.TestFunctionGrants.grants;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -36,6 +38,11 @@ class AttachmentApiTests {
 
     @BeforeEach
     void taskFixture() {
+        long adminRole = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='ADMIN'", Long.class);
+        long driverRole = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='DRIVER'", Long.class);
+        jdbc.update("MERGE INTO sys_user(id,phone,password_hash,role_id,status) KEY(id) VALUES(1,'13900000001','test-only',?,1)", adminRole);
+        jdbc.update("MERGE INTO sys_user(id,phone,password_hash,role_id,status) KEY(id) VALUES(501,'13911111111','test-only',?,1)", driverRole);
+        jdbc.update("MERGE INTO sys_user(id,phone,password_hash,role_id,status) KEY(id) VALUES(502,'13922222222','test-only',?,1)", driverRole);
         jdbc.update("DELETE FROM file_attachment");
         jdbc.update("DELETE FROM transport_participant");
         jdbc.update("DELETE FROM transport_task");
@@ -58,8 +65,8 @@ class AttachmentApiTests {
                 VALUES (1, 'ATT-V3-TASK', 1, 'ATT-V3', '附件任务模板', '客户', '货物',
                     'A', 'B', 1, 0, '2026-09-30', 'IN_TRANSIT', 1)
                 """);
-        jdbc.update("INSERT INTO vehicle (id, plate_no, insurance_complete, energy_type, max_load, load_standard_type, load_standard_percent, status) VALUES (1, '云A001', 1, 'ELECTRIC', 30, 'PERCENT', 0.9, 1)");
-        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, status) VALUES (1, 501, 'INTERNAL', '司机', '13911111111', 1)");
+        jdbc.update("INSERT INTO vehicle (id, plate_no, vehicle_license_no, insurance_complete, energy_type, max_load, load_standard_type, load_standard_percent, status) VALUES (1, '云A001', 'TEST-VL-001', 1, 'ELECTRIC', 30, 'PERCENT', 0.9, 1)");
+        jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (1, 501, 'INTERNAL', '司机', '13911111111', '110105199001010010', 'TEST-DL-001', 1)");
         jdbc.update("""
                 INSERT INTO transport_participant (id, task_id, sequence_no, driver_id,
                     driver_type_snapshot, company_vehicle_id, vehicle_plate_snapshot,
@@ -71,7 +78,7 @@ class AttachmentApiTests {
 
     @Test
     void currentDriverUploadsOriginalTicketAndOnlyAuthorizedPeopleCanReadIt() throws Exception {
-        String driver = token(501, "13911111111", "DRIVER", "task:unload", "task:view");
+        String driver = token(501, "13911111111", "DRIVER", "BUTTON_MINI_ROUTES_UNLOAD", "PAGE_MINI_ROUTES");
         var upload = mvc.perform(multipart("/api/v1/attachments")
                         .file(new MockMultipartFile("file", "ticket.png", "image/png", new byte[]{1, 2, 3}))
                         .param("ownerType", "TASK").param("ownerId", "1")
@@ -85,7 +92,7 @@ class AttachmentApiTests {
         mvc.perform(get("/api/v1/attachments/{id}", id).header("Authorization", "Bearer " + driver))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/attachments/{id}", id)
-                        .header("Authorization", "Bearer " + token(502, "13922222222", "DRIVER", "task:view")))
+                        .header("Authorization", "Bearer " + token(502, "13922222222", "DRIVER", "PAGE_ROUTES")))
                 .andExpect(status().isForbidden());
         mvc.perform(delete("/api/v1/attachments/{id}", id).header("Authorization", "Bearer " + driver))
                 .andExpect(status().isConflict());
@@ -93,7 +100,7 @@ class AttachmentApiTests {
 
     @Test
     void authorizedWeightEvidenceIsIndependentAndV3ApprovalEvidenceIsActive() throws Exception {
-        String admin = token(1, "13900000001", "ADMIN", "task:weight:adjust", "task:weight:view", "approval:create");
+        String admin = token(1, "13900000001", "ADMIN", "BUTTON_ROUTES_WEIGHT_ADJUST", "PAGE_ROUTES", "BUTTON_EXPENSE_APPLY_SUBMIT");
         for (int i = 0; i < 2; i++) {
             mvc.perform(multipart("/api/v1/attachments")
                             .file(new MockMultipartFile("file", "adjust.png", "image/png", new byte[]{1, 2, 3}))
@@ -118,7 +125,29 @@ class AttachmentApiTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void tireRequestPermissionDoesNotLetOutsourcedDriverUploadAnOcrPhoto() throws Exception {
+        jdbc.update("INSERT INTO driver_vehicle_current(driver_id,vehicle_id,bound_at,bound_by) "
+                + "VALUES(1,1,CURRENT_TIMESTAMP,1)");
+        String driver = token(501, "13911111111", "DRIVER", "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "tire.png", "image/png", new byte[]{1, 2, 3}))
+                        .param("ownerType", "TIRE_OCR").param("ownerId", "0")
+                        .param("purpose", "TIRE_OCR")
+                        .header("Authorization", "Bearer " + driver))
+                .andExpect(status().isOk());
+        jdbc.update("UPDATE driver SET driver_type='OUTSOURCED' WHERE id=1");
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "tire-again.png", "image/png", new byte[]{4, 5, 6}))
+                        .param("ownerType", "TIRE_OCR").param("ownerId", "0")
+                        .param("purpose", "TIRE_OCR")
+                        .header("Authorization", "Bearer " + driver))
+                .andExpect(status().isForbidden());
+    }
+
     private String token(long id, String phone, String role, String... permissions) {
-        return tokens.issueToken(new AuthenticatedUser(id, phone, 1L, role, role, Set.of(permissions)));
+        long roleId = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code=?", Long.class, role);
+        return tokens.issueToken(new AuthenticatedUser(id, phone, roleId,
+                role, role, grants(permissions)));
     }
 }

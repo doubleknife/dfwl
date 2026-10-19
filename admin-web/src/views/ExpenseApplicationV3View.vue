@@ -3,10 +3,13 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { v3ApprovalApi } from '../api/modules.js';
 import { navigate } from '../router/routes.js';
 import PageHeader from '../components/PageHeader.vue';
+import FormDialog from '../components/FormDialog.vue';
 import { appendPreviewRows, dailyItems, emptyExpenseRow, expenseRowError } from './expenseApplicationDraft.js';
+import { hasExpenseDraft } from './expenseScopeDraft.js';
 
 const stage = ref(1);
 const scope = ref('DAILY');
+const pendingScope = ref('');
 const templateId = ref('');
 const templates = ref([]);
 const options = ref({ drivers: [], vehicles: [] });
@@ -37,6 +40,17 @@ const canAdvance = computed(() => {
     && (scope.value === 'DAILY' || item.targetTaskId);
 });
 function resetIdempotency() { requestKey.value = crypto.randomUUID(); }
+function changeScope(event) {
+  const next = event.target.value;
+  event.target.value = scope.value;
+  if (next === scope.value) return;
+  if (hasExpenseDraft(scope.value, dailyRows.value, item, templateId.value)) pendingScope.value = next;
+  else scope.value = next;
+}
+function confirmScopeChange() {
+  scope.value = pendingScope.value;
+  pendingScope.value = '';
+}
 watch([scope, templateId], () => { stage.value = 1; resetIdempotency(); });
 watch(dailyRows, resetIdempotency, { deep: true });
 watch(() => item.driverId, async (id) => {
@@ -116,20 +130,25 @@ async function submit() {
     <PageHeader title="发起费用申请" description="选择费用大类并核对明细后提交；日常费用可手工填写，也可用固定 Excel 辅助填表。" />
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div v-if="busy && stage === 1" class="ui-loading" role="status">正在处理，请稍候…</div>
-    <div v-if="stage === 1" class="ui-workflow">
-      <section class="ui-section-card">
-        <h2>1. 选择申请来源</h2>
-        <div class="ui-subtabs"><button type="button" :class="{active:scope==='DAILY'}" @click="scope='DAILY'">日常费用</button>
-          <button type="button" :class="{active:scope==='TASK'}" @click="scope='TASK'">任务费用</button></div>
-        <p v-if="scope === 'DAILY'">审批通过后先计入公司费用，暂不归属某个任务。</p>
-        <p v-else>先选司机，再从这名司机正式参与的运输任务中选择目标。</p>
+    <div v-if="stage === 1" class="expense-workflow">
+      <section class="ui-section-card expense-application-card">
+        <div class="expense-section-heading"><div><span class="expense-step">01</span><h2>申请信息</h2></div><p>先确定申请类型与统一费用大类，再填写本次明细。</p></div>
+        <div class="expense-application-fields">
+        <label class="ui-form-field">申请类型
+          <select :value="scope" aria-label="申请类型" @change="changeScope">
+            <option value="DAILY">日常费用</option><option value="TASK">任务费用</option>
+          </select>
+        </label>
         <label class="ui-form-field">费用大类与审批模板
           <select v-model="templateId"><option value="">请选择费用大类</option>
             <option v-for="entry in expenseTemplates" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select>
         </label>
+        </div>
+        <p class="expense-scope-note" v-if="scope === 'DAILY'">日常费用审批通过后先计入公司费用，可按正式规则后续归属任务。</p>
+        <p class="expense-scope-note" v-else>任务费用先选司机，再选择其正式参与的运输任务；本次仅提交一条明细。</p>
       </section>
       <section v-if="scope === 'TASK'" class="ui-section-card">
-        <h2>2. 填写任务费用明细</h2>
+        <div class="expense-section-heading"><div><span class="expense-step">02</span><h2>费用明细</h2></div><p>任务费用仅填写一条。</p></div>
         <div class="expense-form-grid">
           <label class="ui-form-field">业务日期 <input v-model="item.businessDate" type="date" required /></label>
           <label class="ui-form-field">司机 <select v-model="item.driverId" required><option value="">请选择司机</option>
@@ -149,7 +168,7 @@ async function submit() {
         </div>
       </section>
       <section v-else class="ui-section-card">
-        <div class="expense-heading"><div><h2>2. 当前申请明细</h2><p>手工和 Excel 明细可一起修改、删除；最终只提交下表确认的内容。</p></div>
+        <div class="expense-heading"><div><div class="expense-section-heading"><div><span class="expense-step">02</span><h2>费用明细</h2></div></div><p>手工和 Excel 明细在同一张表内修改、删除；最终只提交下表确认的内容。</p></div>
           <div class="expense-tools"><button type="button" @click="addDailyRow">＋ 手工新增</button><button type="button" @click="downloadTemplate">下载固定 Excel</button>
             <label class="expense-upload">导入 Excel<input type="file" accept=".xlsx" :disabled="busy" @change="chooseFile" /></label></div></div>
         <p v-if="dailyRows.length">共 {{ dailyRows.length }} 条 · Excel 已导入 {{ importedCount }} 条 · 当前金额合计 {{ money(total) }}</p>
@@ -169,7 +188,13 @@ async function submit() {
           <td><button type="button" @click="removeDailyRow(index)">删除</button><span v-if="expenseRowError(row)" class="error">{{ expenseRowError(row) }}</span></td>
         </tr></tbody></table></div>
       </section>
-      <div class="ui-dialog-actions"><button class="primary" type="button" :disabled="busy || !canAdvance" @click="next">核对申请摘要</button></div>
+      <section class="ui-section-card expense-total-card" aria-label="申请汇总">
+        <div class="expense-section-heading"><div><span class="expense-step">03</span><h2>申请汇总</h2></div></div>
+        <div class="expense-total-grid"><div><span>申请类型</span><strong>{{ scope === 'DAILY' ? '日常费用' : '任务费用' }}</strong></div><div><span>费用大类</span><strong>{{ selectedTemplate?.name || '尚未选择' }}</strong></div><div><span>明细数量</span><strong>{{ scope === 'DAILY' ? dailyRows.length : (item.driverId || item.targetTaskId || item.amount ? 1 : 0) }} 条</strong></div><div><span>金额合计</span><strong class="expense-total-money">{{ money(total) }}</strong></div></div>
+        <p v-if="scope === 'DAILY'" class="muted">其中 Excel 加入 {{ importedCount }} 条；当前表格全部明细共同提交一次审批。</p>
+        <p v-else class="muted">任务费用仅单笔审批，不提供 Excel 导入。</p>
+      </section>
+      <div class="expense-submit-bar"><p>提交前请核对申请类型、费用大类和全部明细。此处不保存草稿。</p><button class="primary" type="button" :disabled="busy || !canAdvance" @click="next">核对申请摘要</button></div>
     </div>
     <section v-else-if="stage === 2" class="ui-workflow">
       <div class="ui-section-card"><h2>3. 提交前核对</h2>
@@ -190,12 +215,37 @@ async function submit() {
       </div>
     </section>
     <section v-else class="ui-section-card"><h2>申请已提交</h2><p>审批编号：{{ success?.approval_no }}</p>
-      <button class="primary" type="button" @click="navigate('approvals')">查看我的申请</button></section>
+      <button class="primary" type="button" @click="navigate('approvals-mine')">查看我的申请</button></section>
+    <FormDialog :open="!!pendingScope" title="切换申请类型" @close="pendingScope = ''">
+      <p>当前类型有未提交的明细。切换后内容会保留，返回原类型可继续编辑；切换不会提交申请。</p>
+      <div class="ui-dialog-actions"><button type="button" @click="pendingScope = ''">继续编辑</button>
+        <button type="button" class="primary" @click="confirmScopeChange">保留草稿并切换</button></div>
+    </FormDialog>
   </div>
 </template>
 
 <style scoped>
-.expense-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.expense-workflow { display:grid; gap:10px; }
+.expense-workflow > .ui-section-card { margin:0; }
+.expense-application-card { display:grid; grid-template-columns:minmax(210px,.7fr) minmax(0,1.3fr); gap:8px 18px; align-items:center; }
+.expense-application-card .expense-section-heading { display:grid; align-items:start; gap:5px; margin:0; }
+.expense-application-card .expense-section-heading p { max-width:230px; font-size:12px; }
+.expense-application-card .expense-scope-note { grid-column:2; margin:0; font-size:12px; }
+.expense-application-fields,.expense-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1rem; }
+.expense-section-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+.expense-section-heading > div { display:flex; align-items:center; gap:10px; }
+.expense-section-heading h2 { margin:0; font-size:18px; }
+.expense-section-heading p { margin:0; color:var(--ui-text-secondary); }
+.expense-step { display:inline-grid; place-items:center; width:30px; height:30px; border-radius:8px; background:#e5f4ed; color:#135d4d; font-size:12px; font-weight:800; }
+.expense-scope-note { margin:14px 0 0; color:var(--ui-text-secondary); }
+.expense-total-card { background:#f8fbf9; }
+.expense-total-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.expense-total-grid > div { display:grid; gap:3px; padding:8px 10px; border:1px solid #dce9e2; border-radius:8px; background:#fff; }
+.expense-total-grid span { color:var(--ui-text-secondary); font-size:13px; }
+.expense-total-grid strong { font-size:16px; }
+.expense-total-money { color:#135d4d; text-align:right; }
+.expense-submit-bar { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:10px 14px; border:1px solid var(--ui-border); border-radius:var(--ui-radius-card); background:#fff; }
+.expense-submit-bar p { margin:0; color:var(--ui-text-secondary); }
 .expense-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
 .expense-tools { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
 .expense-upload { display:inline-flex; align-items:center; position:relative; padding:.55rem .8rem; border:1px solid #d6e3df; border-radius:.5rem; cursor:pointer; }
@@ -206,5 +256,6 @@ async function submit() {
 .expense-table th { white-space:nowrap; color:#516963; }
 .expense-table input,.expense-table select { box-sizing:border-box; min-width:100px; max-width:180px; width:100%; padding:.45rem; border:1px solid #d6e3df; border-radius:.4rem; }
 .expense-table td .error { display:block; min-width:140px; margin-top:.4rem; font-size:.8rem; }
-@media (max-width: 900px) { .expense-form-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .expense-application-card { grid-template-columns:1fr; } .expense-application-card .expense-scope-note { grid-column:auto; } .expense-form-grid,.expense-application-fields { grid-template-columns: 1fr; } .expense-total-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width: 640px) { .expense-total-grid { grid-template-columns:1fr; } .expense-submit-bar { align-items:stretch; flex-direction:column; } }
 </style>

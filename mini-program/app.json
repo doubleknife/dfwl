@@ -10,6 +10,7 @@
     "pages/approvals/index",
     "pages/salary/index",
     "pages/profile/index",
+    "pages/change-password/index",
     "pages/notifications/index"
   ],
   "window": {

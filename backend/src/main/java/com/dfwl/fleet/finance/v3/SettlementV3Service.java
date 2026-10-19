@@ -4,6 +4,7 @@ import com.dfwl.fleet.common.api.PageResponse;
 import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.system.service.AuditWriteService;
+import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,10 +34,13 @@ public class SettlementV3Service {
     private final FinanceFactsService finance;
     private final AuditWriteService audit;
     private final ObjectMapper mapper;
+    private final TransactionalAuthorizationGuard authorization;
 
     public SettlementV3Service(JdbcTemplate jdbc, FinanceFactsService finance,
-                               AuditWriteService audit, ObjectMapper mapper) {
+                               AuditWriteService audit, ObjectMapper mapper,
+                               TransactionalAuthorizationGuard authorization) {
         this.jdbc = jdbc; this.finance = finance; this.audit = audit; this.mapper = mapper;
+        this.authorization = authorization;
     }
 
     public List<Map<String, Object>> versions(String month) {
@@ -51,6 +55,7 @@ public class SettlementV3Service {
 
     @Transactional
     public Map<String, Object> generate(String month, long actor) {
+        authorization.require(actor, "BUTTON_SETTLEMENTS_GENERATE");
         YearMonth period = finance.requireMonth(month);
         jdbc.update("INSERT INTO settlement_month(month_key) VALUES(?) ON DUPLICATE KEY UPDATE id=id", month);
         Map<String, Object> monthRow = jdbc.queryForMap("SELECT * FROM settlement_month WHERE month_key=? FOR UPDATE", month);

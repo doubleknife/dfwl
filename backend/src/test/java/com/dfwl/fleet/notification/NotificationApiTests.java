@@ -39,12 +39,13 @@ class NotificationApiTests {
 
     @BeforeEach
     void reset() {
+        jdbc.update("DELETE FROM auth_session WHERE user_id IN (801, 802)");
         jdbc.update("DELETE FROM in_app_notification");
         jdbc.update("DELETE FROM sys_user WHERE id IN (801, 802)");
         Long driverRoleId = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code = 'DRIVER'", Long.class);
         jdbc.update("INSERT INTO sys_user (id, phone, password_hash, role_id, status) VALUES (801, '13900000801', 'hash', ?, 1), (802, '13900000802', 'hash', ?, 1)", driverRoleId, driverRoleId);
-        userAToken = tokens.issueToken(new AuthenticatedUser(801L, "13900000801", 1L, "DRIVER", "司机", Set.of()));
-        userBToken = tokens.issueToken(new AuthenticatedUser(802L, "13900000802", 1L, "DRIVER", "司机", Set.of()));
+        userAToken = tokens.issueToken(new AuthenticatedUser(801L, "13900000801", driverRoleId, "DRIVER", "司机", Set.of()));
+        userBToken = tokens.issueToken(new AuthenticatedUser(802L, "13900000802", driverRoleId, "DRIVER", "司机", Set.of()));
     }
 
     @Test

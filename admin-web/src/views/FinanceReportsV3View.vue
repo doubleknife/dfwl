@@ -7,28 +7,33 @@ import DataTable from '../components/DataTable.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import ErrorState from '../components/ErrorState.vue';
+import SummaryCards from '../components/SummaryCards.vue';
+import { navigate } from '../router/routes.js';
+import { can } from '../stores/auth.js';
 
 const props = defineProps({ scope: { type: String, default: 'TASK' } });
 const today = new Date(); const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}` });
-const title = computed(() => ({ TASK: '任务经营档案', TEMPLATE: '线路模板经营', COMPANY: '公司经营总览' })[props.scope]);
+const title = computed(() => ({ TASK: '任务经营', TEMPLATE: '线路模板经营', COMPANY: '公司经营' })[props.scope]);
 const rows = ref([]); const company = ref(null); const selected = ref(null);
 const selectedTemplate = ref(null);
 const pageNo = ref(1); const total = ref(0); const loading = ref(false); const error = ref('');
 const taskCols = [
   { key: 'task_no', label: '任务号' }, { key: 'template_name_snapshot', label: '线路模板' },
-  { key: 'customer_name_snapshot', label: '客户' }, { key: 'net_weight', label: '有效净重' },
-  { key: 'actual_unit_price', label: '实际单价', numeric: true }, { key: 'income_amount', label: '收入', numeric: true },
+  { key: 'customer_name_snapshot', label: '客户' }, { key: 'income_amount', label: '收入', numeric: true },
+  { key: 'profit_amount', label: '利润', numeric: true }, { key: 'net_weight', label: '有效净重' },
+  { key: 'actual_unit_price', label: '实际单价', numeric: true },
   { key: 'information_fee_amount', label: '信息费', numeric: true }, { key: 'salary_amount', label: '参与工资', numeric: true },
   { key: 'task_expense_amount', label: '归属费用净额', numeric: true }, { key: 'total_expense_amount', label: '总支出', numeric: true },
-  { key: 'profit_amount', label: '利润', numeric: true }, { key: 'actions', label: '操作' }
+  { key: 'actions', label: '操作' }
 ];
 const templateCols = [
   { key: 'template_code', label: '线路编号' }, { key: 'template_name', label: '线路名称' },
   { key: 'customer_name', label: '客户' }, { key: 'product_name', label: '货物' },
-  { key: 'task_count', label: '已完成任务' }, { key: 'weight_total', label: '净重合计' },
-  { key: 'income_total', label: '收入', numeric: true }, { key: 'information_fee_total', label: '信息费', numeric: true },
+  { key: 'task_count', label: '已完成任务' }, { key: 'income_total', label: '收入', numeric: true },
+  { key: 'profit_total', label: '利润', numeric: true }, { key: 'weight_total', label: '净重合计' },
+  { key: 'information_fee_total', label: '信息费', numeric: true },
   { key: 'salary_total', label: '参与工资', numeric: true }, { key: 'task_expense_total', label: '归属费用', numeric: true },
-  { key: 'profit_total', label: '利润', numeric: true }, { key: 'actions', label: '操作' }
+  { key: 'actions', label: '操作' }
 ];
 const expenseCols = [
   { key: 'expense_no', label: '费用编号' }, { key: 'business_date', label: '日期' },
@@ -40,6 +45,22 @@ const expenseCols = [
 ];
 const typeNames = { REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', TOLL: '过路费', DAILY: '日常费用', TASK: '任务费用' };
 const money = (v) => `¥ ${Number(v || 0).toFixed(2)}`;
+const companyCards = computed(() => company.value ? [
+  { label: '运输收入', value: money(company.value.incomeTotal) },
+  { label: '信息费', value: money(company.value.informationFeeTotal) },
+  { label: '参与司机工资', value: money(company.value.salaryTotal) },
+  { label: '正式费用净额', value: money(company.value.expenseEntryTotal) },
+  { label: '总支出', value: money(company.value.totalExpense) },
+  { label: '公司利润', value: money(company.value.profitTotal) }
+] : []);
+const taskCards = computed(() => selected.value ? [
+  { label: '运输收入', value: money(selected.value.summary.income_amount) },
+  { label: '实际信息费', value: money(selected.value.summary.information_fee_amount) },
+  { label: '参与工资', value: money(selected.value.summary.salary_amount) },
+  { label: '归属费用净额', value: money(selected.value.summary.task_expense_amount) },
+  { label: '总支出', value: money(selected.value.summary.total_expense_amount) },
+  { label: '任务利润', value: money(selected.value.summary.profit_amount) }
+] : []);
 const load = async (page = 1) => {
   loading.value = true; error.value = '';
   try {
@@ -71,15 +92,8 @@ onMounted(() => load());
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
     <FilterBar><label>月份<input v-model="filters.month" type="month" /></label><button type="button" @click="load(1)">查询</button></FilterBar>
     <template v-if="scope === 'COMPANY'">
-      <section v-if="company" class="v3-summary" aria-label="公司经营汇总">
-        <div><small>运输收入</small><strong>{{ money(company.incomeTotal) }}</strong></div>
-        <div><small>信息费</small><strong>{{ money(company.informationFeeTotal) }}</strong></div>
-        <div><small>参与工资</small><strong>{{ money(company.salaryTotal) }}</strong></div>
-        <div><small>全部正式费用净额</small><strong>{{ money(company.expenseEntryTotal) }}</strong></div>
-        <div><small>总支出</small><strong>{{ money(company.totalExpense) }}</strong></div>
-        <div><small>利润</small><strong>{{ money(company.profitTotal) }}</strong></div>
-      </section>
-      <section v-if="company" class="ui-section"><h2>费用归属说明</h2><p>本月未归属任务的正式日常费用 {{ money(company.unassignedExpenseTotal) }}，已经计入公司总支出；后续归属任务不会再次增加公司支出。</p><p>收入按任务完成月份统计；信息费和参与工资按任务业务月份统计；正式费用按费用业务月份统计。</p></section>
+      <SummaryCards v-if="company" label="公司经营汇总" :items="companyCards" />
+      <section v-if="company" class="ui-section finance-insight-grid"><div><h2>经营明细入口</h2><p>按当前统一经营口径查看任务、线路模板和正式费用；各页面独立按月份筛选。</p><div class="ui-page-actions"><button v-if="can('PAGE_FINANCE_TASKS')" type="button" @click="navigate('finance-tasks')">任务经营</button><button v-if="can('PAGE_FINANCE_TEMPLATES')" type="button" @click="navigate('finance-templates')">线路模板经营</button><button v-if="can('PAGE_EXPENSE_LEDGER')" type="button" @click="navigate('expense-ledger')">正式费用台账</button></div></div><div class="finance-scope-note"><h2>费用归属口径</h2><p>本月未归属任务的正式日常费用 {{ money(company.unassignedExpenseTotal) }}，已经计入公司总支出；后续归属任务不会再次增加公司支出。</p><p>收入按任务完成月份统计；信息费和参与工资按任务业务月份统计；正式费用按费用业务月份统计。</p></div></section>
       <p v-else-if="loading" class="ui-loading">正在加载经营汇总…</p>
     </template>
     <template v-else>
@@ -102,13 +116,10 @@ onMounted(() => load());
     <DetailDrawer :open="!!selected" title="任务经营档案" @close="selected = null">
       <template #subtitle>{{ selected?.summary?.task_no }}</template>
       <template v-if="selected">
-        <section class="ui-section"><h2>经营结果</h2><dl class="ui-detail-list">
+        <section class="ui-section"><h2>经营结果</h2><SummaryCards label="任务经营汇总" :items="taskCards" /><dl class="ui-detail-list">
           <div><dt>客户 / 货物</dt><dd>{{ selected.summary.customer_name_snapshot }} · {{ selected.summary.product_name_snapshot }}</dd></div>
           <div><dt>运输线路</dt><dd>{{ selected.summary.loading_place_snapshot }} → {{ selected.summary.unloading_place_snapshot }}</dd></div>
           <div><dt>有效净重</dt><dd>{{ selected.summary.net_weight }} 吨</dd></div><div><dt>实际含税单价</dt><dd>{{ money(selected.summary.actual_unit_price) }} / 吨</dd></div>
-          <div><dt>运输收入</dt><dd>{{ money(selected.summary.income_amount) }}</dd></div><div><dt>实际信息费</dt><dd>{{ money(selected.summary.information_fee_amount) }}</dd></div>
-          <div><dt>参与工资</dt><dd>{{ money(selected.summary.salary_amount) }}</dd></div><div><dt>归属正式费用净额</dt><dd>{{ money(selected.summary.task_expense_amount) }}</dd></div>
-          <div><dt>总支出</dt><dd>{{ money(selected.summary.total_expense_amount) }}</dd></div><div><dt>利润</dt><dd>{{ money(selected.summary.profit_amount) }}</dd></div>
         </dl></section>
         <section class="ui-section"><h2>参与司机与当时车辆</h2><DataTable :columns="[
           { key: 'sequence_no', label: '参与顺序' }, { key: 'driver_name', label: '司机' },
@@ -122,9 +133,18 @@ onMounted(() => load());
         </DataTable></section>
         <section class="ui-section"><h2>当前归属费用</h2><p>费用净额 {{ money(selected.summary.task_expense_amount) }}；<span v-for="type in selected.expenseTypes" :key="type.expense_type">{{ typeNames[type.expense_type] || '其他费用' }} {{ money(type.amount_total) }}（{{ type.entry_count }} 笔）　</span></p><DataTable :columns="expenseCols" :rows="selected.expenses" empty-text="当前没有归属此任务的正式费用">
           <template #expense_type="{ row }">{{ typeNames[row.expense_type] || '其他费用' }}</template><template #application_scope="{ row }">{{ typeNames[row.application_scope] }}</template>
-          <template #source_type="{ row }">{{ row.source_type === 'REVERSAL' ? '费用冲销' : '审批通过' }}</template>
+          <template #source_type="{ row }">{{ row.source_type === 'REVERSAL' ? '费用冲销' : row.source_type === 'CHARGING' ? '充电公司' : '审批通过' }}</template>
           <template #amount="{ row }">{{ money(row.amount) }}</template></DataTable></section>
       </template>
     </DetailDrawer>
   </main>
 </template>
+
+<style scoped>
+.finance-insight-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.75fr); gap:18px; align-items:start; }
+.finance-insight-grid h2 { margin:0 0 8px; font-size:16px; }
+.finance-insight-grid p { margin:0 0 11px; font-size:13px; color:var(--ui-text-secondary); line-height:1.6; }
+.finance-insight-grid .ui-page-actions { flex-wrap:wrap; gap:8px; }
+.finance-scope-note { padding:12px 14px; border:1px solid var(--ui-border); border-radius:8px; background:#f8fbf9; }
+@media (max-width:1000px) { .finance-insight-grid { grid-template-columns:1fr; } }
+</style>
