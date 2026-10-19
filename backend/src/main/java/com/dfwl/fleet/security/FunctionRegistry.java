@@ -52,11 +52,11 @@ public final class FunctionRegistry {
         page("系统设置", "", "users", "用户管理", "用户及角色资料");
         page("系统设置", "", "roles", "角色权限", "角色与功能授权");
         page("系统设置", "", "audit", "操作日志", "审计日志");
-        page("运输管理", "小程序", "mini-routes", "司机我的线路", "本人当前参与任务，不含经营和工资字段");
-        page("工资与考勤", "小程序", "mini-salary", "司机工资单", "本人薪资");
-        page("费用管理", "小程序", "mini-expense-apply", "司机费用申请", "本人费用申请");
-        page("审批中心", "小程序", "mini-approvals", "小程序审批中心", "本人申请及符合节点资格的待办");
-        page("车辆与人员", "小程序", "mini-tire-request", "司机换胎申请", "本人换胎申请");
+        page("小程序", "", "mini-routes", "司机我的线路", "本人当前参与任务，不含经营和工资字段");
+        page("小程序", "", "mini-salary", "司机工资单", "本人薪资");
+        page("小程序", "", "mini-expense-apply", "司机费用申请", "本人费用申请");
+        page("小程序", "", "mini-approvals", "小程序审批中心", "本人申请及符合节点资格的待办");
+        page("小程序", "", "mini-tire-request", "司机换胎申请", "本人换胎申请");
 
         button("products", "manage", "维护货物");
         button("templates", "manage", "维护线路模板");

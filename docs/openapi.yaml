@@ -337,7 +337,7 @@ paths:
       responses: {'200': {description: OK}}
     post:
       tags: [Drivers]
-      summary: 新增司机并原子创建或关联合法 DRIVER 账号；新账号需 initialPassword，已存在账号不改密码
+      summary: 新增司机并原子创建 DRIVER 账号；initialPassword 必填，同手机号已有账号时拒绝且整体回滚
       x-function-any-of: [BUTTON_DRIVERS_ADD]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
       responses: {'200': {description: OK}}
@@ -1514,13 +1514,13 @@ components:
       description: 重量/电量/气量 DECIMAL(18,3)，接口以字符串传输避免浮点误差。
     DriverCreateRequest:
       type: object
-      required: [driverType, name, phone, idCardNo, drivingLicenseNo, status]
+      required: [driverType, name, phone, idCardNo, drivingLicenseNo, status, initialPassword]
       properties:
         driverType: {type: string, enum: [INTERNAL, OUTSOURCED]}
         name: {type: string}
         phone: {type: string}
         status: {type: integer, enum: [0, 1]}
-        initialPassword: {type: [string, 'null'], writeOnly: true, description: 仅新建 DRIVER User 时必填；已有合法账号时不改原密码}
+        initialPassword: {type: string, minLength: 6, writeOnly: true, description: 新增司机时必填；同手机号已有任何账号时拒绝创建}
         drivingLicenseNo: {type: string, minLength: 1, description: 司机驾驶证号；首尾空格由服务端去除；全局唯一}
         idCardNo: {type: string, pattern: '^[1-9][0-9]{16}[0-9Xx]$', description: 中国大陆18位身份证；校验出生日期及校验码；全局唯一}
       description: 出生日期与年龄由合法身份证号派生并只读返回，不允许在请求中人工设置。

@@ -129,6 +129,29 @@ class MasterDataApiTests {
     }
 
     @Test
+    void existingAccountCannotBeLinkedToNewDriverAndDriverInsertRollsBack() throws Exception {
+        for (int roleId : new int[]{2, 3}) {
+            String phone = "1381000080" + roleId;
+            jdbcTemplate.update("INSERT INTO sys_user(phone,password_hash,role_id,status) VALUES(?,?,?,1)",
+                    phone, "existing-test-hash", roleId);
+            mockMvc.perform(post("/api/v1/drivers")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"driverType":"INTERNAL","name":"待新增司机","phone":"%s",
+                                     "drivingLicenseNo":"DL-%s","idCardNo":"%s","status":1,
+                                     "initialPassword":"local-test-only"}
+                                    """.formatted(phone, phone, testCard(phone))))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("该手机号已有登录账号，不能新增司机"));
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver WHERE phone=?", Integer.class, phone))
+                    .isZero();
+            assertThat(jdbcTemplate.queryForObject("SELECT password_hash FROM sys_user WHERE phone=?", String.class, phone))
+                    .isEqualTo("existing-test-hash");
+        }
+    }
+
+    @Test
     void driverListFiltersAcrossTheWholeServerSidePage() throws Exception {
         createDriver("张三", "13810000000");
         createDriver("李四", "13810000001");

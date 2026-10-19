@@ -42,15 +42,10 @@ export function buildPagePermissionTree(navigation, routes, catalog) {
       codes: [...new Set(children.flatMap((entry) => entry.codes))] };
   };
   const domains = navigation.map(child);
-  for (const domain of domains) {
-    const miniPages = [...permissions.values()].filter((item) => item.permissionType === 'PAGE'
-      && item.pageKey?.startsWith('mini-') && item.domain === domain.label).map((item) => pageNode(item.pageKey));
-    if (miniPages.length) {
-      const codes = miniPages.flatMap((item) => item.codes);
-      domain.children.push({ type: 'group', key: `${domain.key}-mini`, label: '小程序', children: miniPages, codes });
-      domain.codes = [...new Set([...domain.codes, ...codes])];
-    }
-  }
+  const miniPages = [...permissions.values()].filter((item) => item.permissionType === 'PAGE'
+    && item.domain === '小程序').map((item) => pageNode(item.pageKey));
+  if (miniPages.length) domains.push({ type: 'group', key: 'mini-program', label: '小程序',
+    children: miniPages, codes: [...new Set(miniPages.flatMap((item) => item.codes))] });
   const listed = new Set(domains.flatMap(function collect(node) {
     return node.type === 'page' ? node.codes : (node.children || []).flatMap(collect);
   }));

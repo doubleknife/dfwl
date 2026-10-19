@@ -2,7 +2,7 @@
 
 本清单由后端 `FunctionRegistry` 与 `docs/openapi.yaml` 生成，运行时以后端注册表和启动期编译的 Controller 关联为准。页面允许其限定范围内的读取；按钮写入还要求所属页面授权。工作台“待办概览”是审批与费用归属权限派生入口，不独立授权。
 
-注册功能：41 个页面（含 5 个小程序页面）、54 个按钮。
+注册功能：41 个页面（含 5 个小程序页面）、54 个按钮。角色权限树在八个管理端业务域之后单列“小程序”大类；这只是目录归属调整，功能编码和既有授权不变。
 
 ## 页面与按钮矩阵
 
@@ -44,11 +44,11 @@
 | 系统设置 | 用户管理 | `PAGE_USERS` | 用户及角色资料 | 新增用户（`BUTTON_USERS_ADD`）；编辑及启停用户（`BUTTON_USERS_EDIT`）；重置用户密码（`BUTTON_USERS_RESET_PASSWORD`） |
 | 系统设置 | 角色权限 | `PAGE_ROLES` | 角色与功能授权 | 新增角色（`BUTTON_ROLES_ADD`）；编辑及启停角色（`BUTTON_ROLES_EDIT`）；配置角色权限（`BUTTON_ROLES_GRANT`） |
 | 系统设置 | 操作日志 | `PAGE_AUDIT` | 审计日志 | 无写入按钮 |
-| 运输管理 / 小程序 | 司机我的线路 | `PAGE_MINI_ROUTES` | 本人当前参与任务，不含经营和工资字段 | 司机确认发车（`BUTTON_MINI_ROUTES_DEPART`）；司机确认卸货（`BUTTON_MINI_ROUTES_UNLOAD`） |
-| 工资与考勤 / 小程序 | 司机工资单 | `PAGE_MINI_SALARY` | 本人薪资 | 无写入按钮 |
-| 费用管理 / 小程序 | 司机费用申请 | `PAGE_MINI_EXPENSE_APPLY` | 本人费用申请 | 司机提交费用申请（`BUTTON_MINI_EXPENSE_APPLY_SUBMIT`） |
-| 审批中心 / 小程序 | 小程序审批中心 | `PAGE_MINI_APPROVALS` | 本人申请及符合节点资格的待办 | 小程序审批通过（`BUTTON_MINI_APPROVALS_APPROVE`）；小程序打回审批（`BUTTON_MINI_APPROVALS_RETURN`）；小程序撤回申请（`BUTTON_MINI_APPROVALS_WITHDRAW`） |
-| 车辆与人员 / 小程序 | 司机换胎申请 | `PAGE_MINI_TIRE_REQUEST` | 本人换胎申请 | 司机发起换胎申请（`BUTTON_MINI_TIRE_REQUEST_SUBMIT`） |
+| 小程序 | 司机我的线路 | `PAGE_MINI_ROUTES` | 本人当前参与任务，不含经营和工资字段 | 司机确认发车（`BUTTON_MINI_ROUTES_DEPART`）；司机确认卸货（`BUTTON_MINI_ROUTES_UNLOAD`） |
+| 小程序 | 司机工资单 | `PAGE_MINI_SALARY` | 本人薪资 | 无写入按钮 |
+| 小程序 | 司机费用申请 | `PAGE_MINI_EXPENSE_APPLY` | 本人费用申请 | 司机提交费用申请（`BUTTON_MINI_EXPENSE_APPLY_SUBMIT`） |
+| 小程序 | 小程序审批中心 | `PAGE_MINI_APPROVALS` | 本人申请及符合节点资格的待办 | 小程序审批通过（`BUTTON_MINI_APPROVALS_APPROVE`）；小程序打回审批（`BUTTON_MINI_APPROVALS_RETURN`）；小程序撤回申请（`BUTTON_MINI_APPROVALS_WITHDRAW`） |
+| 小程序 | 司机换胎申请 | `PAGE_MINI_TIRE_REQUEST` | 本人换胎申请 | 司机发起换胎申请（`BUTTON_MINI_TIRE_REQUEST_SUBMIT`） |
 
 ## API 功能关联
 

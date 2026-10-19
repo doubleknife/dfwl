@@ -206,6 +206,15 @@ const tests = [
     assert.equal(pages.length, 41);
     assert.equal(new Set(owned).size, pages.length + buttons.length);
     assert.deepEqual(tree.common, []);
+    assert.deepEqual(tree.domains.map((domain) => domain.label), [...navigation.map((domain) => domain.label), '小程序']);
+    const miniPages = pages.filter((page) => page.pageKey.startsWith('mini-'));
+    const miniDomain = tree.domains.at(-1);
+    assert.deepEqual(miniDomain.children.map((page) => page.key), miniPages.map((page) => page.pageKey));
+    assert.deepEqual(miniDomain.codes.sort(), [...miniPages, ...buttons.filter((button) =>
+      miniPages.some((page) => page.permissionCode === button.parentCode))]
+      .map((item) => item.permissionCode).sort());
+    assert.equal(tree.domains.slice(0, -1).flatMap((domain) => domain.codes)
+      .some((code) => code.startsWith('PAGE_MINI_') || code.startsWith('BUTTON_MINI_')), false);
     assert.equal(tree.domains[0].children.find((item) => item.key === 'my-todos').type, 'derived');
     assert.deepEqual(tree.domains[2].children.find((item) => item.key === 'binding').codes.sort(),
       ['PAGE_BINDING', 'BUTTON_BINDING_BIND_DRIVER', 'BUTTON_BINDING_UNBIND_DRIVER',

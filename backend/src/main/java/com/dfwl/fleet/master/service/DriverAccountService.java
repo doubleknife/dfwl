@@ -5,7 +5,6 @@ import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.master.dto.response.DriverResponse;
 import com.dfwl.fleet.master.repository.MasterDataRepository;
 import com.dfwl.fleet.system.dto.request.UserRequest;
-import com.dfwl.fleet.system.dto.response.UserResponse;
 import com.dfwl.fleet.system.repository.SystemManagementRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,9 +26,9 @@ public class DriverAccountService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    /** An existing DRIVER user is linked without changing its password; a new user needs an explicit password. */
+    /** A new driver receives a new DRIVER account in the same transaction. */
     @Transactional
-    public long createOrLink(long driverId, String initialPassword, long operatorId) {
+    public long createForDriver(long driverId, String initialPassword, long operatorId) {
         if (!StringUtils.hasText(initialPassword) || initialPassword.length() < 6) {
             throw new BusinessException("SYS_002", "司机初始密码至少 6 位");
         }
@@ -39,30 +38,22 @@ public class DriverAccountService {
         if (drivers.activeDriversWithPhone(driver.phone()) != 1) {
             throw new BusinessException(ErrorCode.DATA_002);
         }
-        UserResponse existing = users.findUserByPhoneForUpdate(driver.phone()).orElse(null);
         if (driver.userId() != null) {
-            if (existing != null && existing.id() == driver.userId() && "DRIVER".equals(existing.roleCode())) {
-                return existing.id();
-            }
             throw new BusinessException(ErrorCode.DATA_002);
         }
-        Long userId;
-        if (existing != null) {
-            if (!"DRIVER".equals(existing.roleCode()) || existing.status() != 1) {
-                throw new BusinessException(ErrorCode.AUTH_003);
-            }
-            userId = existing.id();
-        } else {
-            Long roleId = users.driverRoleId();
-            if (roleId == null || !StringUtils.hasText(initialPassword)) {
-                throw new BusinessException(ErrorCode.SYS_002);
-            }
-            try {
-                userId = users.createUser(new UserRequest(driver.phone(), null, roleId, driver.status()),
-                        passwordEncoder.encode(initialPassword), operatorId);
-            } catch (DataIntegrityViolationException ex) {
-                throw new BusinessException(ErrorCode.DATA_002);
-            }
+        if (users.findUserByPhoneForUpdate(driver.phone()).isPresent()) {
+            throw new BusinessException("DATA_002", "该手机号已有登录账号，不能新增司机");
+        }
+        Long roleId = users.driverRoleId();
+        if (roleId == null) {
+            throw new BusinessException(ErrorCode.SYS_002);
+        }
+        long userId;
+        try {
+            userId = users.createUser(new UserRequest(driver.phone(), null, roleId, driver.status()),
+                    passwordEncoder.encode(initialPassword), operatorId);
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException("DATA_002", "该手机号已有登录账号，不能新增司机");
         }
         if (!drivers.linkDriverUser(driverId, userId)) {
             throw new BusinessException(ErrorCode.DATA_002);

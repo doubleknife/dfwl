@@ -138,7 +138,7 @@ public class MasterDataService {
     @Transactional
     public DriverResponse createDriverWithAccount(DriverRequest request, long operatorId) {
         DriverResponse driver = createDriver(request);
-        driverAccounts.createOrLink(driver.id(), request.initialPassword(), operatorId);
+        driverAccounts.createForDriver(driver.id(), request.initialPassword(), operatorId);
         return findDriver(driver.id());
     }
 

@@ -59,10 +59,10 @@ function forwardPage(node, checked) { emit('toggle-codes', node.codes, checked);
     </section>
     <section v-if="common.length" class="ui-permission-domain">
       <header class="ui-permission-domain-head">
-        <button type="button" :aria-expanded="isOpen({key:'common'})" @click="toggleOpen({key:'common'})">{{ isOpen({key:'common'}) ? '▾' : '▸' }} 小程序与公共权限</button>
+        <button type="button" :aria-expanded="isOpen({key:'common'})" @click="toggleOpen({key:'common'})">{{ isOpen({key:'common'}) ? '▾' : '▸' }} 公共权限</button>
         <label><input type="checkbox" :checked="common.every((item) => selected.includes(item.permissionCode))"
           :indeterminate="common.some((item) => selected.includes(item.permissionCode)) && !common.every((item) => selected.includes(item.permissionCode))"
-          aria-label="选择全部小程序与公共权限"
+          aria-label="选择全部公共权限"
           @change="emit('toggle-codes', common.map((item) => item.permissionCode), !common.every((item) => selected.includes(item.permissionCode)))" />
           {{ common.filter((item) => selected.includes(item.permissionCode)).length }} / {{ common.length }} 项</label>
       </header>
