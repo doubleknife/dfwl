@@ -18,20 +18,22 @@ mvn test
 
 ## Configuration
 
-Database settings are environment-driven:
+Maven packages the single tracked `src/main/resources/application.yml`. It
+contains local non-secret defaults and environment placeholders for credentials.
+The following variables override its defaults:
 
 - `FLEET_DB_URL`
 - `FLEET_DB_USERNAME`
 - `FLEET_DB_PASSWORD`
 - `FLEET_FLYWAY_ENABLED`
 
-The tracked `application*.yml` files are packaged into the JAR and contain no
-local credentials. For local development, use a private external configuration
+For local development, use a private external configuration
 file outside `src/main/resources` (for example, ignored
 `.runtime/application-local.yml`) and pass it with
 `--spring.config.additional-location=file:./.runtime/application-local.yml`.
-Production uses `SPRING_PROFILES_ACTIVE=prod`, `FLEET_STORAGE_ROOT`, and the
-server-side OCR environment variables. See
+Production can likewise supply `/etc/dfwl/application.yml` as an external
+override; change that file without modifying the JAR. The production profile,
+`FLEET_STORAGE_ROOT`, and server-side OCR variables remain available. See
 `../docs/11-R8-1-部署配置与敏感信息.md`.
 
 Flyway migrations live in `src/main/resources/db/migration`.

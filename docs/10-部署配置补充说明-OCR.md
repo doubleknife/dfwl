@@ -9,7 +9,7 @@ FLEET_OCR_TENCENT_SECRET_KEY=<SecretKey>
 FLEET_OCR_TENCENT_REGION=ap-guangzhou
 ```
 
-这些名称来自 `OcrProperties` 的 `fleet.ocr` 配置绑定。真实凭据不得写入 `application.yml`、Java、测试源码、文档或 Git。
+这些名称来自 `OcrProperties` 的 `fleet.ocr` 配置绑定。真实凭据不得写入仓库内打包的 `application.yml`、Java、测试源码、文档或 Git；生产使用 JAR 外受限的私有配置文件或环境变量。
 
 `prod` profile 默认选择腾讯云 OCR；缺少 SecretId/SecretKey 时服务在启动阶段明确失败，不会等待到第一次识别请求。`FLEET_OCR_TENCENT_REGION` 默认 `ap-guangzhou`。完整部署变量与外部文件用法参见 `11-R8-1-部署配置与敏感信息.md`。
 
