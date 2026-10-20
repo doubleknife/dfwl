@@ -13,6 +13,7 @@ import com.dfwl.fleet.security.TokenAuthenticationService;
 import com.dfwl.fleet.auth.service.AuthService;
 import com.dfwl.fleet.auth.dto.request.LoginRequest;
 import com.dfwl.fleet.common.error.BusinessException;
+import com.dfwl.fleet.master.repository.MasterDataRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.Set;
@@ -42,6 +43,9 @@ class MasterDataApiTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MasterDataRepository repository;
 
     @Autowired
     private TokenAuthenticationService tokenAuthenticationService;
@@ -78,7 +82,7 @@ class MasterDataApiTests {
         AuthenticatedUser user = new AuthenticatedUser(1L, "13800000000", 1L, "admin", "管理员", grants(
                 "PAGE_DRIVERS", "BUTTON_DRIVERS_ADD", "BUTTON_DRIVERS_EDIT", "BUTTON_BINDING_BIND_DRIVER", "BUTTON_BINDING_UNBIND_DRIVER",
                 "PAGE_VEHICLES", "BUTTON_VEHICLES_ADD", "BUTTON_VEHICLES_EDIT", "PAGE_VEHICLES", "PAGE_BINDING",
-                "PAGE_TRAILERS", "BUTTON_TRAILERS_ADD", "BUTTON_BINDING_BIND_TRAILER", "BUTTON_BINDING_UNBIND_TRAILER"));
+                "PAGE_TRAILERS", "BUTTON_TRAILERS_ADD", "BUTTON_TRAILERS_EDIT", "BUTTON_BINDING_BIND_TRAILER", "BUTTON_BINDING_UNBIND_TRAILER"));
         token = tokenAuthenticationService.issueToken(user);
     }
 
@@ -339,7 +343,7 @@ class MasterDataApiTests {
 
     @Test
     void fixedVehicleStandardMustStayWithinMaximumLoad() throws Exception {
-        for (String standard : new String[]{"-1", "50"}) {
+        for (String standard : new String[]{"-1", "0", "50", "1.0001"}) {
             mockMvc.perform(post("/api/v1/vehicles")
                             .header("Authorization", "Bearer " + token)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -350,14 +354,14 @@ class MasterDataApiTests {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("SYS_002"));
         }
-        for (String standard : new String[]{"0", "32"}) {
+        for (String standard : new String[]{"1", "32"}) {
             mockMvc.perform(post("/api/v1/vehicles")
                             .header("Authorization", "Bearer " + token)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"plateNo":"京A1000%s","vehicleLicenseNo":"VL-京A1000%s","insuranceComplete":true,"energyType":"ELECTRIC",
                                      "maxLoad":32,"loadStandardType":"FIXED","loadStandardMinLoad":%s,"status":1}
-                                    """.formatted(standard.equals("0") ? "8" : "9", standard.equals("0") ? "8" : "9", standard)))
+                                    """.formatted(standard.equals("1") ? "8" : "9", standard.equals("1") ? "8" : "9", standard)))
                     .andExpect(status().isOk());
         }
         long vehicleId = jdbcTemplate.queryForObject("SELECT id FROM vehicle WHERE plate_no='京A10008'", Long.class);
@@ -370,7 +374,7 @@ class MasterDataApiTests {
                                 """))
                 .andExpect(status().isConflict());
         Number unchanged = jdbcTemplate.queryForObject("SELECT load_standard_min_load FROM vehicle WHERE id=?", Number.class, vehicleId);
-        org.assertj.core.api.Assertions.assertThat(unchanged.intValue()).isZero();
+        org.assertj.core.api.Assertions.assertThat(unchanged.intValue()).isEqualTo(1);
     }
 
     @Test
@@ -451,6 +455,305 @@ class MasterDataApiTests {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("BIND_003"));
+    }
+
+    @Test
+    void disablingVehicleUnbindsDriverAndRejectsFutureBindings() throws Exception {
+        long driverId = createDriver("停用测试司机", "13810000011");
+        long vehicleId = createVehicle("京A11011");
+        long trailerId = createTrailer("T11011", "京B11011");
+        bindDriverVehicle(driverId, vehicleId);
+        bindVehicleTrailer(trailerId, vehicleId);
+
+        mockMvc.perform(put("/api/v1/vehicles/{id}", vehicleId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(vehicleJson("京A11011", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value(0))
+                .andExpect(jsonPath("$.data.currentDriverId").doesNotExist())
+                .andExpect(jsonPath("$.data.currentTrailerId").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_vehicle_current WHERE vehicle_id=?", Integer.class, vehicleId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle_trailer_current WHERE vehicle_id=?", Integer.class, vehicleId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT unbind_reason FROM driver_vehicle_history WHERE vehicle_id=?", String.class, vehicleId))
+                .isEqualTo("车辆停用自动解绑");
+        assertThat(jdbcTemplate.queryForObject("SELECT unbind_reason FROM vehicle_trailer_history WHERE trailer_id=?", String.class, trailerId))
+                .isEqualTo("车辆停用自动解绑车挂");
+        mockMvc.perform(post("/api/v1/drivers/{id}/bind-vehicle", driverId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"vehicleId\":" + vehicleId + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("VEHICLE_DISABLED"));
+        mockMvc.perform(post("/api/v1/trailers/{id}/bind-vehicle", trailerId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"vehicleId\":" + vehicleId + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("VEHICLE_DISABLED"));
+    }
+
+    @Test
+    void disablingDriverUnbindsVehicleButPreservesVehicleTrailerBinding() throws Exception {
+        long driverId = createDriver("停用解绑司机", "13810000031");
+        long vehicleId = createVehicle("京A11031");
+        long trailerId = createTrailer("T11031", "京B11031");
+        bindDriverVehicle(driverId, vehicleId);
+        bindVehicleTrailer(trailerId, vehicleId);
+
+        mockMvc.perform(get("/api/v1/drivers/{id}", driverId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentTrailerPlateNo").value("京B11031"));
+        mockMvc.perform(get("/api/v1/drivers")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentTrailerPlateNo").value("京B11031"));
+        mockMvc.perform(get("/api/v1/vehicles")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentDriverName").value("停用解绑司机"))
+                .andExpect(jsonPath("$.data.records[0].currentTrailerPlateNo").value("京B11031"));
+        mockMvc.perform(get("/api/v1/trailers")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentDriverName").value("停用解绑司机"));
+
+        mockMvc.perform(put("/api/v1/drivers/{id}", driverId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"driverType":"INTERNAL","name":"停用解绑司机","phone":"13810000031",
+                                 "drivingLicenseNo":"DL-13810000031","idCardNo":"%s","status":0}
+                                """.formatted(testCard("13810000031"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentVehicleId").doesNotExist())
+                .andExpect(jsonPath("$.data.currentTrailerPlateNo").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_vehicle_current WHERE driver_id=?", Integer.class, driverId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT unbind_reason FROM driver_vehicle_history WHERE driver_id=?", String.class, driverId))
+                .isEqualTo("司机停用自动解绑");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle_trailer_current WHERE trailer_id=?", Integer.class, trailerId)).isEqualTo(1);
+        mockMvc.perform(get("/api/v1/vehicles")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentDriverName").doesNotExist())
+                .andExpect(jsonPath("$.data.records[0].currentTrailerPlateNo").value("京B11031"));
+        mockMvc.perform(get("/api/v1/trailers")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.records[0].currentDriverName").doesNotExist());
+    }
+
+    @Test
+    void unfinishedTaskRejectsDriverDisableAndKeepsBinding() throws Exception {
+        long driverId = createDriver("任务中司机", "13810000032");
+        long vehicleId = createVehicle("京A11032");
+        long trailerId = createTrailer("T11032", "京B11032");
+        bindDriverVehicle(driverId, vehicleId);
+        bindVehicleTrailer(trailerId, vehicleId);
+        insertCurrentTask(driverId, vehicleId, trailerId, "PUBLISHED");
+
+        mockMvc.perform(put("/api/v1/drivers/{id}", driverId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"driverType":"INTERNAL","name":"任务中司机","phone":"13810000032",
+                                 "drivingLicenseNo":"DL-13810000032","idCardNo":"%s","status":0}
+                                """.formatted(testCard("13810000032"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DRIVER_ACTIVE_TASKS"));
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM driver WHERE id=?", Integer.class, driverId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT vehicle_id FROM driver_vehicle_current WHERE driver_id=?", Long.class, driverId)).isEqualTo(vehicleId);
+    }
+
+    @Test
+    void bindingPickersPageOnlyEnabledUnboundVehiclesAndTrailers() throws Exception {
+        long driverId = createDriver("候选筛选司机", "13810000033");
+        long boundVehicle = createVehicle("京A11033");
+        long availableVehicle = createVehicle("京A11034");
+        long disabledVehicle = createVehicle("京A11035");
+        long boundTrailer = createTrailer("T11033", "京B11033");
+        long availableTrailer = createTrailer("T11034", "京B11034");
+        long disabledTrailer = createTrailer("T11035", "京B11035");
+        bindDriverVehicle(driverId, boundVehicle);
+        bindVehicleTrailer(boundTrailer, availableVehicle);
+        mockMvc.perform(put("/api/v1/vehicles/{id}", disabledVehicle)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(vehicleJson("京A11035", 0)))
+                .andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/trailers/{id}", disabledTrailer)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(trailerJson("T11035", "京B11035", 0)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/bindings/vehicle-options")
+                        .param("onlyUnboundDriver", "true").param("pageSize", "1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(availableVehicle))
+                .andExpect(jsonPath("$.data.records[0].currentTrailerId").value(boundTrailer));
+        mockMvc.perform(get("/api/v1/bindings/trailer-options")
+                        .param("onlyUnboundVehicle", "true").param("pageSize", "1")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].id").value(availableTrailer));
+        mockMvc.perform(get("/api/v1/bindings/vehicle-options")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(3));
+        mockMvc.perform(get("/api/v1/bindings/trailer-options")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(3));
+    }
+
+    @Test
+    void disablingTrailerUnbindsVehicleAndRejectsFutureBindings() throws Exception {
+        long vehicleId = createVehicle("京A11012");
+        long trailerId = createTrailer("T11012", "京B11012");
+        bindVehicleTrailer(trailerId, vehicleId);
+
+        mockMvc.perform(put("/api/v1/trailers/{id}", trailerId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(trailerJson("T11012", "京B11012", 0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value(0))
+                .andExpect(jsonPath("$.data.currentVehicleId").doesNotExist());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle_trailer_current WHERE trailer_id=?", Integer.class, trailerId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT unbind_reason FROM vehicle_trailer_history WHERE trailer_id=?", String.class, trailerId))
+                .isEqualTo("车挂停用自动解绑");
+        mockMvc.perform(post("/api/v1/trailers/{id}/bind-vehicle", trailerId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"vehicleId\":" + vehicleId + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TRAILER_DISABLED"));
+    }
+
+    @Test
+    void automaticVehicleUnbindOnlyTouchesTheExpectedBinding() throws Exception {
+        long driverId = createDriver("改绑测试司机", "13810000013");
+        long oldVehicleId = createVehicle("京A11013");
+        long newVehicleId = createVehicle("京A11014");
+        long trailerId = createTrailer("T11013", "京B11013");
+        bindDriverVehicle(driverId, oldVehicleId);
+        bindVehicleTrailer(trailerId, oldVehicleId);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        repository.unbindDriverVehicle(driverId, 1L, "手工换绑", now);
+        repository.unbindVehicleTrailer(trailerId, 1L, "手工换绑", now);
+        bindDriverVehicle(driverId, newVehicleId);
+        bindVehicleTrailer(trailerId, newVehicleId);
+
+        assertThat(repository.unbindDriverVehicleFromVehicle(driverId, oldVehicleId, 1L, "旧车停用", now)).isFalse();
+        assertThat(repository.unbindVehicleTrailerFromVehicle(oldVehicleId, trailerId, 1L, "旧车停用", now)).isFalse();
+        assertThat(jdbcTemplate.queryForObject("SELECT vehicle_id FROM driver_vehicle_current WHERE driver_id=?", Long.class, driverId))
+                .isEqualTo(newVehicleId);
+        assertThat(jdbcTemplate.queryForObject("SELECT vehicle_id FROM vehicle_trailer_current WHERE trailer_id=?", Long.class, trailerId))
+                .isEqualTo(newVehicleId);
+    }
+
+    @Test
+    void publishedAndInTransitTasksBlockVehicleAndTrailerDisable() throws Exception {
+        var states = java.util.List.of("PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING");
+        for (int i = 0; i < states.size(); i++) {
+            String state = states.get(i);
+            String suffix = "0" + (21 + i);
+            String plate = "京A12" + suffix;
+            String trailerNo = "T12" + suffix;
+            String trailerPlate = "京B12" + suffix;
+            long driverId = createDriver("任务司机" + state, "138100000" + (21 + i));
+            long vehicleId = createVehicle(plate);
+            long trailerId = createTrailer(trailerNo, trailerPlate);
+            bindDriverVehicle(driverId, vehicleId);
+            bindVehicleTrailer(trailerId, vehicleId);
+            insertCurrentTask(driverId, vehicleId, trailerId, state);
+
+            mockMvc.perform(put("/api/v1/vehicles/{id}", vehicleId)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(vehicleJson(plate, 0)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("VEHICLE_ACTIVE_TASKS"));
+            mockMvc.perform(put("/api/v1/trailers/{id}", trailerId)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(trailerJson(trailerNo, trailerPlate, 0)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("TRAILER_ACTIVE_TASKS"));
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM vehicle WHERE id=?", Integer.class, vehicleId)).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForObject("SELECT status FROM trailer WHERE id=?", Integer.class, trailerId)).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM driver_vehicle_current WHERE vehicle_id=?", Integer.class, vehicleId)).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vehicle_trailer_current WHERE trailer_id=?", Integer.class, trailerId)).isEqualTo(1);
+        }
+    }
+
+    private void bindDriverVehicle(long driverId, long vehicleId) throws Exception {
+        mockMvc.perform(post("/api/v1/drivers/{id}/bind-vehicle", driverId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"vehicleId\":" + vehicleId + "}"))
+                .andExpect(status().isOk());
+    }
+
+    private void bindVehicleTrailer(long trailerId, long vehicleId) throws Exception {
+        mockMvc.perform(post("/api/v1/trailers/{id}/bind-vehicle", trailerId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"vehicleId\":" + vehicleId + "}"))
+                .andExpect(status().isOk());
+    }
+
+    private long createTrailer(String trailerNo, String plateNo) throws Exception {
+        mockMvc.perform(post("/api/v1/trailers")
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content(trailerJson(trailerNo, plateNo, 1)))
+                .andExpect(status().isOk());
+        return jdbcTemplate.queryForObject("SELECT id FROM trailer WHERE trailer_no=?", Long.class, trailerNo);
+    }
+
+    private String vehicleJson(String plateNo, int state) {
+        return """
+                {"plateNo":"%s","vehicleLicenseNo":"VL-%s","insuranceComplete":true,"energyType":"ELECTRIC",
+                 "maxLoad":30.000,"loadStandardType":"PERCENT","loadStandardPercent":0.9000,"status":%d}
+                """.formatted(plateNo, plateNo, state);
+    }
+
+    private String trailerJson(String trailerNo, String plateNo, int state) {
+        return """
+                {"trailerNo":"%s","plateNo":"%s","insuranceComplete":true,"status":%d}
+                """.formatted(trailerNo, plateNo, state);
+    }
+
+    private void insertCurrentTask(long driverId, long vehicleId, long trailerId, String state) {
+        jdbcTemplate.update("INSERT INTO product (name, enabled) VALUES (?, 1)", "测试货物" + state);
+        long productId = jdbcTemplate.queryForObject("SELECT id FROM product WHERE name=?", Long.class, "测试货物" + state);
+        jdbcTemplate.update("""
+                INSERT INTO route_template (stable_code, name, customer_name, product_id,
+                    loading_place, unloading_place, default_unit_price, default_information_fee,
+                    default_driver_salary, created_by, updated_by)
+                VALUES (?, '验收线路', '客户', ?, 'A', 'B', 1.00, 0.00, 0.00, 1, 1)
+                """, "T-" + state, productId);
+        long templateId = jdbcTemplate.queryForObject("SELECT id FROM route_template WHERE stable_code=?", Long.class, "T-" + state);
+        jdbcTemplate.update("""
+                INSERT INTO transport_task (task_no, template_id, business_date,
+                    template_code_snapshot, template_name_snapshot, customer_name_snapshot,
+                    product_name_snapshot, loading_place_snapshot, unloading_place_snapshot,
+                    actual_unit_price, actual_information_fee, status, created_by)
+                VALUES (?, ?, CURRENT_DATE, ?, '验收线路', '客户',
+                    '测试货物', 'A', 'B', 1.00, 0.00, ?, 1)
+                """, "TASK-" + state, templateId, "T-" + state, state);
+        long taskId = jdbcTemplate.queryForObject("SELECT id FROM transport_task WHERE task_no=?", Long.class, "TASK-" + state);
+        jdbcTemplate.update("""
+                INSERT INTO transport_participant (task_id, sequence_no, driver_id, driver_type_snapshot,
+                    company_vehicle_id, vehicle_plate_snapshot, trailer_id, trailer_plate_snapshot,
+                    source_type, status, salary_amount, is_current)
+                VALUES (?, 1, ?, 'INTERNAL', ?, '车辆', ?, '车挂', 'INITIAL', ?, 0.00, 1)
+                """, taskId, driverId, vehicleId, trailerId, "IN_TRANSIT".equals(state) ? "IN_TRANSIT" : "ASSIGNED");
+        long participantId = jdbcTemplate.queryForObject("SELECT id FROM transport_participant WHERE task_id=?", Long.class, taskId);
+        jdbcTemplate.update("UPDATE transport_task SET current_participant_id=? WHERE id=?", participantId, taskId);
     }
 
     private long createDriver(String name, String phone) throws Exception {

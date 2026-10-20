@@ -18,6 +18,16 @@ function walk(dir) {
 }
 
 const tests = [
+  ['approval and current transport statuses use semantic color tags', () => {
+    const approvalMarkup = fs.readFileSync(path.join(root, 'pages/approvals/index.wxml'), 'utf8');
+    const approvalPage = fs.readFileSync(path.join(root, 'pages/approvals/index.js'), 'utf8');
+    const currentTask = fs.readFileSync(path.join(root, 'components/current-task-card/index.wxml'), 'utf8');
+    assert.match(approvalMarkup, /<status-tag label="\{\{item\.statusLabel\}\}" tone="\{\{item\.statusTone\}\}"/);
+    assert.match(approvalMarkup, /<status-tag label="\{\{detail\.statusLabel\}\}" tone="\{\{detail\.statusTone\}\}"/);
+    assert.match(approvalPage, /status === 'APPROVED' \? 'success'/);
+    assert.match(currentTask, /<status-tag label="\{\{task\.statusLabel\}\}" tone="\{\{task\.tone\}\}"/);
+    assert.equal(require('../utils/homePresentation').routePresentation({ status: 'CANCELLED' }).tone, 'danger');
+  }],
   ['login and me endpoints are wired', () => {
     const login = fs.readFileSync(path.join(root, 'pages/login/index.js'), 'utf8');
     const profile = fs.readFileSync(path.join(root, 'pages/profile/index.js'), 'utf8');

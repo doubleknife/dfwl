@@ -2,6 +2,7 @@
 import { displayValue } from '../utils/displayLabels.js';
 import LoadingState from './LoadingState.vue';
 import EmptyState from './EmptyState.vue';
+import StatusTag from './StatusTag.vue';
 defineProps({
   columns: { type: Array, required: true },
   rows: { type: Array, default: () => [] },
@@ -18,7 +19,10 @@ defineProps({
       <tbody>
         <tr v-for="(row, index) in rows" :key="row[rowKey] ?? index">
           <td v-for="column in columns" :key="column.key" :data-column="column.key" :class="{ 'ui-number': column.numeric || /amount|price|salary|profit|count|total/i.test(column.key), 'ui-action-column': column.key === 'actions' }">
-            <slot :name="column.key" :row="row" :value="row[column.key]">{{ displayValue(column.key, row[column.key], row) }}</slot>
+            <slot :name="column.key" :row="row" :value="row[column.key]">
+              <StatusTag v-if="/(^|_)status$|Status$|^enabled$/.test(column.key)" :value="row[column.key]" />
+              <template v-else>{{ displayValue(column.key, row[column.key], row) }}</template>
+            </slot>
           </td>
       </tr></tbody>
     </table>

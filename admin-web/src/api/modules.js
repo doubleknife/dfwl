@@ -4,13 +4,18 @@ export const masterApi = {
   drivers: (pageNo = 1, pageSize = 100, filters = {}) => apiClient.get(`/drivers?${query(filters, pageNo, pageSize)}`),
   bindingDrivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers/binding-candidates?pageNo=${pageNo}&pageSize=${pageSize}`),
   bindingVehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/vehicle-options?pageNo=${pageNo}&pageSize=${pageSize}`),
+  unboundDriverVehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/vehicle-options?pageNo=${pageNo}&pageSize=${pageSize}&onlyUnboundDriver=true`),
   bindingTrailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/trailer-options?pageNo=${pageNo}&pageSize=${pageSize}`),
+  unboundVehicleTrailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/bindings/trailer-options?pageNo=${pageNo}&pageSize=${pageSize}&onlyUnboundVehicle=true`),
   driver: (id) => apiClient.get(`/drivers/${id}`),
   vehicles: (pageNo = 1, pageSize = 100) => apiClient.get(`/vehicles?pageNo=${pageNo}&pageSize=${pageSize}`),
   vehicle: (id) => apiClient.get(`/vehicles/${id}`),
   trailers: (pageNo = 1, pageSize = 100) => apiClient.get(`/trailers?pageNo=${pageNo}&pageSize=${pageSize}`),
   products: (pageNo = 1, pageSize = 100) => apiClient.get(`/products?pageNo=${pageNo}&pageSize=${pageSize}`),
   createDriver: (body) => apiClient.post('/drivers', body),
+  initialDriverVehicleTemplate: () => apiClient.download('/driver-vehicle-imports/template'),
+  initialDriverVehiclePreview: (file) => { const form = new FormData(); form.append('file', file); return apiClient.upload('/driver-vehicle-imports/preview', form); },
+  initialDriverVehicleConfirm: (file) => { const form = new FormData(); form.append('file', file); return apiClient.upload('/driver-vehicle-imports/confirm', form); },
     updateDriver: (id, body) => apiClient.put(`/drivers/${id}`, body),
   createVehicle: (body) => apiClient.post('/vehicles', body),
   updateVehicle: (id, body) => apiClient.put(`/vehicles/${id}`, body),
@@ -70,7 +75,12 @@ export const taskImportApi = {
     form.append('requestKey', requestKey);
     return apiClient.upload('/task-imports/preview', form);
   },
-  confirm: (id) => apiClient.post(`/task-imports/${id}/confirm`, {}),
+  confirm: (file, requestKey) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('requestKey', requestKey);
+    return apiClient.upload('/task-imports/confirm', form);
+  },
   history: (pageNo = 1, pageSize = 20) => apiClient.get(`/task-imports?pageNo=${pageNo}&pageSize=${pageSize}`),
   detail: (id) => apiClient.get(`/task-imports/${id}`)
 };
@@ -148,7 +158,12 @@ export const tireApi = {
     const form = new FormData(); form.append('file', file);
     return apiClient.upload('/tire-imports/preview', form);
   },
-  confirm: (id) => apiClient.post(`/tire-imports/${id}/confirm`, {}),
+  confirm: (file, requestKey) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('requestKey', requestKey);
+    return apiClient.upload('/tire-imports/confirm', form);
+  },
   imports: (pageNo = 1) => apiClient.get(`/tire-imports?pageNo=${pageNo}&pageSize=20`),
   importDetail: (id) => apiClient.get(`/tire-imports/${id}`)
 };

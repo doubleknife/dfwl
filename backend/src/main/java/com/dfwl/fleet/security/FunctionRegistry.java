@@ -42,9 +42,9 @@ public final class FunctionRegistry {
         page("工资与考勤", "", "attendance", "司机出勤", "自有司机出勤");
         page("工资与考勤", "", "salaries", "工资台账", "参与人工资资料");
         page("工资与考勤", "", "salary-transfers", "转派工资核对", "转派参与工资");
-        page("经营与结算", "经营", "finance-company", "公司经营", "公司经营汇总");
-        page("经营与结算", "经营", "finance-templates", "线路模板经营", "模板经营汇总");
-        page("经营与结算", "经营", "finance-tasks", "任务经营", "任务经营汇总");
+        page("经营与结算", "收入与利润", "finance-company", "公司收支利润", "公司经营汇总");
+        page("经营与结算", "收入与利润", "finance-templates", "线路收支利润", "模板经营汇总");
+        page("经营与结算", "收入与利润", "finance-tasks", "单趟收支利润", "任务经营汇总");
         page("经营与结算", "支出", "finance-vehicles", "车辆支出", "车辆费用明细");
         page("经营与结算", "支出", "finance-drivers", "司机支出", "司机费用明细");
         page("经营与结算", "支出", "finance-energy", "能源费用", "能源费用明细");
@@ -71,6 +71,7 @@ public final class FunctionRegistry {
         button("dispatch-internal", "export", "导出自有车辆月账");
         button("dispatch-outsourced", "export", "导出外协车辆月账");
         button("drivers", "add", "新增司机");
+        button("drivers", "import", "批量导入");
         button("drivers", "edit", "编辑及启停司机");
         button("drivers", "reset-password", "重置司机密码");
         button("vehicles", "add", "新增车辆");

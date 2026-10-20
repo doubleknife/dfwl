@@ -114,9 +114,10 @@ public class MasterDataController {
     public ApiResponse<PageResponse<com.dfwl.fleet.master.dto.response.BindingVehicleOption>> bindingVehicles(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(defaultValue = "false") boolean onlyUnboundDriver) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.listBindingVehicles(pageNo, pageSize), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.listBindingVehicles(pageNo, pageSize, onlyUnboundDriver), RequestIdHolder.get());
     }
 
     @GetMapping("/bindings/trailer-options")
@@ -124,9 +125,10 @@ public class MasterDataController {
     public ApiResponse<PageResponse<com.dfwl.fleet.master.dto.response.BindingTrailerOption>> bindingTrailers(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "1") int pageNo,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(defaultValue = "false") boolean onlyUnboundVehicle) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.listBindingTrailers(pageNo, pageSize), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.listBindingTrailers(pageNo, pageSize, onlyUnboundVehicle), RequestIdHolder.get());
     }
 
     @PostMapping("/drivers")
@@ -216,7 +218,7 @@ public class MasterDataController {
             @PathVariable long id,
             @Valid @RequestBody VehicleRequest request) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.updateVehicle(id, request), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.updateVehicle(id, request, user.id()), RequestIdHolder.get());
     }
 
     @GetMapping("/vehicles/{id}/binding-history")
@@ -270,7 +272,7 @@ public class MasterDataController {
             @PathVariable long id,
             @Valid @RequestBody TrailerRequest request) {
         currentUserService.denyAllDrivers(user);
-        return ApiResponse.success(masterDataService.updateTrailer(id, request), RequestIdHolder.get());
+        return ApiResponse.success(masterDataService.updateTrailer(id, request, user.id()), RequestIdHolder.get());
     }
 
     @PostMapping("/trailers/{id}/bind-vehicle")

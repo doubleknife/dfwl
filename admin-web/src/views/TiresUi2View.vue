@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { tireApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import PageHeader from '../components/PageHeader.vue';
@@ -10,12 +10,15 @@ import DetailDrawer from '../components/DetailDrawer.vue';
 import StatusTag from '../components/StatusTag.vue';
 import ErrorState from '../components/ErrorState.vue';
 import FormDialog from '../components/FormDialog.vue';
+import { groupTireMaintenanceHistory } from './tireMaintenanceHistory.js';
 
 const filters = reactive({ tireNo: '', status: '' });
 const rows = ref([]);
 const page = ref(1);
 const total = ref(0);
+const inventoryTotals = ref(null);
 const selected = ref(null);
+const maintenanceHistory = computed(() => groupTireMaintenanceHistory(selected.value?.history || []));
 const editing = ref(false);
 const form = reactive({ tireNo: '', barcode: '', materialDescription: '', arrivedAt: '', reason: '', expectedVersion: 0 });
 const loading = ref(false);
@@ -24,23 +27,39 @@ const error = ref('');
 const statusName = { AVAILABLE: '可用', CLAIMED: '已申领' };
 const fieldName = { tire_no: '胎号', barcode: '条码', material_description: '物料描述', arrived_at: '到货时间', status: '状态' };
 const dateTime = (value) => value ? String(value).replace('T', ' ').slice(0, 16) : '—';
+const historyTime = (value) => value ? String(value).replace('T', ' ').slice(0, 19) : '—';
+const historyValue = (field, value) => value == null || value === 'null' || value === ''
+  ? '未填写' : field === 'arrived_at' ? dateTime(value) : value;
 
 async function load(next = 1) {
   if (!can('PAGE_TIRES')) return;
   loading.value = true; error.value = '';
   try {
-    const result = await tireApi.list(next, 20, filters);
+    const [result, available, claimed] = await Promise.all([
+      tireApi.list(next, 20, filters),
+      tireApi.list(1, 1, { status: 'AVAILABLE' }),
+      tireApi.list(1, 1, { status: 'CLAIMED' })
+    ]);
     rows.value = result.records || [];
     total.value = Number(result.total || 0);
+    inventoryTotals.value = {
+      available: Number(available.total || 0),
+      claimed: Number(claimed.total || 0)
+    };
     page.value = next;
-  } catch (cause) { error.value = cause.message || '轮胎库存加载失败'; rows.value = []; }
+  } catch (cause) { error.value = cause.message || '轮胎库存加载失败'; rows.value = []; inventoryTotals.value = null; }
   finally { loading.value = false; }
 }
 async function open(row) {
-  busy.value = true; error.value = '';
+  busy.value = true; error.value = ''; selected.value = null;
   try { selected.value = await tireApi.detail(row.id); }
   catch (cause) { error.value = cause.message || '轮胎详情加载失败'; }
   finally { busy.value = false; }
+}
+async function openForEdit(row) {
+  if (busy.value || !can('BUTTON_TIRES_MANAGE') || row.status !== 'AVAILABLE') return;
+  await open(row);
+  if (selected.value?.id === row.id) beginEdit();
 }
 function beginEdit() {
   if (!selected.value || selected.value.status !== 'AVAILABLE') return;
@@ -67,7 +86,7 @@ onMounted(() => load());
     <PageHeader title="轮胎库存" description="入库轮胎与当前申领状态；换胎申请只由司机在小程序发起。" />
     <ErrorState v-if="error" :message="error" @retry="load(page)" />
     <div v-if="can('PAGE_TIRES')">
-      <div class="tire-overview" role="status"><span>库存记录 <strong>{{ total }}</strong></span><span>当前页可用 <strong>{{ rows.filter((item) => item.status === 'AVAILABLE').length }}</strong></span><span>当前页已申领 <strong>{{ rows.filter((item) => item.status === 'CLAIMED').length }}</strong></span></div>
+      <div class="tire-overview" role="status"><span>库存总数 <strong>{{ inventoryTotals ? inventoryTotals.available + inventoryTotals.claimed : '—' }}</strong></span><span>可用总数 <strong>{{ inventoryTotals?.available ?? '—' }}</strong></span><span>已申领总数 <strong>{{ inventoryTotals?.claimed ?? '—' }}</strong></span></div>
       <FilterBar>
         <label class="ui-search">胎号<input v-model.trim="filters.tireNo" type="search" placeholder="搜索胎号" @keyup.enter="load(1)" /></label>
         <label>状态<select v-model="filters.status"><option value="">全部状态</option><option value="AVAILABLE">可用</option><option value="CLAIMED">已申领</option></select></label>
@@ -80,7 +99,11 @@ onMounted(() => load());
         :rows="rows" :loading="loading" empty-text="暂无符合条件的轮胎">
         <template #arrivedAt="{value}">{{ dateTime(value) }}</template>
         <template #status="{value}"><StatusTag :value="statusName[value] || '状态异常'" :tone="value === 'AVAILABLE' ? 'success' : 'info'" /></template>
-        <template #actions="{row}"><button type="button" :disabled="busy" @click="open(row)">详情</button></template>
+        <template #actions="{row}">
+          <button type="button" :disabled="busy" @click="open(row)">详情</button>
+          <button v-if="can('BUTTON_TIRES_MANAGE') && row.status === 'AVAILABLE'" type="button"
+            :disabled="busy" @click="openForEdit(row)">人工维护</button>
+        </template>
       </DataTable>
       <PaginationBar v-if="!error" :page-no="page" :page-size="20" :total="total" @change="load" />
     </div>
@@ -88,6 +111,12 @@ onMounted(() => load());
     <DetailDrawer :open="!!selected" title="轮胎详情" @close="selected=null">
       <template #subtitle>{{ selected?.tireNo }}</template>
       <template v-if="selected">
+        <div class="tire-maintenance-actions">
+          <strong>轮胎资料维护</strong>
+          <button v-if="can('BUTTON_TIRES_MANAGE') && selected.status === 'AVAILABLE'" type="button"
+            :disabled="busy" @click="beginEdit">人工维护</button>
+          <span v-else-if="selected.status !== 'AVAILABLE'" class="muted">已申领轮胎不能修改入库资料</span>
+        </div>
         <dl class="ui-detail-grid">
           <dt>当前状态</dt><dd><StatusTag :value="statusName[selected.status] || '状态异常'" /></dd>
           <dt>胎号</dt><dd>{{ selected.tireNo }}</dd>
@@ -97,15 +126,29 @@ onMounted(() => load());
           <dt>入库时间</dt><dd>{{ dateTime(selected.createdAt) }}</dd>
         </dl>
         <h3>维护历史</h3>
-        <DataTable :columns="[{key:'fieldName',label:'修改项目'},{key:'beforeValue',label:'修改前'},
-          {key:'afterValue',label:'修改后'},{key:'reason',label:'原因'},
-          {key:'operatorPhone',label:'操作账号'},{key:'operatedAt',label:'时间'}]"
-          :rows="selected.history || []" empty-text="暂无人工维护记录">
-          <template #fieldName="{value}">{{ fieldName[value] || '业务信息' }}</template>
-          <template #operatedAt="{value}">{{ dateTime(value) }}</template>
-        </DataTable>
+        <div class="tire-history-table-wrap">
+          <table class="tire-history-table" aria-label="轮胎资料修改记录">
+            <thead><tr><th scope="col">修改项目</th><th scope="col">修改内容</th><th scope="col">原因与操作</th></tr></thead>
+            <tbody>
+              <template v-for="(group, index) in maintenanceHistory" :key="index">
+                <tr v-for="(change, changeIndex) in group.changes" :key="changeIndex" :class="{ 'tire-history-group-start': changeIndex === 0 && index > 0 }">
+                  <th scope="row">{{ fieldName[change.fieldName] || '业务信息' }}</th>
+                  <td>
+                    <span class="tire-history-line"><b>修改前：</b>{{ historyValue(change.fieldName, change.beforeValue) }}</span>
+                    <span class="tire-history-line"><b>修改后：</b>{{ historyValue(change.fieldName, change.afterValue) }}</span>
+                  </td>
+                  <td v-if="changeIndex === 0" :rowspan="group.changes.length">
+                    <span class="tire-history-line"><b>原因：</b>{{ group.reason || '未填写' }}</span>
+                    <span class="tire-history-line"><b>操作：</b>{{ group.operatorPhone || '未知账号' }}</span>
+                    <span class="tire-history-line"><b>时间：</b>{{ historyTime(group.operatedAt) }}</span>
+                  </td>
+                </tr>
+              </template>
+              <tr v-if="!maintenanceHistory.length"><td colspan="3" class="tire-history-empty">暂无人工维护记录</td></tr>
+            </tbody>
+          </table>
+        </div>
       </template>
-      <template #footer><button v-if="can('BUTTON_TIRES_MANAGE') && selected?.status === 'AVAILABLE'" type="button" @click="beginEdit">维护轮胎资料</button></template>
     </DetailDrawer>
     <FormDialog :open="editing" title="维护轮胎资料" :busy="busy" @close="editing=false">
       <form @submit.prevent="save">
@@ -126,4 +169,19 @@ onMounted(() => load());
 .tire-overview { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
 .tire-overview span { min-width: 138px; padding: 10px 14px; border: 1px solid var(--ui-border); border-radius: 8px; background: #fff; color: var(--ui-muted); }
 .tire-overview strong { display: block; margin-top: 3px; color: var(--ui-primary, #087563); font-size: 20px; }
+.tire-maintenance-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.tire-maintenance-actions strong { color: var(--ui-text); }
+.tire-history-table-wrap { width: 100%; border: 1px solid var(--ui-border); border-radius: 8px; overflow: hidden; }
+.tire-history-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.tire-history-table th, .tire-history-table td { padding: 10px 12px; border-bottom: 1px solid var(--ui-border); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.tire-history-table thead th { background: var(--ui-surface-subtle); color: var(--ui-text-secondary); }
+.tire-history-table thead th:first-child { width: 21%; }
+.tire-history-table thead th:nth-child(2) { width: 44%; }
+.tire-history-table tbody tr.tire-history-group-start th,
+.tire-history-table tbody tr.tire-history-group-start td { border-top: 2px solid var(--ui-border); }
+.tire-history-line { display: block; margin-bottom: 4px; }
+.tire-history-line:last-child { margin-bottom: 0; }
+.tire-history-line b { color: var(--ui-text-secondary); font-weight: 600; }
+.tire-history-table tbody tr:last-child th, .tire-history-table tbody tr:last-child td { border-bottom: 0; }
+.tire-history-empty { text-align: center !important; color: var(--ui-text-secondary); }
 </style>

@@ -56,11 +56,12 @@ public class TaskImportController {
         return ApiResponse.success(service.preview(file, requestKey, user), RequestIdHolder.get());
     }
 
-    @PostMapping("/{id}/confirm")
+    @PostMapping(value = "/confirm", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @FunctionAccess(anyOf={"BUTTON_TASK_IMPORTS_SUBMIT"})
-    public ApiResponse<ImportDetail> confirm(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+    public ApiResponse<ImportDetail> confirm(@AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam String requestKey, @RequestPart("file") MultipartFile file) {
         users.denyAllDrivers(user);
-        return ApiResponse.success(service.confirm(id, user), RequestIdHolder.get());
+        return ApiResponse.success(service.confirm(file, requestKey, user), RequestIdHolder.get());
     }
 
     @GetMapping

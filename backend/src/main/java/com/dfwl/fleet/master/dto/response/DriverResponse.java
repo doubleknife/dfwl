@@ -14,6 +14,7 @@ public record DriverResponse(
         Integer age,
         Integer status,
         Long currentVehicleId,
-        String currentVehiclePlateNo
+        String currentVehiclePlateNo,
+        String currentTrailerPlateNo
 ) {
 }

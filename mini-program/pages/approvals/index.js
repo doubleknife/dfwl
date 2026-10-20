@@ -1,9 +1,11 @@
 const { request, downloadAttachment } = require('../../utils/request');
 const { hasPermission } = require('../../utils/permissions');
 
-const labels = { PENDING: '待处理', APPROVED: '已通过', RETURNED_TO_APPLICANT: '已打回申请人',
+const labels = { PENDING: '待处理', APPROVED: '已通过', RETURNED_TO_APPLICANT: '已打回申请人', WITHDRAWN: '已撤回',
   EXPENSE: '费用申请', GENERAL: '普通审批', TIRE_REPLACEMENT: '换胎申请',
   APPROVE: '通过', RETURN_STEP: '打回指定步骤', RETURN_APPLICANT: '打回申请人' };
+const statusTone = (status) => status === 'APPROVED' ? 'success'
+  : ['RETURNED_TO_APPLICANT', 'WITHDRAWN', 'REJECTED'].includes(status) ? 'danger' : 'warning';
 
 Page({
   data: { scope: 'MINE', rows: [], detail: null, returnable: [], user: null, canTodo: false, loading: false,
@@ -29,7 +31,7 @@ Page({
       const result = await request({ url: `/approvals?scope=${this.data.scope}&pageNo=${next}&pageSize=20` });
       const rows = (result.records || []).map((row) => ({
         ...row, businessLabel: labels[row.businessType] || row.templateName,
-        statusLabel: labels[row.status] || row.status
+        statusLabel: labels[row.status] || row.status, statusTone: statusTone(row.status)
       }));
       this.setData({ rows: next === 1 ? rows : this.data.rows.concat(rows), pageNo: next,
         hasMore: next * 20 < Number(result.total || 0), error: '' });
@@ -56,6 +58,7 @@ Page({
       const evidence = (result.attachments || []).filter((entry) => Number(entry.submission_version_id) === latestSubmission)
         .map((entry) => ({ id: entry.attachmentId, path: '', error: '' }));
       this.setData({ detail: { ...result, statusLabel: labels[approval.status] || approval.status,
+        statusTone: statusTone(approval.status),
         businessLabel: labels[approval.business_type] || approval.template_name, task,
         canProcess: !!task && (result.canProcess || result.canReturn),
         canApprove: !!task && !!result.canProcess

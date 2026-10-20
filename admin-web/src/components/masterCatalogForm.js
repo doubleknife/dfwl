@@ -23,7 +23,7 @@ function scaled(value, places) {
 export function invalidFixedStandard(maxLoad, fixedTons) {
   const limit = scaled(maxLoad, 3);
   const standard = scaled(fixedTons, 3);
-  return limit == null || limit <= 0n || standard == null || standard > limit;
+  return limit == null || limit <= 0n || standard == null || standard <= 0n || standard > limit;
 }
 
 export function thresholdTons(vehicle) {

@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader.vue';
 import FormDialog from '../components/FormDialog.vue';
 import { appendPreviewRows, dailyItems, emptyExpenseRow, expenseRowError } from './expenseApplicationDraft.js';
 import { hasExpenseDraft } from './expenseScopeDraft.js';
+import { apiErrorDialog, showErrorDialog } from '../stores/apiErrorDialog.js';
 
 const stage = ref(1);
 const scope = ref('DAILY');
@@ -17,6 +18,9 @@ const candidates = ref([]);
 const dailyRows = ref([]);
 const busy = ref(false);
 const error = ref('');
+watch(error, (message) => {
+  if (message && !apiErrorDialog.open) showErrorDialog('操作失败', message);
+});
 const requestKey = ref(crypto.randomUUID());
 const success = ref(null);
 const item = reactive({ businessDate: new Date().toLocaleDateString('sv-SE'), driverId: '',
@@ -128,7 +132,6 @@ async function submit() {
 <template>
   <div class="ui-page-container">
     <PageHeader title="发起费用申请" description="选择费用大类并核对明细后提交；日常费用可手工填写，也可用固定 Excel 辅助填表。" />
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div v-if="busy && stage === 1" class="ui-loading" role="status">正在处理，请稍候…</div>
     <div v-if="stage === 1" class="expense-workflow">
       <section class="ui-section-card expense-application-card">
@@ -248,7 +251,10 @@ async function submit() {
 .expense-submit-bar p { margin:0; color:var(--ui-text-secondary); }
 .expense-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
 .expense-tools { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
-.expense-upload { display:inline-flex; align-items:center; position:relative; padding:.55rem .8rem; border:1px solid #d6e3df; border-radius:.5rem; cursor:pointer; }
+.expense-tools > button:nth-of-type(2),.expense-upload { box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; min-width:120px; min-height:40px; padding:0 12px; border:1px solid #cdded5; border-radius:7px; background:#fff; color:#23483e; font:inherit; }
+.expense-upload { position:relative; cursor:pointer; }
+.expense-tools > button:nth-of-type(2):hover,.expense-upload:hover { background:#f1f7f3; }
+.expense-upload:focus-within { outline:2px solid #1c806d; outline-offset:2px; }
 .expense-upload input { position:absolute; inset:0; width:100%; opacity:0; cursor:pointer; }
 .expense-table-scroll,.expense-summary-scroll { max-width:100%; overflow-x:auto; }
 .expense-table { width:100%; border-collapse:collapse; min-width:980px; }

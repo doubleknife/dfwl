@@ -1,9 +1,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { apiErrorDialog, showErrorDialog } from '../stores/apiErrorDialog.js';
 
 const props = defineProps({ modelValue: { type: [Number, String], default: '' }, loadPage: { type: Function, required: true }, selectedLabel: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue']);
 const query = ref(''); const open = ref(false); const loading = ref(false); const error = ref(''); const roles = ref([]); const active = ref(0);
+watch(error, (message) => {
+  if (message && !apiErrorDialog.open) showErrorDialog('角色加载失败', message);
+});
 const filtered = computed(() => roles.value.filter((role) => role.status === 1 && role.roleCode !== 'DRIVER' && role.roleName.toLowerCase().includes(query.value.trim().toLowerCase())));
 const selected = computed(() => roles.value.find((role) => String(role.id) === String(props.modelValue))?.roleName || props.selectedLabel);
 async function load() {
@@ -36,7 +40,7 @@ watch(query, () => { active.value = 0; });
       aria-controls="ui-role-options" :placeholder="open ? (loading ? '正在加载角色…' : '搜索并选择角色') : ''"
       @focus="open = true; load()" @input="query = $event.target.value; open = true" @keydown="onKey" />
     <div v-if="open" id="ui-role-options" class="ui-role-options" role="listbox">
-      <p v-if="error" class="error">{{ error }} <button type="button" @click="load">重试</button></p>
+      <p v-if="error" class="muted"><button type="button" @click="load">重新加载角色</button></p>
       <p v-else-if="!filtered.length" class="muted">{{ loading ? '正在加载…' : '没有匹配的有效角色' }}</p>
       <button v-for="(role,index) in filtered" :key="role.id" type="button" role="option" :aria-selected="String(role.id) === String(modelValue)"
         :class="{ active: index === active }" @mousedown.prevent="choose(role)">{{ role.roleName }}</button>

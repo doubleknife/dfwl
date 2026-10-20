@@ -7,6 +7,7 @@ import DataTable from '../components/DataTable.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import StatusTag from '../components/StatusTag.vue';
 import ApprovalEvidence from '../components/ApprovalEvidence.vue';
+import ErrorState from '../components/ErrorState.vue';
 import { missingApprovalPermissions, normalizeFlowOptions } from './approvalFlowOptions.js';
 
 const props = defineProps({ initialScope: { type: String, default: '' }, initialTab: { type: String, default: 'list' }, autoOpenFirst: { type: Boolean, default: false } });
@@ -212,14 +213,14 @@ onMounted(async () => {
   <div class="ui-page-container">
     <PageHeader :title="tab === 'flows' || tab === 'configure' ? '流程与模板配置' : scope === 'MINE' ? '申请记录' : scope === 'HISTORY' ? '审批记录' : '待我处理'" description="按正式流程版本处理审批；申请事实与操作历史分别保存。">
     </PageHeader>
-    <p v-if="error" class="error" role="alert">{{ error }} <button type="button" @click="tab === 'detail' ? refreshDetail() : ['flows', 'configure'].includes(tab) ? loadTemplates() : load(page)">重试</button></p>
+    <ErrorState v-if="error" :message="error" @retry="tab === 'detail' ? refreshDetail() : ['flows', 'configure'].includes(tab) ? loadTemplates() : load(page)" />
     <section v-if="tab === 'list'" class="ui-section-card approval-list-card">
       <div class="ui-list-heading"><div><h2>{{ scope === 'MINE' ? '本人申请' : scope === 'HISTORY' ? '审批处理记录' : '当前待办' }}</h2><p class="muted">{{ scope === 'TODO' ? '处理操作集中在审批详情，列表仅显示当前可处理事项。' : '点击记录查看申请内容、冻结流程版本和处理时间线。' }}</p></div><button type="button" :disabled="loading" @click="load(page)">刷新</button></div>
       <DataTable :rows="rows" :loading="loading" empty-text="当前没有审批记录"
         :columns="[{key:'approvalNo',label:'审批编号'},{key:'templateName',label:'业务'},{key:'status',label:'状态'},
           {key:'applicantPhone',label:'申请人'},{key:'currentStepName',label:'当前步骤'},
           {key:'createdAt',label:'发起时间'},{key:'actions',label:'操作'}]">
-        <template #status="{value}"><StatusTag :value="value" /> {{ statusName[value] || value }}</template>
+        <template #status="{value}"><StatusTag :value="value" /></template>
         <template #createdAt="{value}">{{ formatTime(value) }}</template>
         <template #actions="{row}"><button type="button" @click="openDetail(row)">查看详情</button></template>
       </DataTable>
@@ -231,7 +232,7 @@ onMounted(async () => {
         <h2>{{ detail.approval.template_name }} <small>{{ detail.approval.approval_no }}</small></h2>
         <dl class="approval-facts">
           <div><dt>业务类型</dt><dd>{{ typeName[detail.approval.business_type] }}</dd></div>
-          <div><dt>当前状态</dt><dd>{{ statusName[detail.approval.status] || detail.approval.status }}</dd></div>
+          <div><dt>当前状态</dt><dd><StatusTag :value="detail.approval.status" /></dd></div>
           <div><dt>冻结流程</dt><dd>第 {{ detail.approval.version_no }} 版</dd></div>
           <div v-if="detail.approval.application_scope"><dt>申请属性</dt><dd>{{ detail.approval.application_scope === 'DAILY' ? '日常费用' : '任务费用' }}</dd></div>
           <div v-if="detail.approval.current_step_name"><dt>当前步骤</dt><dd>{{ detail.approval.current_step_name }}</dd></div>
@@ -320,7 +321,7 @@ onMounted(async () => {
           {key:'version_no',label:'版本'},{key:'flow_status',label:'状态'},{key:'actions',label:'操作'}]">
         <template #business_type="{value}">{{ typeName[value] || value }}</template>
         <template #version_no="{value}">第 {{ value }} 版</template>
-        <template #flow_status="{value}">{{ value === 'ACTIVE' ? '已发布' : value === 'DRAFT' ? '草稿' : '已归档' }}</template>
+        <template #flow_status="{value}"><StatusTag :value="value === 'ACTIVE' ? '已发布' : value === 'DRAFT' ? '草稿' : '已归档'" /></template>
         <template #actions="{row}"><button type="button" :class="{ primary: flowDetail?.id === row.flow_id }" @click="viewFlow(row)">{{ flowDetail?.id === row.flow_id ? '当前查看' : '查看步骤' }}</button></template>
       </DataTable></div>
       <div v-if="flowDetail" class="ui-section-card approval-flow-detail">

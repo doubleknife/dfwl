@@ -72,7 +72,11 @@ class V3DispatchImportTests {
         assertThat(preview.rows()).hasSize(2);
         assertThat(preview.rows()).allMatch(row -> "VALID".equals(row.status()));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isZero();
-        var confirmed = imports.confirm(preview.id(), operator);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type='TASK'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_row", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_attachment WHERE owner_type='IMPORT'", Integer.class)).isZero();
+        assertThat(imports.history(1, 20).total()).isZero();
+        var confirmed = imports.confirm(file(workbook), "import-1", operator);
         assertThat(confirmed.status()).isEqualTo("COMPLETED");
         assertThat(confirmed.rows()).allMatch(row -> "PUBLISHED".equals(row.status()) && row.taskNo() != null);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isEqualTo(2);
@@ -80,8 +84,8 @@ class V3DispatchImportTests {
                 BigDecimal.class)).isEqualByComparingTo("0.00");
         assertThat(jdbc.queryForObject("SELECT actual_unit_price FROM transport_task WHERE customer_name_snapshot = '中文客户' "
                 + "ORDER BY id LIMIT 1", BigDecimal.class)).isEqualByComparingTo("100.00");
-        assertThat(imports.confirm(preview.id(), operator).rows()).hasSize(2);
-        assertThat(imports.preview(file(workbook), "import-1", operator).id()).isEqualTo(preview.id());
+        assertThat(imports.confirm(file(workbook), "import-1", operator).rows()).hasSize(2);
+        assertThat(imports.preview(file(workbook), "import-1", operator).id()).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isEqualTo(2);
         assertThat(imports.history(1, 20).total()).isEqualTo(1);
     }
@@ -95,7 +99,7 @@ class V3DispatchImportTests {
         var preview = imports.preview(file(workbook), "import-bad", operator);
         assertThat(preview.rows()).extracting(TaskImportService.ImportRowView::status)
                 .containsExactly("VALID", "INVALID", "INVALID");
-        var confirmed = imports.confirm(preview.id(), operator);
+        var confirmed = imports.confirm(file(workbook), "import-bad", operator);
         assertThat(confirmed.status()).isEqualTo("COMPLETED_WITH_ERRORS");
         assertThat(confirmed.rows()).extracting(TaskImportService.ImportRowView::status)
                 .containsExactly("PUBLISHED", "FAILED", "FAILED");

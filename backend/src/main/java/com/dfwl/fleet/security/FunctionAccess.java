@@ -12,4 +12,6 @@ public @interface FunctionAccess {
     String[] anyOf() default {};
     /** For authenticated personal resources whose service enforces owner/Purpose, not role grants. */
     boolean self() default false;
+    /** POST solely to parse an uploaded file without writing business facts; requires PAGE functions. */
+    boolean readOnlyPost() default false;
 }

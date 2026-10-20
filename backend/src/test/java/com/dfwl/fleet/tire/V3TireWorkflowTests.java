@@ -60,6 +60,28 @@ class V3TireWorkflowTests {
     private String[] headers() { return new String[]{"到货时间", "物料描述", "条码", "胎号"}; }
     private long id(Map<String, Object> value) { return ((Number) value.get("id")).longValue(); }
 
+    private MockMultipartFile numericDateSheet() throws Exception {
+        try (var book = new XSSFWorkbook(); var out = new ByteArrayOutputStream()) {
+            var page = book.createSheet("轮胎入库");
+            var heading = page.createRow(0);
+            for (int i = 0; i < headers().length; i++) heading.createCell(i).setCellValue(headers()[i]);
+            var style = book.createCellStyle();
+            style.setDataFormat(book.createDataFormat().getFormat("m\"月\"d\"日\""));
+            for (int i = 0; i < 3; i++) {
+                var line = page.createRow(i + 1);
+                var date = line.createCell(0);
+                date.setCellValue(i == 2 ? -1.0 : 46224.0);
+                if (i == 1) date.setCellStyle(style);
+                line.createCell(1).setCellValue("轮胎");
+                line.createCell(2).setCellValue("SERIAL-B-" + i);
+                line.createCell(3).setCellValue("SERIAL-T-" + i);
+            }
+            book.write(out);
+            return new MockMultipartFile("file", "轮胎入库.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", out.toByteArray());
+        }
+    }
+
     @Test
     void fixedFourFieldImportCreatesAvailableTiresAndRowResults() throws Exception {
         try (var book = new XSSFWorkbook(new java.io.ByteArrayInputStream(tires.template()))) {
@@ -67,16 +89,62 @@ class V3TireWorkflowTests {
             for (int i = 0; i < 4; i++) assertThat(book.getSheetAt(0).getRow(0).getCell(i).getStringCellValue())
                     .isEqualTo(headers()[i]);
         }
-        var preview = tires.preview(sheet(headers(), new String[][]{
+        var importFile = sheet(headers(), new String[][]{
                 {"2026-10-07 08:30", "载重轮胎", "B-01", "T-001"},
-                {"2026-10-07 09:30", "备用轮胎", "B-02", "T-002"}}), admin);
+                {"2026-10-07 09:30", "备用轮胎", "B-02", "T-002"}});
+        var preview = tires.preview(importFile, admin);
         assertThat((List<?>) preview.get("rows")).hasSize(2);
-        var result = tires.confirm(id(preview), admin);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type='TIRE'", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_row", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_attachment WHERE owner_type='IMPORT'", Long.class)).isZero();
+        assertThat(tires.importHistory(1, 20).total()).isZero();
+        var result = tires.confirm(importFile, "tire-import-1", admin);
         assertThat(result.get("status")).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire WHERE status='AVAILABLE'", Long.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE module='TIRE'", Long.class)).isEqualTo(2);
-        tires.confirm(id(preview), admin);
+        tires.confirm(importFile, "tire-import-1", admin);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire", Long.class)).isEqualTo(2);
+    }
+
+    @Test
+    void excelNumericDatesUseTheUnderlyingDateEvenWhenTheDisplayFormatIsNotRecognized() throws Exception {
+        var importFile = numericDateSheet();
+        var preview = tires.preview(importFile, admin);
+        var rows = (List<?>) preview.get("rows");
+        assertThat(rows).hasSize(3);
+        for (int i = 0; i < 2; i++) {
+            var row = (Map<?, ?>) rows.get(i);
+            assertThat(row.get("arrivedAt")).isEqualTo("2026-07-21 00:00");
+            assertThat(row.get("status")).isEqualTo("VALID");
+        }
+        assertThat(((Map<?, ?>) rows.get(2)).get("status")).isEqualTo("INVALID");
+        tires.confirm(importFile, "numeric-dates", admin);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire WHERE arrived_at='2026-07-21 00:00:00'", Long.class))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void commonFullYearDateFormatsNormalizeButMissingYearAndInvalidDatesFail() throws Exception {
+        var preview = tires.preview(sheet(headers(), new String[][]{
+                {"2026-7-21", "轮胎", "DATE-B-1", "DATE-T-1"},
+                {"2026/7/21 8:05", "轮胎", "DATE-B-2", "DATE-T-2"},
+                {"2026.7.21 08:05:59", "轮胎", "DATE-B-3", "DATE-T-3"},
+                {"2026年7月21日", "轮胎", "DATE-B-4", "DATE-T-4"},
+                {"20260721 08:05", "轮胎", "DATE-B-5", "DATE-T-5"},
+                {"2026-07-21T08:05:15", "轮胎", "DATE-B-6", "DATE-T-6"},
+                {"7月21日", "轮胎", "DATE-B-7", "DATE-T-7"},
+                {"2026/2/30", "轮胎", "DATE-B-8", "DATE-T-8"}}), admin);
+        var rows = (List<?>) preview.get("rows");
+        assertThat(rows).hasSize(8);
+        assertThat(((Map<?, ?>) rows.get(0)).get("arrivedAt")).isEqualTo("2026-07-21 00:00");
+        for (int i : new int[]{1, 2, 4, 5})
+            assertThat(((Map<?, ?>) rows.get(i)).get("arrivedAt")).isEqualTo("2026-07-21 08:05");
+        assertThat(((Map<?, ?>) rows.get(3)).get("arrivedAt")).isEqualTo("2026-07-21 00:00");
+        for (int i = 0; i < 6; i++) assertThat(((Map<?, ?>) rows.get(i)).get("status")).isEqualTo("VALID");
+        for (int i = 6; i < 8; i++) {
+            assertThat(((Map<?, ?>) rows.get(i)).get("status")).isEqualTo("INVALID");
+            assertThat(((Map<?, ?>) rows.get(i)).get("message")).asString().contains("完整年月日");
+        }
     }
 
     @Test
@@ -84,12 +152,13 @@ class V3TireWorkflowTests {
         assertThatThrownBy(() -> tires.preview(sheet(new String[]{"到货时间", "物料描述", "车牌", "胎号"},
                 new String[][]{{"2026-10-07 08:30", "轮胎", "云A", "T-001"}}), admin))
                 .isInstanceOf(BusinessException.class);
-        var preview = tires.preview(sheet(headers(), new String[][]{
+        var importFile = sheet(headers(), new String[][]{
                 {"2026-10-07 08:30", "轮胎", "B-01", "T-001"},
-                {"2026-10-07 08:30", "轮胎", "B-02", "T-001"}}), admin);
+                {"2026-10-07 08:30", "轮胎", "B-02", "T-001"}});
+        var preview = tires.preview(importFile, admin);
         var rows = (List<?>) preview.get("rows");
         assertThat(((Map<?, ?>) rows.get(1)).get("message")).asString().contains("重复");
-        var result = tires.confirm(id(preview), admin);
+        var result = tires.confirm(importFile, "duplicate-tire", admin);
         assertThat(result.get("status")).isEqualTo("COMPLETED_WITH_ERRORS");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire", Long.class)).isEqualTo(1);
     }

@@ -13,15 +13,18 @@ const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
 const { appendPreviewRows, dailyItems, emptyExpenseRow } = await import('../src/views/expenseApplicationDraft.js');
 const { hasExpenseDraft } = await import('../src/views/expenseScopeDraft.js');
+const { countImportFailures, filterImportRows, formatImportDateTime, summarizeCompletedRows } = await import('../src/views/importResultView.js');
+const { groupTireMaintenanceHistory } = await import('../src/views/tireMaintenanceHistory.js');
 const { navigation, filterNavigation, findNavigationTrail } = await import('../src/router/navigationModel.js');
 const { buildPagePermissionTree, hasRouteAccess, overviewCardAccess,
-  selectPermissionCodes, todoOverviewPermissions } = await import('../src/router/pagePermissionModel.js');
+  pagePermissionName, selectPermissionCodes, todoOverviewPermissions } = await import('../src/router/pagePermissionModel.js');
 const { displayedPercent, submittedFraction, editingStatus, invalidStoredPercent, invalidFixedStandard, thresholdTons } = await import('../src/components/masterCatalogForm.js');
 const { birthDateFromIdCard, fullAge, idCardValidationMessage } = await import('../src/utils/driverIdentity.js');
 const { calendarDays, dayFact, isWeekend, rowTotalMatches } = await import('../src/components/vehicleMonthlyGrid.js');
 const { missingApprovalPermissions, normalizeFlowOptions } = await import('../src/views/approvalFlowOptions.js');
 const { apiErrorContent, apiErrorDialog, closeApiError } = await import('../src/stores/apiErrorDialog.js');
 const { apiClient } = await import('../src/api/client.js');
+const { statusTone } = await import('../src/utils/statusTone.js');
 const { authStore } = await import('../src/stores/auth.js');
 globalThis.fetch = async (url, options = {}) => {
   calls.push({ url: String(url), options });
@@ -29,6 +32,35 @@ globalThis.fetch = async (url, options = {}) => {
 };
 
 const tests = [
+  ['status labels use consistent semantic colors across lists, details and import records', () => {
+    for (const value of [0, false, '停用', '保险不完整', '校验失败', '发布失败', '已冲销']) {
+      assert.equal(statusTone(value), 'danger');
+    }
+    for (const value of [1, true, '启用', '保险完整', '校验通过', '已完成']) {
+      assert.equal(statusTone(value), 'success');
+    }
+    assert.equal(statusTone('待处理'), 'warning');
+    assert.equal(statusTone('停用', 'neutral'), 'danger');
+    assert.match(source('components/DataTable.vue'), /<StatusTag v-if="\/\(\^\|_\)status\$/);
+    assert.match(source('components/MasterCatalogUi2.vue'), /<StatusTag :value="detail\.status"/);
+    assert.match(source('views/TaskImportsV3View.vue'), /<StatusTag :value="stateName\[row\.status\]/);
+    assert.match(source('views/TireImportsV3View.vue'), /<StatusTag :value="stateName\[value\]/);
+    assert.doesNotMatch(source('components/MasterCatalogUi2.vue'), /'neutral'/);
+  }],
+  ['page-level failures use the shared dialog while retry and row errors remain available', () => {
+    const state = source('components/ErrorState.vue');
+    const expense = source('views/ExpenseApplicationV3View.vue');
+    assert.match(state, /showErrorDialog\('操作失败', message\)/);
+    assert.match(state, /apiErrorDialog\.open/);
+    assert.match(state, /@click="\$emit\('retry'\)"/);
+    assert.doesNotMatch(state, /\{\{ message \}\}/);
+    assert.doesNotMatch(expense, /<p v-if="error" class="error"/);
+    assert.match(expense, /v-if="expenseRowError\(row\)" class="error"/);
+    assert.match(expense, /const preview = await v3ApprovalApi\.dailyPreview\(file\)/);
+    assert.match(expense, /dailyRows\.value = appendPreviewRows\(dailyRows\.value, preview\.rows, options\.value\)/);
+    assert.doesNotMatch(source('layouts/AppLayout.vue'), /<p v-if="authStore\.error" class="error"/);
+    assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /<p v-if="error" class="error"/);
+  }],
   ['admin logout revokes the server token and clears local state even on failure', async () => {
     const priorFetch = globalThis.fetch;
     authStore.token = 'test-only-token';
@@ -145,7 +177,7 @@ const tests = [
     assert.equal(thresholdTons({ maxLoad: '30.000', loadStandardType: 'FIXED', loadStandardMinLoad: '21.5' }), '21.500');
     assert.equal(invalidFixedStandard('32.000', '50.000'), true);
     assert.equal(invalidFixedStandard('32.000', '-1.000'), true);
-    assert.equal(invalidFixedStandard('32.000', '0.000'), false);
+    assert.equal(invalidFixedStandard('32.000', '0.000'), true);
     assert.equal(invalidFixedStandard('32.000', '32.000'), false);
     assert.equal(thresholdTons({ maxLoad: '32.000', loadStandardType: 'FIXED', loadStandardMinLoad: '50.000' }), null);
     assert.equal(thresholdTons({ maxLoad: '30.000', loadStandardType: 'PERCENT', loadStandardPercent: '80.0000' }), null);
@@ -171,12 +203,20 @@ const tests = [
     assert.match(binding, /masterApi\.bindingDrivers\(page, pageSize\)/);
     assert.match(binding, /masterApi\.bindingVehicles\(page, pageSize\)/);
     assert.match(binding, /masterApi\.bindingTrailers\(1\)/);
+    assert.match(binding, /:load-page="masterApi\.unboundDriverVehicles"/);
+    assert.match(binding, /:load-page="masterApi\.unboundVehicleTrailers"/);
     assert.doesNotMatch(binding, /masterApi\.drivers\(page, pageSize\)/);
   }],
   ['eight domains and 36 menu pages use a unique page function', () => {
     const expected = ['工作台','运输管理','车辆与人员','费用管理','审批中心','工资与考勤','经营与结算','系统设置'];
     assert.deepEqual(navigation.map((entry) => entry.label), expected);
+    const finance = navigation.find((entry) => entry.key === 'finance');
+    assert.equal(finance.children[0].label, '收入与利润');
+    assert.deepEqual(finance.children[0].children, ['finance-company', 'finance-templates', 'finance-tasks']);
     const router = source('router/routes.js');
+    assert.match(router, /key: 'finance-company', label: '公司收支利润', permission: 'PAGE_FINANCE_COMPANY'/);
+    assert.match(router, /key: 'finance-templates', label: '线路收支利润', permission: 'PAGE_FINANCE_TEMPLATES'/);
+    assert.match(router, /key: 'finance-tasks', label: '单趟收支利润', permission: 'PAGE_FINANCE_TASKS'/);
     const pageRoutes = [...router.matchAll(/\{ key: '([^']+)', label: '[^']+', permission: '([^']+)'/g)]
       .map((match) => ({ key: match[1], permission: match[2] }));
     assert.equal(pageRoutes.length, 36);
@@ -200,6 +240,18 @@ const tests = [
       .map((match) => ({ key: match[1], label: match[2], permission: match[3] }));
     routes.push({ key: 'my-todos', label: '待办概览', permission: todoOverviewPermissions });
     const tree = buildPagePermissionTree(navigation, routes, [...pages, ...buttons]);
+    const financePermissions = pages.filter((item) => ['finance-company', 'finance-templates', 'finance-tasks'].includes(item.pageKey));
+    assert.deepEqual(financePermissions.map((item) => [item.group, item.permissionName]), [
+      ['收入与利润', '公司收支利润'], ['收入与利润', '线路收支利润'], ['收入与利润', '单趟收支利润']
+    ]);
+    const financeTree = tree.domains.find((item) => item.key === 'finance');
+    assert.deepEqual(financeTree.children[0].children.map((item) => item.label),
+      ['公司收支利润', '线路收支利润', '单趟收支利润']);
+    const staleCatalog = pages.map((item) => item.pageKey === 'finance-company'
+      ? { ...item, permissionName: '公司经营' } : item);
+    const staleTree = buildPagePermissionTree(navigation, routes, [...staleCatalog, ...buttons]);
+    assert.equal(staleTree.domains.find((item) => item.key === 'finance').children[0].children[0].label, '公司收支利润');
+    assert.equal(pagePermissionName(staleCatalog.find((item) => item.pageKey === 'finance-company'), routes), '公司收支利润');
     const owned = tree.domains.flatMap(function walk(node) {
       return node.type === 'page' ? node.codes : (node.children || []).flatMap(walk);
     });
@@ -256,6 +308,11 @@ const tests = [
     assert.match(api, /bindingDrivers:.*\/drivers\/binding-candidates/);
     assert.match(api, /bindingVehicles:.*\/bindings\/vehicle-options/);
     assert.match(api, /bindingTrailers:.*\/bindings\/trailer-options/);
+    calls.length = 0;
+    await masterApi.unboundDriverVehicles(2, 20);
+    await masterApi.unboundVehicleTrailers(3, 20);
+    assert.match(calls[0].url, /\/bindings\/vehicle-options\?pageNo=2&pageSize=20&onlyUnboundDriver=true$/);
+    assert.match(calls[1].url, /\/bindings\/trailer-options\?pageNo=3&pageSize=20&onlyUnboundVehicle=true$/);
     calls.length = 0;
     await v3ExpenseLedgerApi.pendingAttributionSummary();
     assert.match(calls[0].url, /\/expense-ledger\/pending-attribution\/summary/);
@@ -521,6 +578,146 @@ const tests = [
     assert.match(source('views/MasterDataUi2View.vue'), /masterApi\.drivers\(nextPage, 20, driverFilters\)/);
     assert.match(source('components/DriverManagementSample.vue'), /<PaginationBar/);
     assert.doesNotMatch(source('components/DriverManagementSample.vue'), /车辆 #\$\{id\}/);
+    const driverPage = source('components/DriverManagementSample.vue');
+    assert.match(driverPage, /v-if="can\('BUTTON_DRIVERS_IMPORT'\)"[^>]*>批量导入<\/button>/);
+    assert.match(driverPage, /<FormDialog :open="importOpen && can\('BUTTON_DRIVERS_IMPORT'\)" title="批量导入"[^>]* wide fixed-height/);
+    assert.match(driverPage, /<ImportFilePicker :file="importFile"[^>]*@clear="clearImportFile" @select="selectImportFile"/);
+    assert.match(driverPage, /if \(importFile\.value\) await previewImport\(importFile\.value\)/);
+    assert.doesNotMatch(driverPage, /上传并预览/);
+  }],
+  ['task, tire and charging imports preview on selection and clear file state', async () => {
+    const picker = source('components/ImportFilePicker.vue');
+    assert.match(picker, /aria-label="清除所选文件和预览"/);
+    assert.match(picker, /emit\('clear'\)/);
+    for (const path of ['views/TaskImportsV3View.vue', 'views/TireImportsV3View.vue', 'views/ChargingImportsV3View.vue']) {
+      const page = source(path);
+      assert.match(page, /<ImportFilePicker/);
+      assert.match(page, /@clear="clear(?:Import)?File" @select="choose(?:Import|File)?"/);
+      assert.doesNotMatch(page, />上传并预览<|>解析并预览</);
+      assert.doesNotMatch(page, /<FormDialog[^>]*title="批量导入"/);
+    }
+    assert.match(source('views/TaskImportsV3View.vue'), /previewFile\(\);/);
+    assert.match(source('views/TireImportsV3View.vue'), /upload\(\);/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /await readChargingWorkbook\(file\); buildPreview\(\)/);
+  }],
+  ['import file selection stays the same size and API errors have only one popup', () => {
+    const driver = source('components/DriverManagementSample.vue');
+    const picker = source('components/ImportFilePicker.vue');
+    assert.doesNotMatch(driver, /选择系统模板/);
+    assert.match(driver, /<ImportFilePicker :file="importFile"/);
+    assert.match(source('style.css'), /\.ui-dialog--fixed-height \{ height: min\(900px, calc\(100dvh - 36px\)\)/);
+    assert.match(driver, /\.ui-initial-import \{ display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden/);
+    assert.match(picker, /file\?\.name \|\| '未选择文件'/);
+    assert.match(picker, /<div class="ui-import-file-field" role="status">/);
+    assert.match(picker, /<button v-if="file" class="ui-import-file-clear"/);
+    assert.match(picker, /<label v-else class="ui-import-file-choice">/);
+    assert.match(picker, /\.ui-import-file-controls \{[^}]*flex-wrap:nowrap/);
+    assert.match(picker, /aria-label="清除所选文件和预览"/);
+    assert.match(picker, /background:#f1f4f2/);
+    assert.match(driver, /ui-initial-import-table ul.*color: #b14436/);
+    assert.match(driver, /class="ui-import-validation-hint">请修正 Excel/);
+    assert.match(source('views/TaskImportsV3View.vue'), /ui-import-validation-hint/);
+    assert.match(source('views/TireImportsV3View.vue'), /ui-import-validation-hint/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /ui-import-validation-hint/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /<ImportFilePicker v-if="editorMode === 'sample'"/);
+    assert.match(picker, /emit\('select', props\.multiple \? files : files\[0\]\)/);
+    for (const path of ['views/TaskImportsV3View.vue', 'views/TireImportsV3View.vue', 'views/ChargingImportsV3View.vue']) {
+      assert.doesNotMatch(source(path), /<ErrorState v-if="error"/);
+      assert.doesNotMatch(source(path), /class="error"/);
+    }
+    assert.match(source('views/ChargingImportsV3View.vue'), /showErrorDialog\('校验失败'/);
+    assert.match(source('stores/apiErrorDialog.js'), /export function showErrorDialog/);
+  }],
+  ['import result filters only change visible rows and expense keeps its original import path', () => {
+    const rows = [{ status: 'VALID' }, { status: 'INVALID' }, { status: 'PUBLISHED' }, { status: 'FAILED' }];
+    assert.equal(countImportFailures(rows), 2);
+    assert.deepEqual(filterImportRows(rows, 'ALL'), rows);
+    assert.deepEqual(filterImportRows(rows, 'PASS'), [rows[0], rows[2]]);
+    assert.deepEqual(filterImportRows(rows, 'FAIL'), [rows[1], rows[3]]);
+    for (const path of ['components/DriverManagementSample.vue', 'views/TaskImportsV3View.vue',
+      'views/TireImportsV3View.vue', 'views/ChargingImportsV3View.vue']) {
+      assert.match(source(path), /<ImportResultFilter/);
+      assert.match(source(path), /<SummaryCards/);
+    }
+    const expense = source('views/ExpenseApplicationV3View.vue');
+    assert.match(expense, /<input type="file" accept="\.xlsx" :disabled="busy" @change="chooseFile"/);
+    assert.match(expense, /dailyRows\.value = appendPreviewRows\(dailyRows\.value, preview\.rows, options\.value\)/);
+    assert.match(expense, /finally \{ busy\.value = false; event\.target\.value = ''; \}/);
+    assert.doesNotMatch(expense, /ImportFilePicker|ImportResultFilter|clearDailyFile|latestImportedKeys/);
+    assert.doesNotMatch(source('components/RouteWeightImageUpload.vue'), /ImportFilePicker|pendingFile/);
+  }],
+  ['formal imports separate preview from completed counts and preserve failure reasons', () => {
+    assert.deepEqual(summarizeCompletedRows([
+      { rowNo: 2, status: 'IMPORTED' }, { rowNo: 3, status: 'FAILED', message: '胎号重复' },
+      { rowNo: 4, status: 'INVALID', message: '到货时间无效' }
+    ], 'IMPORTED'), { total: 3, success: 1, failed: 2, pending: 0,
+      failures: [{ rowNo: 3, reason: '胎号重复' }, { rowNo: 4, reason: '到货时间无效' }] });
+    assert.equal(formatImportDateTime('2026-10-20T19:27:04.062'), '2026-10-20 19:27:04');
+    assert.equal(formatImportDateTime('2026-10-20 19:27:04.062'), '2026-10-20 19:27:04');
+    assert.equal(formatImportDateTime(null, '尚未确认'), '尚未确认');
+    for (const path of ['views/TireImportsV3View.vue', 'views/TaskImportsV3View.vue']) {
+      const page = source(path);
+      assert.match(page, /<ImportCompletionSummary v-if="completion"/);
+      assert.match(page, /\.value = null;\s*(?:file|selectedFile)\.value = null/);
+      assert.match(page, /formatImportDateTime\(/);
+    }
+    assert.match(source('components/DriverManagementSample.vue'), /importCompletion\.value = \{ total: importPreview\.value\.total, success: result\.imported/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /<ImportCompletionSummary v-if="completion"/);
+    assert.doesNotMatch(source('views/ExpenseApplicationV3View.vue'), /ImportCompletionSummary|summarizeCompletedRows/);
+  }],
+  ['unconfirmed tire and task previews do not create import history', () => {
+    const api = source('api/modules.js');
+    assert.match(api, /apiClient\.upload\('\/task-imports\/confirm', form\)/);
+    assert.match(api, /apiClient\.upload\('\/tire-imports\/confirm', form\)/);
+    assert.doesNotMatch(api, /task-imports\/\$\{id\}\/confirm|tire-imports\/\$\{id\}\/confirm/);
+    assert.match(source('views/TaskImportsV3View.vue'), /taskImportApi\.confirm\(selectedFile\.value, requestKey\.value\)/);
+    assert.match(source('views/TireImportsV3View.vue'), /tireApi\.confirm\(file\.value, requestKey\.value\)/);
+  }],
+  ['tire import detail keeps long results inside its drawer with hover text', () => {
+    const page = source('views/TireImportsV3View.vue');
+    assert.match(page, /class="tire-import-detail-drawer" title="轮胎入库批次详情"/);
+    assert.match(page, /<div class="tire-import-detail-table">/);
+    assert.match(page, /<template #message="\{value\}"><span class="tire-import-ellipsis" :title="value \|\| '—'">/);
+    assert.match(page, /\.tire-import-detail-table :deep\(\.ui-data-table\) \{ width: 100%; min-width: 0; table-layout: fixed; \}/);
+    assert.match(page, /\.tire-import-ellipsis \{ display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  }],
+  ['tire inventory exposes manual maintenance next to each editable tire and at the top of its detail', () => {
+    const page = source('views/TiresUi2View.vue');
+    assert.match(page, /@click="openForEdit\(row\)">人工维护<\/button>/);
+    assert.match(page, /class="tire-maintenance-actions"/);
+    assert.match(page, /can\('BUTTON_TIRES_MANAGE'\) && row\.status === 'AVAILABLE'/);
+    assert.match(page, /can\('BUTTON_TIRES_MANAGE'\) && selected\.status === 'AVAILABLE'/);
+    assert.match(page, /已申领轮胎不能修改入库资料/);
+    assert.match(page, /@click="beginEdit">人工维护<\/button>/);
+    assert.match(page, /tireApi\.edit\(selected\.value\.id/);
+    assert.match(page, /<table class="tire-history-table" aria-label="轮胎资料修改记录">/);
+    assert.match(page, /<th scope="col">修改项目<\/th><th scope="col">修改内容<\/th><th scope="col">原因与操作<\/th>/);
+    assert.match(page, /<tr v-for="\(change, changeIndex\) in group\.changes"/);
+    assert.match(page, /<th scope="row">\{\{ fieldName\[change\.fieldName\]/);
+    assert.match(page, /<td v-if="changeIndex === 0" :rowspan="group\.changes\.length">/);
+    assert.match(page, /colspan="3" class="tire-history-empty"/);
+    assert.match(page, /historyValue\(change\.fieldName, change\.beforeValue\)/);
+    assert.match(page, /historyValue\(change\.fieldName, change\.afterValue\)/);
+    assert.match(page, /<th scope="col">原因与操作<\/th>/);
+    assert.match(page, /group\.reason \|\| '未填写'/);
+    assert.match(page, /group\.operatorPhone \|\| '未知账号'/);
+    assert.match(page, /historyTime\(group\.operatedAt\)/);
+    assert.match(page, /<template v-for="\(group, index\) in maintenanceHistory"/);
+    assert.match(page, /\.tire-history-table \{ width: 100%; table-layout: fixed/);
+    assert.match(page, /white-space: normal; overflow-wrap: anywhere/);
+  }],
+  ['tire history groups fields from one edit while keeping separate edits apart', () => {
+    const first = ['barcode', 'tire_no', 'arrived_at', 'material_description'].map((fieldName, index) => ({
+      fieldName, beforeValue: 'old', afterValue: 'new', reason: '校正', operatorPhone: '13900007772',
+      operatedAt: `2026-10-20T20:04:19.${String(index + 1).padStart(3, '0')}`
+    }));
+    const older = { fieldName: 'material_description', beforeValue: 'before', afterValue: 'after',
+      reason: '修改', operatorPhone: '13900007772', operatedAt: '2026-10-20T20:01:53.001' };
+    const groups = groupTireMaintenanceHistory([...first, older]);
+    assert.equal(groups.length, 2);
+    assert.deepEqual(groups.map((group) => group.changes.length), [4, 1]);
+    assert.deepEqual(groups[0].changes.map((change) => change.fieldName), first.map((change) => change.fieldName));
+    assert.equal(groupTireMaintenanceHistory([first[0], { ...first[1], reason: '另一原因' }]).length, 2);
   }],
   ['system management and task evidence remain available', async () => {
     calls.length = 0;

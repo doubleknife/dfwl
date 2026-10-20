@@ -11,6 +11,7 @@ import EntityPicker from '../components/EntityPicker.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import ErrorState from '../components/ErrorState.vue';
 import SummaryCards from '../components/SummaryCards.vue';
+import StatusTag from '../components/StatusTag.vue';
 
 const props = defineProps({ focus: { type: String, default: 'LEDGER' } });
 const today = new Date();
@@ -167,7 +168,7 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
       <template v-if="detail">
         <section class="ui-section"><h2>正式费用事实</h2><dl class="ui-detail-list">
           <div><dt>业务日期</dt><dd>{{ detail.entry.business_date }}</dd></div><div><dt>费用类型</dt><dd>{{ label(detail.entry.expense_type) }}</dd></div>
-          <div><dt>金额</dt><dd>{{ money(detail.entry.amount) }}</dd></div><div><dt>状态</dt><dd>{{ detail.entry.display_status }}</dd></div>
+          <div><dt>金额</dt><dd>{{ money(detail.entry.amount) }}</dd></div><div><dt>状态</dt><dd><StatusTag :value="detail.entry.display_status" /></dd></div>
           <div><dt>申请属性</dt><dd>{{ label(detail.entry.application_scope) }}</dd></div><div><dt>当前经营归属</dt><dd>{{ detail.entry.task_no || '未归属任务，计入公司总费用' }}</dd></div>
           <div><dt>归属方式</dt><dd>{{ detail.entry.attribution_method }}</dd></div><div><dt>公司车牌</dt><dd>{{ detail.entry.vehicle_plate }}</dd></div>
           <div><dt>司机</dt><dd>{{ detail.entry.driver_name || '—' }}</dd></div><div><dt>费用来源</dt><dd>{{ label(detail.entry.source_type) }}</dd></div>
@@ -207,8 +208,6 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
 <style scoped>
 .ledger-more-filter { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:start; }
 .ledger-more-filter label, .ledger-more-filter :deep(.ui-entity-picker) { min-width:0; width:100%; }
-.ledger-more-filter :deep(.ui-entity-picker) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
-.ledger-more-filter :deep(.ui-entity-picker > small), .ledger-more-filter :deep(.ui-entity-picker > .ui-pagination) { grid-column:1 / -1; }
 @media (max-width:950px) { .ledger-more-filter { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:640px) { .ledger-more-filter { grid-template-columns:1fr; } }
 .ledger-count { margin: -3px 0 12px; color: var(--ui-text-secondary); font-size: 13px; }

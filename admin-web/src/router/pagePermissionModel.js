@@ -6,6 +6,11 @@ export const todoOverviewPermissions = [
 export const routeAccessCodes = (route) => route?.permission
   ? (Array.isArray(route.permission) ? route.permission : [route.permission]) : [];
 
+export function pagePermissionName(permission, routes) {
+  if (permission.permissionType !== 'PAGE') return permission.permissionName;
+  return routes.find((route) => route.key === permission.pageKey)?.label || permission.permissionName;
+}
+
 export function overviewCardAccess(codes) {
   const grants = new Set(codes);
   return {
@@ -32,7 +37,7 @@ export function buildPagePermissionTree(navigation, routes, catalog) {
     if (!permissions.has(code)) throw new Error(`Unregistered page: ${code}`);
     const operations = [...permissions.values()].filter((item) => item.permissionType === 'BUTTON'
       && item.parentCode === code).map((item) => item.permissionCode);
-    return { type: 'page', key, label: label || permissions.get(code).permissionName,
+    return { type: 'page', key, label: label || route?.label || permissions.get(code).permissionName,
       access: [code], operations, codes: [code, ...operations], shared: [], accessMode: 'SINGLE' };
   };
   const child = (item) => {

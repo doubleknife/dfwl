@@ -17,17 +17,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -48,6 +53,9 @@ import org.springframework.web.multipart.MultipartFile;
 public class TireV3Service {
     private static final List<String> HEADERS = List.of("到货时间", "物料描述", "条码", "胎号");
     private static final DateTimeFormatter ARRIVAL = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final Pattern SEPARATED_DATE = Pattern.compile("^(\\d{4})([-/.])(\\d{1,2})\\2(\\d{1,2})(?:[ T]+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$");
+    private static final Pattern CHINESE_DATE = Pattern.compile("^(\\d{4})年(\\d{1,2})月(\\d{1,2})日(?:\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$");
+    private static final Pattern COMPACT_DATE = Pattern.compile("^(\\d{4})(\\d{2})(\\d{2})(?:[ T]+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$");
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final CurrentUserService users;
@@ -191,34 +199,80 @@ public class TireV3Service {
         } catch (IOException ex) { throw new IllegalStateException(ex); }
     }
 
-    @Transactional
     public Map<String, Object> preview(MultipartFile file, AuthenticatedUser user) {
         users.denyAllDrivers(user);
+        List<ImportRow> rows = parseImportFile(file);
+        Set<String> seen = new HashSet<>();
+        Set<String> seenBarcodes = new HashSet<>();
+        List<Map<String, Object>> resultRows = new ArrayList<>();
+        for (ImportRow row : rows) {
+            String message = validate(row, seen, seenBarcodes);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("rowNo", row.rowNo());
+            result.put("arrivedAt", row.arrivedAt());
+            result.put("materialDescription", row.materialDescription());
+            result.put("barcode", row.barcode());
+            result.put("tireNo", row.tireNo());
+            result.put("status", message == null ? "VALID" : "INVALID");
+            result.put("message", message);
+            resultRows.add(result);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", 0L);
+        result.put("status", "PREVIEWED");
+        result.put("rows", resultRows);
+        return result;
+    }
+
+    public Map<String, Object> confirm(MultipartFile file, String requestKey, AuthenticatedUser user) {
+        users.denyAllDrivers(user);
+        if (requestKey == null || requestKey.isBlank() || requestKey.length() > 128)
+            throw invalid("导入请求标识不正确");
+        List<ImportRow> rows = parseImportFile(file);
+        String hash = fileHash(file);
+        long id = transactions.execute(tx -> {
+            Map<String, Object> existing = one("""
+                    SELECT i.id, i.created_by createdBy, a.file_hash fileHash FROM import_task i
+                    JOIN file_attachment a ON a.id=i.source_attachment_id
+                    WHERE i.business_type='TIRE' AND i.request_key=?
+                    """, requestKey.trim());
+            if (existing != null) {
+                if (((Number) existing.get("createdBy")).longValue() != user.id()
+                        || !hash.equals(existing.get("fileHash"))) throw invalid("导入请求已用于其他文件");
+                return ((Number) existing.get("id")).longValue();
+            }
+            long attachmentId = attachments.upload("IMPORT", 0, "IMPORT_FILE", file, user).id();
+            long newId = insert("""
+                    INSERT INTO import_task(business_type,template_version,source_attachment_id,request_key,status,created_by)
+                    VALUES('TIRE','V3-FOUR-FIELDS',?,?,'PREVIEWED',?)
+                    """, attachmentId, requestKey.trim(), user.id());
+            attachments.bindImportFile(attachmentId, newId, user.id());
+            Set<String> seen = new HashSet<>();
+            Set<String> seenBarcodes = new HashSet<>();
+            for (ImportRow row : rows) {
+                String message = validate(row, seen, seenBarcodes);
+                jdbc.update("""
+                        INSERT INTO import_row(import_task_id,row_no,raw_json,validation_status,result_code,result_message)
+                        VALUES(?,?,?,?,?,?)
+                        """, newId, row.rowNo(), json(row), message == null ? "VALID" : "INVALID",
+                        message == null ? null : "VALIDATION_FAILED", message);
+            }
+            return newId;
+        });
+        return confirm(id, user);
+    }
+
+    private List<ImportRow> parseImportFile(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() > 5L * 1024 * 1024
                 || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".xlsx"))
             throw invalid("请选择不超过 5 MB 的系统轮胎 Excel 文件");
-        List<ImportRow> rows;
-        try { rows = parse(file.getBytes()); }
+        try { return parse(file.getBytes()); }
         catch (IOException ex) { throw invalid("轮胎 Excel 文件读取失败"); }
-        long attachmentId = attachments.upload("IMPORT", 0, "IMPORT_FILE", file, user).id();
-        String requestKey = UUID.randomUUID().toString();
-        long id = insert("""
-                INSERT INTO import_task(business_type,template_version,source_attachment_id,request_key,status,created_by)
-                VALUES('TIRE','V3-FOUR-FIELDS',?,?,'PREVIEWED',?)
-                """, attachmentId, requestKey, user.id());
-        attachments.bindImportFile(attachmentId, id, user.id());
-        Set<String> seen = new HashSet<>();
-        Set<String> seenBarcodes = new HashSet<>();
-        for (ImportRow row : rows) {
-            String message = validate(row, seen, seenBarcodes);
-            jdbc.update("""
-                    INSERT INTO import_row(import_task_id,row_no,raw_json,validation_status,result_code,result_message)
-                    VALUES(?,?,?,?,?,?)
-                    """, id, row.rowNo(), json(row), message == null ? "VALID" : "INVALID",
-                    message == null ? null : "VALIDATION_FAILED", message);
-        }
-        audit.write("IMPORT", "TIRE", id, "PREVIEW", null, Map.of("rows", rows.size()), user.id(), null);
-        return importDetail(id);
+    }
+
+    private String fileHash(MultipartFile file) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.getBytes())); }
+        catch (IOException | NoSuchAlgorithmException ex) { throw invalid("轮胎 Excel 文件读取失败"); }
     }
 
     public Map<String, Object> confirm(long id, AuthenticatedUser user) {
@@ -270,10 +324,10 @@ public class TireV3Service {
 
     public PageResponse<Map<String, Object>> importHistory(int pageNo, int pageSize) {
         if (pageNo < 1 || pageSize < 1 || pageSize > 100) throw invalid("分页参数不正确");
-        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type='TIRE'", Long.class);
+        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type='TIRE' AND confirmed_at IS NOT NULL", Long.class);
         var rows = jdbc.queryForList("""
                 SELECT id,status,created_at createdAt,confirmed_at confirmedAt FROM import_task
-                WHERE business_type='TIRE' ORDER BY id DESC LIMIT ? OFFSET ?
+                WHERE business_type='TIRE' AND confirmed_at IS NOT NULL ORDER BY id DESC LIMIT ? OFFSET ?
                 """, pageSize, (pageNo - 1) * pageSize);
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, rows);
     }
@@ -394,10 +448,7 @@ public class TireV3Service {
                 if (row == null) continue;
                 for (Cell cell : row) if (cell.getCellType() == CellType.FORMULA || cell.getColumnIndex() > 3)
                     throw invalid("第" + (i + 1) + "行含公式或模板外字段");
-                String date = text(row.getCell(0), format);
-                Cell dateCell = row.getCell(0);
-                if (dateCell != null && dateCell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(dateCell))
-                    date = dateCell.getLocalDateTimeCellValue().format(ARRIVAL);
+                String date = normalizeArrival(row.getCell(0), format, book.isDate1904());
                 ImportRow item = new ImportRow(i + 1, date, text(row.getCell(1), format),
                         text(row.getCell(2), format), text(row.getCell(3), format));
                 if (List.of(item.arrivedAt(), item.materialDescription(), item.barcode(), item.tireNo())
@@ -411,10 +462,40 @@ public class TireV3Service {
         catch (IOException | RuntimeException ex) { throw invalid("轮胎文件无法读取，请使用系统固定模板"); }
     }
 
+    private String normalizeArrival(Cell cell, DataFormatter format, boolean date1904) {
+        String original = text(cell, format);
+        if (cell != null && cell.getCellType() == CellType.NUMERIC) {
+            double serial = cell.getNumericCellValue();
+            if (Double.isFinite(serial) && serial > 0 && DateUtil.isValidExcelDate(serial)) {
+                try {
+                    LocalDateTime date = DateUtil.getLocalDateTime(serial, date1904);
+                    if (date != null && date.getYear() >= 1000 && date.getYear() <= 9999)
+                        return date.truncatedTo(ChronoUnit.MINUTES).format(ARRIVAL);
+                } catch (RuntimeException ignored) { /* Preserve the source value for a row-level error. */ }
+            }
+            return original;
+        }
+        Matcher match = SEPARATED_DATE.matcher(original);
+        int offset = 1;
+        if (!match.matches()) { match = CHINESE_DATE.matcher(original); offset = 0; }
+        if (!match.matches()) { match = COMPACT_DATE.matcher(original); offset = 0; }
+        if (!match.matches()) return original;
+        try {
+            int year = Integer.parseInt(match.group(1));
+            if (year < 1000 || year > 9999) return original;
+            LocalDateTime date = LocalDateTime.of(year, Integer.parseInt(match.group(2 + offset)),
+                    Integer.parseInt(match.group(3 + offset)),
+                    match.group(4 + offset) == null ? 0 : Integer.parseInt(match.group(4 + offset)),
+                    match.group(5 + offset) == null ? 0 : Integer.parseInt(match.group(5 + offset)),
+                    match.group(6 + offset) == null ? 0 : Integer.parseInt(match.group(6 + offset)));
+            return date.truncatedTo(ChronoUnit.MINUTES).format(ARRIVAL);
+        } catch (RuntimeException ignored) { return original; }
+    }
+
     private String validate(ImportRow row, Set<String> seen, Set<String> seenBarcodes) {
         List<String> errors = new ArrayList<>();
         try { LocalDateTime.parse(row.arrivedAt(), ARRIVAL); }
-        catch (RuntimeException ex) { errors.add("到货时间须为 yyyy-MM-dd HH:mm"); }
+        catch (RuntimeException ex) { errors.add("到货时间须填写完整年月日，可使用 Excel 日期或常见日期格式"); }
         if (blank(row.materialDescription()) || row.materialDescription().length() > 1000) errors.add("请填写物料描述");
         if (row.barcode().length() > 128) errors.add("条码不能超过 128 字");
         else if (!blank(row.barcode())) {

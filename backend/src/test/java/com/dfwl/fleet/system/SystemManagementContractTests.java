@@ -167,7 +167,7 @@ class SystemManagementContractTests {
         jdbcTemplate.update("""
                 INSERT INTO vehicle(id,plate_no,vehicle_license_no,energy_type,max_load,
                                     load_standard_type,load_standard_min_load,status)
-                VALUES(201,'测A201','SECRET-LICENSE-201','DIESEL',10,'FIXED',5,1)
+                VALUES(201,'测A201','SECRET-LICENSE-201','GAS',10,'FIXED',5,1)
                 """);
         String binding = token("PAGE_BINDING");
         mockMvc.perform(get("/api/v1/drivers/binding-candidates").header("Authorization", bearer(binding)))

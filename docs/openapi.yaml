@@ -73,19 +73,24 @@ paths:
   /tire-imports/preview:
     post:
       tags: [Tires]
-      summary: 上传真实固定 Excel 并逐行预览
+      summary: 只读解析固定 Excel 并逐行预览，不保存文件或导入历史
+      description: 到货时间支持 Excel 日期数值单元格，以及带完整年份的短横线、斜线、点号、中文年月日和连续八位数字文本日期；可带时分秒，统一按分钟精度显示。无年份或无效日期逐行报错。
       x-function-any-of: [BUTTON_TIRE_IMPORTS_SUBMIT]
       requestBody:
         content:
           multipart/form-data:
             schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}
       responses: {'200': {description: 逐行校验结果}}
-  /tire-imports/{id}/confirm:
+  /tire-imports/confirm:
     post:
       tags: [Tires]
-      summary: 正式重验并逐行入库
+      summary: 重新提交 Excel，正式重验并逐行入库；此时才保存原文件和历史
       x-function-any-of: [BUTTON_TIRE_IMPORTS_SUBMIT]
-      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [requestKey, file], properties: {requestKey: {type: string}, file: {type: string, format: binary}}}
       responses: {'200': {description: 逐行入库结果}}
   /tire-imports:
     get:
@@ -326,7 +331,7 @@ paths:
   /drivers:
     get:
       tags: [Drivers]
-      summary: 司机列表
+      summary: 司机列表，含当前车辆及该车辆当前车挂
       x-function-any-of: [PAGE_DRIVERS]
       parameters:
         - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
@@ -341,6 +346,28 @@ paths:
       x-function-any-of: [BUTTON_DRIVERS_ADD]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
       responses: {'200': {description: OK}}
+  /driver-vehicle-imports/template:
+    get:
+      tags: [Drivers]
+      summary: 下载自有司机和公司车辆初始导入固定十列 xlsx 模板
+      x-function-any-of: [PAGE_DRIVERS]
+      responses:
+        '200': {description: xlsx 模板, content: {application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {schema: {type: string, format: binary}}}}
+  /driver-vehicle-imports/preview:
+    post:
+      tags: [Drivers]
+      summary: 只读预览全部行；不创建司机、账号、车辆或绑定
+      x-function-any-of: [PAGE_DRIVERS]
+      x-function-read-only-post: true
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
+      responses: {'200': {description: 包含原始 Excel 行号、逐字段错误和总数的预览；不返回初始密码或完整证件号}}
+  /driver-vehicle-imports/confirm:
+    post:
+      tags: [Drivers]
+      summary: 重新解析并校验同一文件；自有司机、账号、公司车和绑定历史整批事务入库
+      x-function-any-of: [BUTTON_DRIVERS_IMPORT]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file], properties: {file: {type: string, format: binary}}}}}}
+      responses: {'200': {description: 整批导入数量；任一行冲突则无业务数据写入}}
   /drivers/binding-candidates:
     get:
       tags: [Drivers]
@@ -353,25 +380,33 @@ paths:
   /bindings/vehicle-options:
     get:
       tags: [Vehicles]
-      summary: 绑定关系页的精简车辆候选，不返回行驶证号或保险资料
+      summary: 绑定关系页的精简车辆候选；司机绑定时可仅列出启用且未绑定司机的车辆，不返回行驶证号或保险资料
       x-function-any-of: [PAGE_BINDING]
+      parameters:
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+        - {name: onlyUnboundDriver, in: query, required: false, schema: {type: boolean, default: false}, description: true 时仅返回启用且没有当前司机绑定的车辆}
       responses: {'200': {description: 车辆及当前车挂的分页选择项}}
   /bindings/trailer-options:
     get:
       tags: [Trailers]
-      summary: 绑定关系页的精简车挂候选
+      summary: 绑定关系页的精简车挂候选；车辆绑定时可仅列出启用且未绑定车辆的车挂
       x-function-any-of: [PAGE_BINDING]
+      parameters:
+        - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+        - {name: onlyUnboundVehicle, in: query, required: false, schema: {type: boolean, default: false}, description: true 时仅返回启用且没有当前车辆绑定的车挂}
       responses: {'200': {description: 车挂及当前车辆的分页选择项}}
   /drivers/{id}:
     get:
       tags: [Drivers]
-      summary: 司机详情
+      summary: 司机详情，含当前车辆及该车辆当前车挂
       x-function-any-of: [PAGE_DRIVERS]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
     put:
       tags: [Drivers]
-      summary: 编辑司机
+      summary: 编辑司机；停用时无未完成任务才允许，并在同一事务解除当前车辆绑定及记录历史
       x-function-any-of: [BUTTON_DRIVERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DriverCreateRequest'}}}}
@@ -379,7 +414,7 @@ paths:
   /drivers/{id}/bind-vehicle:
     post:
       tags: [Drivers]
-      summary: 绑定公司车辆；OUTSOURCED 后端强制拒绝
+      summary: 绑定启用的公司车辆；停用车辆及 OUTSOURCED 司机由后端拒绝
       x-function-any-of: [BUTTON_BINDING_BIND_DRIVER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -419,11 +454,11 @@ paths:
       responses: {'200': {description: OK}}
     put:
       tags: [Vehicles]
-      summary: 编辑车辆
+      summary: 编辑车辆；停用时车辆或所绑车挂有待发车、在途任务则拒绝，否则同一事务解除当前司机和车挂绑定并保留历史
       x-function-any-of: [BUTTON_VEHICLES_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VehicleRequest'}}}}
-      responses: {'200': {description: OK}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /vehicles/{id}/binding-history:
     get:
       tags: [Vehicles]
@@ -442,7 +477,7 @@ paths:
   /trailers:
     get:
       tags: [Trailers]
-      summary: 车挂列表
+      summary: 车挂列表，含当前车辆及该车辆当前司机
       x-function-any-of: [PAGE_TRAILERS]
       responses: {'200': {description: OK}}
     post:
@@ -453,14 +488,14 @@ paths:
   /trailers/{id}:
     put:
       tags: [Trailers]
-      summary: 编辑车挂
+      summary: 编辑车挂；停用时有待发车或在途任务则拒绝，否则同一事务解除当前车辆绑定并保留历史
       x-function-any-of: [BUTTON_TRAILERS_EDIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: OK}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /trailers/{id}/bind-vehicle:
     post:
       tags: [Trailers]
-      summary: 绑定车辆
+      summary: 绑定启用的车挂与启用的公司车辆；停用任一方由后端拒绝
       x-function-any-of: [BUTTON_BINDING_BIND_TRAILER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -552,7 +587,7 @@ paths:
   /task-imports/preview:
     post:
       tags: [TaskImports]
-      summary: 上传真实固定模板，保存逐行预览和文件历史；不生成任务
+      summary: 只读解析固定模板并逐行预览；不保存文件或历史
       x-function-any-of: [BUTTON_TASK_IMPORTS_SUBMIT]
       requestBody:
         required: true
@@ -565,12 +600,16 @@ paths:
                 requestKey: {type: string}
                 file: {type: string, format: binary}
       responses: {'200': {description: 逐行预览}, '409': {$ref: '#/components/responses/BusinessConflict'}}
-  /task-imports/{id}/confirm:
+  /task-imports/confirm:
     post:
       tags: [TaskImports]
-      summary: 逐行正式重验并发布，每行结果与导入历史持久保存
+      summary: 重新提交 Excel 并逐行正式重验发布，此时才保存文件和导入历史
       x-function-any-of: [BUTTON_TASK_IMPORTS_SUBMIT]
-      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [requestKey, file], properties: {requestKey: {type: string}, file: {type: string, format: binary}}}
       responses: {'200': {description: 逐行正式结果}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /task-imports:
     get:
@@ -1531,11 +1570,11 @@ components:
         plateNo: {type: string}
         vehicleLicenseNo: {type: string, minLength: 1, description: 车辆行驶证号；首尾空格由服务端去除；全局唯一}
         insuranceComplete: {type: boolean}
-        energyType: {type: string}
-        maxLoad: {$ref: '#/components/schemas/DecimalWeight'}
+        energyType: {type: string, enum: [ELECTRIC, GAS]}
+        maxLoad: {type: string, pattern: '^\d+(\.\d{1,3})?$', description: 大于 0 且最多 3 位小数}
         loadStandardType: {type: string, enum: [PERCENT, FIXED]}
         loadStandardPercent: {type: [number, 'null']}
-        loadStandardMinLoad: {$ref: '#/components/schemas/DecimalWeight'}
+        loadStandardMinLoad: {type: [string, 'null'], description: FIXED 时必填；大于 0、不超过 maxLoad、最多 3 位小数}
         status: {type: integer, enum: [0, 1]}
     RouteTemplateRequest:
       type: object
@@ -1707,6 +1746,7 @@ components:
         - BUTTON_DISPATCH_INTERNAL_EXPORT
         - BUTTON_DISPATCH_OUTSOURCED_EXPORT
         - BUTTON_DRIVERS_ADD
+        - BUTTON_DRIVERS_IMPORT
         - BUTTON_DRIVERS_EDIT
         - BUTTON_DRIVERS_RESET_PASSWORD
         - BUTTON_VEHICLES_ADD

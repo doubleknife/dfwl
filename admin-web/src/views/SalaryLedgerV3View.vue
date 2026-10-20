@@ -166,7 +166,7 @@ onMounted(() => load());
         <strong v-else>{{ money(item.salary) }}</strong>
         <details v-if="historyByParticipant[item.id]?.length" class="v3-salary-history"><summary>查看该司机工资调整历史（{{ historyByParticipant[item.id].length }} 条）</summary><ol class="ui-timeline"><li v-for="change in historyByParticipant[item.id]" :key="change.id">{{ money(change.beforeAmount) }} → {{ money(change.afterAmount) }}<p>{{ change.operatedAt }} · 操作账号 {{ maskedPhone(change.operatorPhone) }} · {{ change.reason }}</p></li></ol></details>
       </div>
-      <template v-if="review"><label>调整原因<textarea v-model.trim="reviewReason" rows="3" placeholder="填写本次核薪原因" /></label><p v-if="error" class="error">{{ error }}</p></template>
+      <template v-if="review"><label>调整原因<textarea v-model.trim="reviewReason" rows="3" placeholder="填写本次核薪原因" /></label></template>
       <p v-if="!Object.values(historyByParticipant).some((changes) => changes.length)" class="muted">本任务暂无工资调整历史</p>
       <template #footer><button v-if="review" type="button" @click="review = false">取消</button><button v-if="review" type="button" class="primary" :disabled="saving || !reviewReason.trim()" @click="confirmReview">{{ saving ? '正在核定…' : '确认全部工资' }}</button><button v-else-if="can('BUTTON_SALARIES_ADJUST') && participants.length" type="button" class="primary" @click="beginReview">核定全部参与人工资</button></template>
     </DetailDrawer>
@@ -176,8 +176,6 @@ onMounted(() => load());
 <style scoped>
 .salary-filter { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; }
 .salary-filter label, .salary-filter :deep(.ui-entity-picker) { min-width: 0; width: 100%; }
-.salary-filter :deep(.ui-entity-picker) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; align-items:center; }
-.salary-filter :deep(.ui-entity-picker > small), .salary-filter :deep(.ui-entity-picker > .ui-pagination) { grid-column:1 / -1; }
 .salary-filter > button { justify-self: start; min-width: 88px; }
 @media (max-width: 1100px) { .salary-filter { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .salary-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

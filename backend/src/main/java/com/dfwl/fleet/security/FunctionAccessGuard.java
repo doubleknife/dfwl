@@ -57,7 +57,14 @@ public final class FunctionAccessGuard implements HandlerInterceptor {
             }
             boolean writes = entry.getKey().getMethodsCondition().getMethods().stream()
                     .anyMatch(http -> !"GET".equals(http.name()) && !"HEAD".equals(http.name()));
-            if (writes && !annotation.self() && codes.stream().noneMatch(code -> "BUTTON".equals(registry.find(code).type())))
+            if (annotation.readOnlyPost() && (annotation.self()
+                    || entry.getKey().getMethodsCondition().getMethods().isEmpty()
+                    || entry.getKey().getMethodsCondition().getMethods().stream()
+                    .anyMatch(http -> !"POST".equals(http.name())) || codes.isEmpty()
+                    || codes.stream().anyMatch(code -> !"PAGE".equals(registry.find(code).type()))))
+                throw new IllegalStateException("Read-only upload must be POST with PAGE function: " + method);
+            if (writes && !annotation.self() && !annotation.readOnlyPost()
+                    && codes.stream().noneMatch(code -> "BUTTON".equals(registry.find(code).type())))
                 throw new IllegalStateException("Write API must use button function: " + method);
             next.put(method.getMethod(), new Access(codes, annotation.self()));
             List<String> paths = entry.getKey().getPatternValues().stream().sorted().toList();

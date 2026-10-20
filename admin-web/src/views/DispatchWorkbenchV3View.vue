@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader.vue';
 import ErrorState from '../components/ErrorState.vue';
 import EmptyState from '../components/EmptyState.vue';
 import FormDialog from '../components/FormDialog.vue';
+import EntityPicker from '../components/EntityPicker.vue';
 import { appendDispatchRows, dispatchBody, updateSelectedAmounts } from './dispatchDraft.js';
 
 const today = new Date();
@@ -13,7 +14,7 @@ const businessDate = ref(`${today.getFullYear()}-${String(today.getMonth() + 1).
 const templates = ref([]);
 const drivers = ref([]);
 const vehicles = ref([]);
-const templateSearch = ref('');
+const templateOptionVersion = ref(0);
 const driverSearch = ref('');
 const selectedTemplateCode = ref('');
 const selectedDrivers = ref([]);
@@ -30,9 +31,12 @@ const published = ref(null);
 const requestKey = ref('');
 let sequence = 0;
 const money = (value) => `¥${Number(value ?? 0).toFixed(2)}`;
-const templateOptions = computed(() => templates.value.filter((item) => item.enabled &&
-  `${item.stableCode} ${item.name} ${item.customerName} ${item.loadingPlace} ${item.unloadingPlace}`
-    .toLowerCase().includes(templateSearch.value.trim().toLowerCase())));
+const templateSearchText = (item) => `${item.stableCode} ${item.name} ${item.customerName} ${item.loadingPlace} ${item.unloadingPlace}`;
+function loadTemplateChoices(page = 1, query = '') {
+  const term = query.trim().toLowerCase();
+  const matches = templates.value.filter((item) => item.enabled && templateSearchText(item).toLowerCase().includes(term));
+  return Promise.resolve({ records: matches.slice((page - 1) * 100, page * 100), total: matches.length });
+}
 const driverOptions = computed(() => drivers.value.filter((item) => item.status === 1 &&
   `${item.name} ${item.phone} ${item.currentVehiclePlateNo || ''}`
     .toLowerCase().includes(driverSearch.value.trim().toLowerCase())));
@@ -59,6 +63,7 @@ async function loadOptions() {
     const [templateList, first, firstVehicles] = await Promise.all([routeTemplateApi.list(), dispatchApi.driverOptions(1, 100),
       dispatchApi.vehicleOptions(1, 100)]);
     templates.value = templateList || [];
+    templateOptionVersion.value++;
     const all = [...(first.records || [])];
     for (let page = 2; all.length < Number(first.total || 0); page++) {
       const next = await dispatchApi.driverOptions(page, 100);
@@ -146,10 +151,10 @@ onMounted(loadOptions);
       <div class="ui-list-heading"><div><h2>1. 选择日期、线路和司机</h2><p class="muted">选择已有司机后加入待发布表格；同一司机可重复加入。</p></div></div>
       <div class="dispatch-template-panel"><div class="dispatch-top">
         <label>业务日期<input v-model="businessDate" type="date" :disabled="busy" @change="changed" /></label>
-        <label>搜索线路模板<input v-model.trim="templateSearch" type="search" placeholder="模板编号、客户或装卸货地" :disabled="loading" /></label>
-        <label>线路模板<select v-model="selectedTemplateCode" :disabled="loading"><option value="">请选择已启用模板</option>
-          <option v-for="item in templateOptions" :key="item.id" :value="item.stableCode">{{ item.name }} · {{ item.customerName }} · {{ item.loadingPlace }} → {{ item.unloadingPlace }}</option>
-        </select></label>
+        <label>线路模板<EntityPicker :key="templateOptionVersion" v-model="selectedTemplateCode" remote-search :load-page="loadTemplateChoices"
+          :option-value="(item) => item.stableCode" :search-text-of="templateSearchText"
+          :label-of="(item) => `${item.name} · ${item.customerName} · ${item.loadingPlace} → ${item.unloadingPlace}`"
+          placeholder="请选择已启用模板，可搜索编号、客户或装卸货地" :disabled="loading" /></label>
       </div>
       <div v-if="chosenTemplate" class="dispatch-summary">
         <strong>{{ chosenTemplate.name }} · {{ chosenTemplate.customerName }}</strong>

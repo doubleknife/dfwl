@@ -15,6 +15,7 @@ import com.dfwl.fleet.master.dto.response.VehicleResponse;
 import com.dfwl.fleet.master.policy.VehicleAccessPolicy;
 import com.dfwl.fleet.master.repository.MasterDataRepository;
 import com.dfwl.fleet.master.validation.MainlandIdCard;
+import com.dfwl.fleet.master.validation.MasterDataInputValidator;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.CurrentUserService;
@@ -31,22 +32,21 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class MasterDataService {
 
-    private static final String LOAD_STANDARD_PERCENT = "PERCENT";
-    private static final String LOAD_STANDARD_FIXED = "FIXED";
-
     private final MasterDataRepository repository;
     private final CurrentUserService currentUserService;
     private final VehicleAccessPolicy vehicleAccessPolicy;
     private final AuditWriteService audit;
     private final DriverAccountService driverAccounts;
+    private final MasterDataInputValidator inputValidator;
     private final TokenAuthenticationService tokenAuthenticationService;
 
-    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy, AuditWriteService audit, DriverAccountService driverAccounts, TokenAuthenticationService tokenAuthenticationService) {
+    public MasterDataService(MasterDataRepository repository, CurrentUserService currentUserService, VehicleAccessPolicy vehicleAccessPolicy, AuditWriteService audit, DriverAccountService driverAccounts, TokenAuthenticationService tokenAuthenticationService, MasterDataInputValidator inputValidator) {
         this.repository = repository;
         this.currentUserService = currentUserService;
         this.vehicleAccessPolicy = vehicleAccessPolicy;
         this.audit = audit;
         this.driverAccounts = driverAccounts;
+        this.inputValidator = inputValidator;
         this.tokenAuthenticationService = tokenAuthenticationService;
     }
 
@@ -98,11 +98,21 @@ public class MasterDataService {
     }
 
     public PageResponse<com.dfwl.fleet.master.dto.response.BindingVehicleOption> listBindingVehicles(int pageNo, int pageSize) {
-        return repository.listBindingVehicles(pageNo, normalizePageSize(pageSize));
+        return listBindingVehicles(pageNo, pageSize, false);
+    }
+
+    public PageResponse<com.dfwl.fleet.master.dto.response.BindingVehicleOption> listBindingVehicles(
+            int pageNo, int pageSize, boolean onlyUnboundDriver) {
+        return repository.listBindingVehicles(pageNo, normalizePageSize(pageSize), onlyUnboundDriver);
     }
 
     public PageResponse<com.dfwl.fleet.master.dto.response.BindingTrailerOption> listBindingTrailers(int pageNo, int pageSize) {
-        return repository.listBindingTrailers(pageNo, normalizePageSize(pageSize));
+        return listBindingTrailers(pageNo, pageSize, false);
+    }
+
+    public PageResponse<com.dfwl.fleet.master.dto.response.BindingTrailerOption> listBindingTrailers(
+            int pageNo, int pageSize, boolean onlyUnboundVehicle) {
+        return repository.listBindingTrailers(pageNo, normalizePageSize(pageSize), onlyUnboundVehicle);
     }
 
     public DriverResponse findDriver(long id) {
@@ -124,10 +134,7 @@ public class MasterDataService {
 
     @Transactional
     public DriverResponse createDriver(DriverRequest request) {
-        if (!"INTERNAL".equals(request.driverType()) && !"OUTSOURCED".equals(request.driverType())) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
-        validateDriverCertificates(request, -1);
+        requireValid(inputValidator.driver(request, inputValidator.existing(List.of(request), List.of()), true));
         try {
             return findDriver(repository.createDriver(request));
         } catch (DataIntegrityViolationException ex) {
@@ -146,9 +153,7 @@ public class MasterDataService {
     public DriverResponse updateDriver(long id, DriverRequest request, long operatorId) {
         repository.lockDriver(id);
         DriverResponse before = findDriver(id);
-        if (!"INTERNAL".equals(request.driverType()) && !"OUTSOURCED".equals(request.driverType())) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
+        requireValid(inputValidator.driver(request, null, false));
         if (before.userId() != null && !before.phone().equals(request.phone())) {
             throw new BusinessException(ErrorCode.SYS_002);
         }
@@ -157,7 +162,7 @@ public class MasterDataService {
             throw new BusinessException(ErrorCode.BIND_003);
         }
         validateDriverCertificates(request, id);
-        if (before.status() == 1 && request.status() == 0) {
+        if (request.status() == 0) {
             int unfinished = repository.unfinishedCurrentTasks(id);
             if (unfinished > 0) throw new BusinessException("DRIVER_ACTIVE_TASKS",
                     "该司机存在 " + unfinished + " 条未完成运输任务，请先处理相关任务后再禁用");
@@ -173,6 +178,10 @@ public class MasterDataService {
             audit.write("DRIVER", "DRIVER", id, "CHANGE_TYPE",
                     java.util.Map.of("driverType", before.driverType()),
                     java.util.Map.of("driverType", request.driverType()), operatorId, null);
+        }
+        if (request.status() == 0 && before.currentVehicleId() != null) {
+            repository.unbindDriverVehicleFromVehicle(id, before.currentVehicleId(), operatorId,
+                    "司机停用自动解绑", LocalDateTime.now());
         }
         if (before.status() == 1 && request.status() == 0) {
             if (before.userId() != null) tokenAuthenticationService.revokeUserTokens(before.userId());
@@ -201,8 +210,7 @@ public class MasterDataService {
 
     @Transactional
     public VehicleResponse createVehicle(VehicleRequest request) {
-        validateVehicleLoadStandard(request);
-        validateVehicleLicense(request.vehicleLicenseNo(), -1);
+        requireValid(inputValidator.vehicle(request, inputValidator.existing(List.of(), List.of(request))));
         try {
             return findVehicle(repository.createVehicle(request));
         } catch (DataIntegrityViolationException ex) {
@@ -211,15 +219,32 @@ public class MasterDataService {
     }
 
     @Transactional
-    public VehicleResponse updateVehicle(long id, VehicleRequest request) {
-        validateVehicleLoadStandard(request);
+    public VehicleResponse updateVehicle(long id, VehicleRequest request, long operatorId) {
+        repository.lockVehicle(id);
+        VehicleResponse before = findVehicle(id);
+        requireValid(inputValidator.vehicle(request, null));
         validateVehicleLicense(request.vehicleLicenseNo(), id);
+        if (request.status() == 0) {
+            int unfinished = repository.unfinishedTasksForVehicle(id);
+            if (unfinished > 0) throw new BusinessException("VEHICLE_ACTIVE_TASKS",
+                    "该车辆存在 " + unfinished + " 条已派单或在途运输任务，请先处理相关任务后再停用");
+            if (before.currentTrailerId() != null && repository.unfinishedTasksForTrailer(before.currentTrailerId()) > 0)
+                throw new BusinessException("TRAILER_ACTIVE_TASKS", "当前绑定的车挂存在已派单或在途运输任务，请先处理相关任务后再停用车辆");
+        }
         try {
             if (!repository.updateVehicle(id, request)) {
                 throw new BusinessException(ErrorCode.DATA_001);
             }
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException("DATA_002", "行驶证号或车牌号已被其他车辆使用");
+        }
+        if (request.status() == 0 && before.currentDriverId() != null) {
+            repository.unbindDriverVehicleFromVehicle(before.currentDriverId(), id, operatorId,
+                    "车辆停用自动解绑", LocalDateTime.now());
+        }
+        if (request.status() == 0 && before.currentTrailerId() != null) {
+            repository.unbindVehicleTrailerFromVehicle(id, before.currentTrailerId(), operatorId,
+                    "车辆停用自动解绑车挂", LocalDateTime.now());
         }
         return findVehicle(id);
     }
@@ -281,20 +306,35 @@ public class MasterDataService {
     }
 
     @Transactional
-    public TrailerResponse updateTrailer(long id, TrailerRequest request) {
+    public TrailerResponse updateTrailer(long id, TrailerRequest request, long operatorId) {
+        repository.lockTrailer(id);
+        TrailerResponse before = findTrailer(id);
+        if (request.status() == null || request.status() != 0 && request.status() != 1)
+            throw new BusinessException(ErrorCode.SYS_002);
+        if (request.status() == 0) {
+            int unfinished = repository.unfinishedTasksForTrailer(id);
+            if (unfinished > 0) throw new BusinessException("TRAILER_ACTIVE_TASKS",
+                    "该车挂存在 " + unfinished + " 条已派单或在途运输任务，请先处理相关任务后再停用");
+        }
         if (!repository.updateTrailer(id, request)) {
             throw new BusinessException(ErrorCode.DATA_001);
+        }
+        if (request.status() == 0 && before.currentVehicleId() != null) {
+            repository.unbindVehicleTrailer(id, operatorId, "车挂停用自动解绑", LocalDateTime.now());
         }
         return findTrailer(id);
     }
 
     @Transactional
     public void bindDriverVehicle(long driverId, long vehicleId, long operatorId) {
+        repository.lockDriver(driverId);
+        repository.lockVehicle(vehicleId);
         DriverResponse driver = findDriver(driverId);
         if (!"INTERNAL".equals(driver.driverType())) {
             throw new BusinessException(ErrorCode.AUTH_003);
         }
-        findVehicle(vehicleId);
+        if (findVehicle(vehicleId).status() != 1)
+            throw new BusinessException("VEHICLE_DISABLED", "停用车辆不能绑定司机");
         if (repository.hasInTransitDriverOrVehicle(driverId, vehicleId)) {
             throw new BusinessException(ErrorCode.BIND_003);
         }
@@ -327,8 +367,12 @@ public class MasterDataService {
 
     @Transactional
     public void bindVehicleTrailer(long trailerId, long vehicleId, long operatorId) {
-        findTrailer(trailerId);
-        findVehicle(vehicleId);
+        repository.lockVehicle(vehicleId);
+        repository.lockTrailer(trailerId);
+        if (findVehicle(vehicleId).status() != 1)
+            throw new BusinessException("VEHICLE_DISABLED", "停用车辆不能绑定车挂");
+        if (findTrailer(trailerId).status() != 1)
+            throw new BusinessException("TRAILER_DISABLED", "停用车挂不能绑定车辆");
         if (repository.hasInTransitVehicleOrTrailer(vehicleId, trailerId)) {
             throw new BusinessException(ErrorCode.BIND_003);
         }
@@ -356,25 +400,14 @@ public class MasterDataService {
         }
     }
 
-    private void validateVehicleLoadStandard(VehicleRequest request) {
-        boolean percent = LOAD_STANDARD_PERCENT.equals(request.loadStandardType());
-        boolean fixed = LOAD_STANDARD_FIXED.equals(request.loadStandardType());
-        if (!percent && !fixed) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
-        if (percent && (request.loadStandardPercent() == null || request.loadStandardMinLoad() != null)) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
-        if (percent && (request.loadStandardPercent().signum() <= 0
-                || request.loadStandardPercent().compareTo(java.math.BigDecimal.ONE) > 0)) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
-        if (fixed && (request.loadStandardMinLoad() == null || request.loadStandardPercent() != null)) {
-            throw new BusinessException(ErrorCode.SYS_002);
-        }
-        if (fixed && (request.loadStandardMinLoad().signum() < 0
-                || request.loadStandardMinLoad().compareTo(request.maxLoad()) > 0)) {
-            throw new BusinessException(ErrorCode.SYS_002);
+    private void requireValid(List<MasterDataInputValidator.Issue> issues) {
+        if (!issues.isEmpty()) {
+            var issue = issues.get(0);
+            throw new BusinessException(issue.reason().contains("已存在") || issue.reason().contains("已被")
+                    ? "DATA_002" : "SYS_002",
+                    issue.reason().startsWith("该手机号") || issue.reason().startsWith("行驶证号已")
+                            || issue.reason().startsWith("身份证号已") || issue.reason().startsWith("驾驶证号已")
+                            ? issue.reason() : issue.field() + "：" + issue.reason());
         }
     }
 

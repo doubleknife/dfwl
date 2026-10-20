@@ -12,7 +12,7 @@ import SearchableRoleSelect from '../components/SearchableRoleSelect.vue';
 import RolePermissionTree from '../components/RolePermissionTree.vue';
 import { navigation } from '../router/navigationModel.js';
 import { routes } from '../router/routes.js';
-import { buildPagePermissionTree, overviewCardAccess, selectPermissionCodes } from '../router/pagePermissionModel.js';
+import { buildPagePermissionTree, overviewCardAccess, pagePermissionName, selectPermissionCodes } from '../router/pagePermissionModel.js';
 import PaginationBar from '../components/PaginationBar.vue';
 import FormDialog from '../components/FormDialog.vue';
 import DetailDrawer from '../components/DetailDrawer.vue';
@@ -70,7 +70,9 @@ const roleRows = computed(() => roles.value.filter((row) =>
   (!filters.role || `${row.roleName} ${row.roleCode}`.toLowerCase().includes(filters.role.toLowerCase()))
   && (!filters.roleStatus || String(row.status) === filters.roleStatus)));
 const modules = computed(() => [...new Set(permissions.value.map((item) => moduleOf(item.permissionCode)))]);
-const directoryRows = computed(() => permissions.value.filter((item) =>
+const directoryRows = computed(() => permissions.value.map((item) => ({
+  ...item, permissionName: pagePermissionName(item, routes)
+})).filter((item) =>
   (!filters.module || moduleOf(item.permissionCode) === filters.module)
   && (!filters.permission || `${item.permissionName} ${item.permissionCode}`.toLowerCase().includes(filters.permission.toLowerCase()))));
 const visibleDirectory = computed(() => directoryRows.value.slice((directoryPage.value - 1) * 15, directoryPage.value * 15));
@@ -230,7 +232,7 @@ onMounted(async () => {
       <div class="ui-list-heading"><h2>用户列表</h2><button class="primary" type="button" @click="openUser()">＋ 新增用户</button></div>
       <FilterBar><label class="ui-search">手机号<input v-model.trim="filters.user" type="search" placeholder="搜索手机号" /></label><label>角色<select v-model="filters.userRole"><option value="">全部角色</option><option v-for="role in roles" :key="role.id" :value="String(role.id)">{{ role.roleName }}</option></select></label><label>状态<select v-model="filters.userStatus"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label></FilterBar>
       <DataTable v-if="!error" :columns="[{key:'phone',label:'登录账号'},{key:'roleName',label:'角色'},{key:'status',label:'状态'},{key:'lastLoginAt',label:'最近登录'},{key:'actions',label:'操作'}]" :rows="userRows" :loading="loading" :empty-text="filters.user || filters.userRole || filters.userStatus ? '当前页没有匹配用户' : '暂无用户'">
-        <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" :tone="value === 1 ? 'success' : 'warning'" /></template><template #lastLoginAt="{value}">{{ displayTime(value) }}</template>
+        <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template><template #lastLoginAt="{value}">{{ displayTime(value) }}</template>
         <template #actions="{row}"><div class="ui-inline-actions"><button type="button" @click="userDetail = row">详情</button><button type="button" @click="openUser(row)">编辑</button><button type="button" @click="userMore = row">更多</button></div></template>
       </DataTable><PaginationBar :page-no="userPage" :page-size="20" :total="userTotal" @change="loadUsers" />
     </section>
@@ -254,7 +256,7 @@ onMounted(async () => {
       </DataTable><PaginationBar :page-no="directoryPage" :page-size="15" :total="directoryRows.length" @change="directoryPage = $event" />
     </section>
     <AuditLogsUi2 v-if="tab === 'audits' && can('PAGE_AUDIT')" />
-    <DetailDrawer :open="!!userDetail" title="用户详情" @close="userDetail = null"><dl v-if="userDetail" class="ui-detail-grid"><dt>登录账号</dt><dd>{{ userDetail.phone }}</dd><dt>角色</dt><dd>{{ userDetail.roleName || '未配置' }}</dd><dt>状态</dt><dd>{{ userDetail.status === 1 ? '启用' : '停用' }}</dd><dt>最近登录</dt><dd>{{ displayTime(userDetail.lastLoginAt) }}</dd></dl></DetailDrawer>
+    <DetailDrawer :open="!!userDetail" title="用户详情" @close="userDetail = null"><dl v-if="userDetail" class="ui-detail-grid"><dt>登录账号</dt><dd>{{ userDetail.phone }}</dd><dt>角色</dt><dd>{{ userDetail.roleName || '未配置' }}</dd><dt>状态</dt><dd><StatusTag :value="userDetail.status" /></dd><dt>最近登录</dt><dd>{{ displayTime(userDetail.lastLoginAt) }}</dd></dl></DetailDrawer>
     <FormDialog :open="!!userMore" title="用户操作" @close="userMore = null"><div v-if="userMore"><p>{{ userMore.phone }} · {{ userMore.roleName }}</p><div class="ui-object-actions"><button type="button" @click="openReset(userMore)">重置密码</button></div></div></FormDialog>
     <FormDialog :open="userDialog" :title="userForm.id ? '编辑用户' : '新增用户'" :busy="busy" @close="requestCloseUser"><form @submit.prevent="saveUser"><div class="ui-form-grid"><label class="ui-form-field">手机号<input v-model.trim="userForm.phone" required inputmode="tel" /></label><label v-if="!userForm.id" class="ui-form-field">初始密码<input v-model="userForm.password" required minlength="6" type="password" autocomplete="new-password" /></label><label class="ui-form-field">角色<SearchableRoleSelect v-model="userForm.roleId" :load-page="systemApi.roles" :selected-label="roleName(userForm.roleId)" /></label><label class="ui-form-field">状态<select v-model.number="userForm.status"><option :value="1">启用</option><option :value="0">停用</option></select></label></div><div class="ui-dialog-actions"><button type="button" @click="requestCloseUser">取消</button><button class="primary" :disabled="busy">{{ busy ? '正在保存…' : '保存用户' }}</button></div></form></FormDialog>
     <FormDialog :open="!!resetTarget" title="重置密码" :busy="busy" @close="requestCloseReset"><form v-if="resetTarget" @submit.prevent="savePassword"><p>账号：<strong>{{ resetTarget.phone }}</strong> · {{ resetTarget.roleName }}</p><p class="muted">重置后旧密码将无法继续用于登录。</p><label class="ui-form-field">新密码<input v-model="newPassword" required minlength="6" type="password" autocomplete="new-password" /></label><label class="ui-form-field">确认新密码<input v-model="confirmPassword" required minlength="6" type="password" autocomplete="new-password" /></label><div class="ui-dialog-actions"><button type="button" @click="requestCloseReset">取消</button><button class="ui-danger-button" :disabled="busy">确认重置密码</button></div></form></FormDialog>

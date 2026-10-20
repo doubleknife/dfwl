@@ -36,7 +36,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -51,6 +50,7 @@ public class TaskImportService {
     private final AttachmentService attachments;
     private final ObjectMapper mapper;
     private final TransactionTemplate rowTransaction;
+    private final TransactionTemplate setupTransaction;
 
     public TaskImportService(JdbcTemplate jdbc, DispatchBatchService dispatch, AttachmentService attachments,
                              ObjectMapper mapper, PlatformTransactionManager transactions) {
@@ -60,6 +60,7 @@ public class TaskImportService {
         this.mapper = mapper;
         this.rowTransaction = new TransactionTemplate(transactions);
         this.rowTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.setupTransaction = new TransactionTemplate(transactions);
     }
 
     public byte[] template() {
@@ -85,52 +86,72 @@ public class TaskImportService {
         } catch (IOException ex) { throw new IllegalStateException(ex); }
     }
 
-    @Transactional
     public ImportDetail preview(MultipartFile file, String requestKey, AuthenticatedUser user) {
+        List<RawRow> parsed = parse(readImportFile(file, requestKey));
+        Set<String> seen = new HashSet<>();
+        List<ImportRowView> rows = new ArrayList<>();
+        for (RawRow raw : parsed) {
+            Evaluated evaluated = evaluate(raw, seen);
+            String message = String.join("；", evaluated.errors());
+            rows.add(new ImportRowView(raw.rowNo(), raw.businessDate(), raw.templateStableCode(),
+                    raw.driverPhone(), raw.outsourcedPlateNo(), raw.actualUnitPrice(), raw.actualInformationFee(),
+                    raw.initialSalary(), raw.remark(), evaluated.errors().isEmpty() ? "VALID" : "INVALID",
+                    message.isEmpty() ? null : message, null, serialize(raw)));
+        }
+        return new ImportDetail(0, VERSION, "PREVIEWED", user.id(), java.time.LocalDateTime.now(), null, rows);
+    }
+
+    public ImportDetail confirm(MultipartFile file, String requestKey, AuthenticatedUser user) {
+        byte[] bytes = readImportFile(file, requestKey);
+        List<RawRow> parsed = parse(bytes);
+        String hash = digest(bytes);
+        long id = setupTransaction.execute(status -> {
+            List<Long> existing = jdbc.queryForList("""
+                    SELECT i.id FROM import_task i JOIN file_attachment a ON a.id = i.source_attachment_id
+                    WHERE i.business_type = 'TASK' AND i.request_key = ? AND i.created_by = ? AND a.file_hash = ?
+                    """, Long.class, requestKey.trim(), user.id(), hash);
+            if (!existing.isEmpty()) return existing.getFirst();
+            Integer keyInUse = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type = 'TASK' AND request_key = ?",
+                    Integer.class, requestKey.trim());
+            if (keyInUse != null && keyInUse > 0) throw new BusinessException(ErrorCode.DATA_002);
+            long attachmentId = attachments.upload("IMPORT", 0, "IMPORT_FILE", file, user).id();
+            KeyHolder keys = new GeneratedKeyHolder();
+            jdbc.update(connection -> {
+                PreparedStatement ps = connection.prepareStatement("""
+                        INSERT INTO import_task (business_type, template_version, source_attachment_id,
+                            request_key, status, created_by) VALUES ('TASK', ?, ?, ?, 'PREVIEWED', ?)
+                        """, new String[]{"id"});
+                ps.setString(1, VERSION);
+                ps.setLong(2, attachmentId);
+                ps.setString(3, requestKey.trim());
+                ps.setLong(4, user.id());
+                return ps;
+            }, keys);
+            long newId = keys.getKey().longValue();
+            attachments.bindImportFile(attachmentId, newId, user.id());
+            Set<String> seen = new HashSet<>();
+            for (RawRow raw : parsed) {
+                Evaluated evaluated = evaluate(raw, seen);
+                String message = String.join("；", evaluated.errors());
+                jdbc.update("""
+                        INSERT INTO import_row (import_task_id, row_no, raw_json, validation_status,
+                            result_code, result_message) VALUES (?, ?, ?, ?, ?, ?)
+                        """, newId, raw.rowNo(), serialize(raw), evaluated.errors().isEmpty() ? "VALID" : "INVALID",
+                        evaluated.errors().isEmpty() ? null : "VALIDATION_FAILED", message.isEmpty() ? null : message);
+            }
+            return newId;
+        });
+        return confirm(id, user);
+    }
+
+    private byte[] readImportFile(MultipartFile file, String requestKey) {
         if (requestKey == null || requestKey.isBlank() || requestKey.length() > 128
                 || file == null || file.isEmpty() || file.getSize() > 5L * 1024 * 1024
                 || file.getOriginalFilename() == null
                 || !file.getOriginalFilename().toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx"))
             throw new BusinessException("TASK_IMPORT_FILE_INVALID", "请选择不超过 5 MB 的系统任务 Excel 文件");
-        byte[] bytes;
-        try { bytes = file.getBytes(); }
+        try { return file.getBytes(); }
         catch (IOException ex) { throw new BusinessException("TASK_IMPORT_FILE_INVALID", "任务文件读取失败"); }
-        List<RawRow> parsed = parse(bytes);
-        String hash = digest(bytes);
-        List<Long> existing = jdbc.queryForList("""
-                SELECT i.id FROM import_task i JOIN file_attachment a ON a.id = i.source_attachment_id
-                WHERE i.business_type = 'TASK' AND i.request_key = ? AND i.created_by = ? AND a.file_hash = ?
-                """, Long.class, requestKey.trim(), user.id(), hash);
-        if (!existing.isEmpty()) return detail(existing.getFirst());
-        Integer keyInUse = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type = 'TASK' AND request_key = ?",
-                Integer.class, requestKey.trim());
-        if (keyInUse != null && keyInUse > 0) throw new BusinessException(ErrorCode.DATA_002);
-        long attachmentId = attachments.upload("IMPORT", 0, "IMPORT_FILE", file, user).id();
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO import_task (business_type, template_version, source_attachment_id,
-                        request_key, status, created_by) VALUES ('TASK', ?, ?, ?, 'PREVIEWED', ?)
-                    """, new String[]{"id"});
-            ps.setString(1, VERSION);
-            ps.setLong(2, attachmentId);
-            ps.setString(3, requestKey.trim());
-            ps.setLong(4, user.id());
-            return ps;
-        }, keys);
-        long id = keys.getKey().longValue();
-        attachments.bindImportFile(attachmentId, id, user.id());
-        Set<String> seen = new HashSet<>();
-        for (RawRow raw : parsed) {
-            Evaluated evaluated = evaluate(raw, seen);
-            String message = String.join("；", evaluated.errors());
-            jdbc.update("""
-                    INSERT INTO import_row (import_task_id, row_no, raw_json, validation_status,
-                        result_code, result_message) VALUES (?, ?, ?, ?, ?, ?)
-                    """, id, raw.rowNo(), serialize(raw), evaluated.errors().isEmpty() ? "VALID" : "INVALID",
-                    evaluated.errors().isEmpty() ? null : "VALIDATION_FAILED", message.isEmpty() ? null : message);
-        }
-        return detail(id);
     }
 
     public ImportDetail confirm(long id, AuthenticatedUser user) {
@@ -172,10 +193,10 @@ public class TaskImportService {
 
     public PageResponse<ImportSummary> history(int pageNo, int pageSize) {
         if (pageNo < 1 || pageSize < 1 || pageSize > 100) throw new BusinessException(ErrorCode.SYS_002);
-        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type = 'TASK'", Long.class);
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM import_task WHERE business_type = 'TASK' AND confirmed_at IS NOT NULL", Long.class);
         List<ImportSummary> records = jdbc.query("""
                 SELECT id, template_version, status, created_by, created_at, confirmed_at
-                FROM import_task WHERE business_type = 'TASK' ORDER BY id DESC LIMIT ? OFFSET ?
+                FROM import_task WHERE business_type = 'TASK' AND confirmed_at IS NOT NULL ORDER BY id DESC LIMIT ? OFFSET ?
                 """, (rs, row) -> new ImportSummary(rs.getLong("id"), rs.getString("template_version"),
                 rs.getString("status"), rs.getLong("created_by"), rs.getTimestamp("created_at").toLocalDateTime(),
                 rs.getTimestamp("confirmed_at") == null ? null : rs.getTimestamp("confirmed_at").toLocalDateTime()),

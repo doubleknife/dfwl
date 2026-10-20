@@ -97,9 +97,11 @@ CREATE TABLE vehicle (
   deleted_at TIMESTAMP NULL,
   CONSTRAINT uk_vehicle_plate UNIQUE (plate_no),
   CONSTRAINT uk_vehicle_license UNIQUE (vehicle_license_no),
+  CONSTRAINT chk_vehicle_energy CHECK (energy_type IN ('ELECTRIC', 'GAS')),
+  CONSTRAINT chk_vehicle_max_load CHECK (max_load > 0),
   CONSTRAINT chk_vehicle_load_standard CHECK (
-    (load_standard_type = 'PERCENT' AND load_standard_percent IS NOT NULL AND load_standard_min_load IS NULL)
-    OR (load_standard_type = 'FIXED' AND load_standard_percent IS NULL AND load_standard_min_load IS NOT NULL)
+    (load_standard_type = 'PERCENT' AND load_standard_percent IS NOT NULL AND load_standard_percent > 0 AND load_standard_percent <= 1 AND load_standard_min_load IS NULL)
+    OR (load_standard_type = 'FIXED' AND load_standard_percent IS NULL AND load_standard_min_load IS NOT NULL AND load_standard_min_load > 0 AND load_standard_min_load <= max_load)
   )
 );
 

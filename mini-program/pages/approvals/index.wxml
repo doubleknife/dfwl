@@ -10,7 +10,7 @@
   <block wx:if="{{!detail}}">
     <view wx:if="{{!loading && !rows.length && !error}}" class="feedback">当前没有审批记录</view>
     <view wx:for="{{rows}}" wx:key="id" class="approval-card" data-id="{{item.id}}" bindtap="open">
-      <view class="row"><text class="name">{{item.templateName}}</text><text class="state">{{item.statusLabel}}</text></view>
+      <view class="row"><text class="name">{{item.templateName}}</text><status-tag label="{{item.statusLabel}}" tone="{{item.statusTone}}" /></view>
       <view class="muted">{{item.businessLabel}} · {{item.applicationScope==='DAILY'?'日常费用':item.applicationScope==='TASK'?'任务费用':'审批'}}</view>
       <view class="muted">{{item.approvalNo}}</view>
       <view class="card-action">查看申请与处理记录 ›</view>
@@ -20,7 +20,7 @@
   <block wx:else>
     <view class="back" bindtap="back">‹ 返回审批列表</view>
     <view class="approval-card">
-      <view class="row"><text class="name">{{detail.approval.template_name}}</text><text class="state">{{detail.statusLabel}}</text></view>
+      <view class="row"><text class="name">{{detail.approval.template_name}}</text><status-tag label="{{detail.statusLabel}}" tone="{{detail.statusTone}}" /></view>
       <view class="muted">{{detail.approval.approval_no}}</view>
       <view class="muted">第 {{detail.approval.version_no}} 版流程 · {{detail.approval.current_step_name || '流程已结束'}}</view>
       <view wx:if="{{detail.approval.application_scope}}" class="muted">申请来源：{{detail.approval.application_scope==='DAILY'?'日常费用':'任务费用'}}</view>

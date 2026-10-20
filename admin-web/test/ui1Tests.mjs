@@ -7,13 +7,33 @@ const salaries = source('views/SalaryLedgerV3View.vue');
 const system = source('views/SystemUi1View.vue');
 const audit = source('components/AuditLogsUi2.vue');
 const routes = source('router/routes.js');
+const entityPicker = source('components/EntityPicker.vue');
+const dispatch = source('views/DispatchWorkbenchV3View.vue');
 
 const tests = [
+  ['business object pickers combine search and selection in one control', () => {
+    assert.match(entityPicker, /type="search" role="combobox"/);
+    assert.match(entityPicker, /role="listbox"/);
+    assert.match(entityPicker, /ui-entity-picker::after/);
+    assert.match(source('design/ui1.css'), /\.ui-dialog \.ui-entity-picker \.ui-entity-options \{ position: static/);
+    assert.match(entityPicker, /optionValue\(item\)/);
+    assert.doesNotMatch(entityPicker, /\bvalueOf\b/);
+    assert.match(entityPicker, /props\.remoteSearch \? search\.value\.trim\(\)/);
+    assert.match(entityPicker, /seq !== requestSeq/);
+    assert.match(entityPicker, /remembered\.value\.id/);
+    assert.doesNotMatch(entityPicker, /<select\b/);
+    assert.match(dispatch, /<EntityPicker[^>]+remote-search :load-page="loadTemplateChoices"/);
+    assert.doesNotMatch(dispatch, /v-model\.trim="templateSearch"|<label>线路模板<select/);
+    const uses = ['components/BindingManagement.vue', 'views/ExpenseLedgerV3View.vue',
+      'views/MonthlyOperationsV3View.vue', 'views/SalaryLedgerV3View.vue',
+      'views/TransportTasksV3View.vue', 'views/DispatchWorkbenchV3View.vue'];
+    assert.equal(uses.reduce((count, file) => count + (source(file).match(/<EntityPicker\b/g) || []).length, 0), 12);
+  }],
   ['binding uses business choices, server paging and per-object unbind confirmation', () => {
     assert.match(binding, /司机车辆绑定/);
     assert.match(binding, /车辆车挂绑定/);
-    assert.match(binding, /<EntityPicker[^>]+:load-page="masterApi\.bindingVehicles"/);
-    assert.match(binding, /<EntityPicker[^>]+:load-page="masterApi\.bindingTrailers"/);
+    assert.match(binding, /<EntityPicker[^>]+:load-page="masterApi\.unboundDriverVehicles"/);
+    assert.match(binding, /<EntityPicker[^>]+:load-page="masterApi\.unboundVehicleTrailers"/);
     assert.match(binding, /<ConfirmDialog[^>]+确认解绑/);
     assert.match(binding, /更换绑定/);
     assert.match(binding, /后续绑定失败，该对象会保持未绑定/);

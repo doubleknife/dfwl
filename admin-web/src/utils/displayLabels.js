@@ -19,7 +19,7 @@ export const statusLabels = {
   ACTIVE: '有效', PENDING_ATTRIBUTION: '待确认归属', REVERSED: '已冲销', REVERSAL: '冲销记录',
   DRAFT: '草稿', MAINTENANCE: '维护中',
   PENDING: '待处理', IN_PROGRESS: '审批中', APPROVED: '已通过', RETURNED: '已打回',
-  RETURNED_TO_APPLICANT: '已打回申请人', INVALIDATED: '已失效', REJECTED: '已拒绝',
+  RETURNED_TO_APPLICANT: '已打回申请人', WITHDRAWN: '已撤回', INVALIDATED: '已失效', REJECTED: '已拒绝', ARCHIVED: '已归档',
   PREVIEWED: '已预览', COMMITTED: '已提交', SUCCESS: '成功', FAILURE: '失败',
   NO_CANDIDATE: '无识别候选'
 };

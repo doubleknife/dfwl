@@ -196,7 +196,7 @@ onMounted(async () => {
     <PageHeader :title="section === 'tasks' ? '运输任务' : '线路模板'" :description="section === 'tasks' ? '查看运输进度、参与司机、重量证据及经营事实。' : '维护线路业务资料和默认金额；已创建任务使用自己的历史快照。'">
       <template #actions><button type="button" @click="section === 'tasks' ? loadTasks(pageNo) : loadTemplates()">刷新</button></template>
     </PageHeader>
-    <ErrorState v-if="error" :message="error" />
+    <ErrorState v-if="error" :message="error" :retryable="false" />
     <template v-if="section === 'tasks'">
       <FilterBar class="task-filters"><label>业务日期<input v-model="filters.businessDate" type="date" /></label>
         <label>状态<select v-model="filters.status"><option value="">全部</option><option v-for="(label, value) in statusName" :key="value" :value="value">{{ label }}</option></select></label>
@@ -224,7 +224,7 @@ onMounted(async () => {
         <template #productName="{ row }">{{ row.productName || products.find((item) => item.id === row.productId)?.name || '—' }}</template>
         <template #journey="{ row }">{{ row.loadingPlace }} → {{ row.unloadingPlace }}</template>
         <template #defaults="{ row }"><span class="task-amount-stack"><span>单价 ¥{{ Number(row.defaultUnitPrice).toFixed(2) }}</span><span>信息费 ¥{{ Number(row.defaultInformationFee).toFixed(2) }}</span><span>工资 ¥{{ Number(row.defaultDriverSalary).toFixed(2) }}</span></span></template>
-        <template #enabled="{ row }"><StatusTag :value="row.enabled ? '启用' : '停用'" :tone="row.enabled ? 'success' : 'neutral'" /></template>
+        <template #enabled="{ row }"><StatusTag :value="row.enabled ? '启用' : '停用'" /></template>
         <template #actions="{ row }"><button v-if="can('BUTTON_TEMPLATES_MANAGE')" type="button" @click="openTemplate(row)">编辑</button>
           <button v-if="can('BUTTON_TEMPLATES_MANAGE')" type="button" @click="setTemplateEnabled(row)">{{ row.enabled ? '停用' : '启用' }}</button></template>
       </DataTable>

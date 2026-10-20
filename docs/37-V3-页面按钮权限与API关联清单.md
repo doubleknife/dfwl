@@ -2,7 +2,7 @@
 
 本清单由后端 `FunctionRegistry` 与 `docs/openapi.yaml` 生成，运行时以后端注册表和启动期编译的 Controller 关联为准。页面允许其限定范围内的读取；按钮写入还要求所属页面授权。工作台“待办概览”是审批与费用归属权限派生入口，不独立授权。
 
-注册功能：41 个页面（含 5 个小程序页面）、54 个按钮。角色权限树在八个管理端业务域之后单列“小程序”大类；这只是目录归属调整，功能编码和既有授权不变。
+注册功能：41 个页面（含 5 个小程序页面）、55 个按钮。角色权限树在八个管理端业务域之后单列“小程序”大类；这只是目录归属调整，功能编码和既有授权不变。
 
 ## 页面与按钮矩阵
 
@@ -16,7 +16,7 @@
 | 运输管理 / 调度工作台 | 运输任务 | `PAGE_ROUTES` | 全部运输任务及详情 | 取消未发车任务（`BUTTON_ROUTES_CANCEL`）；转派任务（`BUTTON_ROUTES_TRANSFER`）；确认发车（`BUTTON_ROUTES_DEPART`）；确认卸货（`BUTTON_ROUTES_UNLOAD`）；调整任务重量（`BUTTON_ROUTES_WEIGHT_ADJUST`）；调整任务金额（`BUTTON_ROUTES_AMOUNT_ADJUST`） |
 | 运输管理 / 车辆出勤 | 自有车辆 | `PAGE_DISPATCH_INTERNAL` | 自有车辆月度台账 | 导出自有车辆月账（`BUTTON_DISPATCH_INTERNAL_EXPORT`） |
 | 运输管理 / 车辆出勤 | 外协车辆 | `PAGE_DISPATCH_OUTSOURCED` | 外协车辆月度台账 | 导出外协车辆月账（`BUTTON_DISPATCH_OUTSOURCED_EXPORT`） |
-| 车辆与人员 | 司机管理 | `PAGE_DRIVERS` | 司机完整资料及证件 | 新增司机（`BUTTON_DRIVERS_ADD`）；编辑及启停司机（`BUTTON_DRIVERS_EDIT`）；重置司机密码（`BUTTON_DRIVERS_RESET_PASSWORD`） |
+| 车辆与人员 | 司机管理 | `PAGE_DRIVERS` | 司机完整资料及证件；初始十列模板下载和只读预览 | 新增司机（`BUTTON_DRIVERS_ADD`）；批量导入（`BUTTON_DRIVERS_IMPORT`）；编辑及启停司机（`BUTTON_DRIVERS_EDIT`）；重置司机密码（`BUTTON_DRIVERS_RESET_PASSWORD`） |
 | 车辆与人员 | 车辆管理 | `PAGE_VEHICLES` | 车辆完整资料 | 新增车辆（`BUTTON_VEHICLES_ADD`）；编辑车辆（`BUTTON_VEHICLES_EDIT`） |
 | 车辆与人员 | 车挂管理 | `PAGE_TRAILERS` | 车挂资料 | 新增车挂（`BUTTON_TRAILERS_ADD`）；编辑车挂（`BUTTON_TRAILERS_EDIT`） |
 | 车辆与人员 | 绑定关系 | `PAGE_BINDING` | 车辆、司机及车挂绑定历史 | 绑定司机与车辆（`BUTTON_BINDING_BIND_DRIVER`）；解绑司机与车辆（`BUTTON_BINDING_UNBIND_DRIVER`）；绑定车挂与车辆（`BUTTON_BINDING_BIND_TRAILER`）；解绑车挂与车辆（`BUTTON_BINDING_UNBIND_TRAILER`） |
@@ -95,6 +95,9 @@
 | PUT | `/api/v1/products/{id}/status` | `BUTTON_PRODUCTS_MANAGE` |
 | GET | `/api/v1/drivers` | `PAGE_DRIVERS` |
 | POST | `/api/v1/drivers` | `BUTTON_DRIVERS_ADD` |
+| GET | `/api/v1/driver-vehicle-imports/template` | `PAGE_DRIVERS` |
+| POST | `/api/v1/driver-vehicle-imports/preview` | `PAGE_DRIVERS`（只读上传） |
+| POST | `/api/v1/driver-vehicle-imports/confirm` | `BUTTON_DRIVERS_IMPORT` |
 | GET | `/api/v1/drivers/binding-candidates` | `PAGE_BINDING` |
 | GET | `/api/v1/bindings/vehicle-options` | `PAGE_BINDING` |
 | GET | `/api/v1/bindings/trailer-options` | `PAGE_BINDING` |

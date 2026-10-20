@@ -136,6 +136,8 @@ class V3TaskFoundationTests {
         assertThat(dispatch.preview(request, 1).valid()).isFalse();
         masterService.updateDriver(11, new DriverRequest("INTERNAL", "自有司机", "13911111111",
                 "TEST-DL-011", "110105199001010117", 1), 1);
+        assertThat(dispatch.preview(request, 1).valid()).isFalse();
+        masterService.bindDriverVehicle(11, 10, 1);
         assertThat(dispatch.preview(request, 1).valid()).isTrue();
     }
 

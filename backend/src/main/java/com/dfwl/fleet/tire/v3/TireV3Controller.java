@@ -81,10 +81,10 @@ public class TireV3Controller {
     @FunctionAccess(anyOf={"BUTTON_TIRE_IMPORTS_SUBMIT"})
     public ApiResponse<Map<String, Object>> preview(@RequestPart MultipartFile file,
             @AuthenticationPrincipal AuthenticatedUser user) { return ok(tires.preview(file, user)); }
-    @PostMapping("/api/v1/tire-imports/{id}/confirm")
+    @PostMapping(value = "/api/v1/tire-imports/confirm", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @FunctionAccess(anyOf={"BUTTON_TIRE_IMPORTS_SUBMIT"})
-    public ApiResponse<Map<String, Object>> confirm(@PathVariable long id,
-            @AuthenticationPrincipal AuthenticatedUser user) { return ok(tires.confirm(id, user)); }
+    public ApiResponse<Map<String, Object>> confirm(@RequestPart MultipartFile file, @RequestParam String requestKey,
+            @AuthenticationPrincipal AuthenticatedUser user) { return ok(tires.confirm(file, requestKey, user)); }
     @GetMapping("/api/v1/tire-imports")
     @FunctionAccess(anyOf={"PAGE_TIRE_IMPORTS"})
     public ApiResponse<PageResponse<Map<String, Object>>> imports(@RequestParam(defaultValue = "1") int pageNo,

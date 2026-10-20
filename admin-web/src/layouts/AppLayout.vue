@@ -5,6 +5,7 @@ import { activeRoute, navigate, navigationTrail, routerStore, visibleNavigation 
 import { systemApi } from '../api/modules.js';
 import FormDialog from '../components/FormDialog.vue';
 import NavigationTree from '../components/NavigationTree.vue';
+import { apiErrorDialog, showErrorDialog } from '../stores/apiErrorDialog.js';
 
 const menuKey = computed(() => activeRoute.value?.key === 'approvals-queue' ? 'approvals-todo' : activeRoute.value?.key);
 const trail = computed(() => navigationTrail(menuKey.value));
@@ -14,6 +15,12 @@ const feedback = ref('');
 const passwordOpen = ref(false);
 const passwordBusy = ref(false);
 const passwordError = ref('');
+watch(() => authStore.error, (message) => {
+  if (message && !apiErrorDialog.open) showErrorDialog('加载失败', message);
+});
+watch(passwordError, (message) => {
+  if (message && !apiErrorDialog.open) showErrorDialog('修改密码失败', message);
+});
 const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' });
 const icpNumber = import.meta.env.VITE_ICP_NUMBER?.trim() || '';
 function closeAccountMenuOnOutside(event) {
@@ -89,7 +96,6 @@ async function changePassword() {
           <div class="user-dropdown"><button type="button" :disabled="syncing" @click="refreshPermissions">{{ syncing ? '正在刷新…' : '刷新我的权限' }}</button><button type="button" @click="openPassword">修改密码</button><button type="button" @click="authStore.logout">退出登录</button></div>
         </details>
       </header>
-      <p v-if="authStore.error" class="error">{{ authStore.error }}</p>
       <p v-if="feedback" class="ui-success-message" role="status">{{ feedback }}</p>
       <slot />
     </section>
@@ -99,7 +105,6 @@ async function changePassword() {
         <label class="ui-form-field">当前密码<input v-model="passwordForm.oldPassword" type="password" autocomplete="current-password" required /></label>
         <label class="ui-form-field">新密码<input v-model="passwordForm.newPassword" type="password" autocomplete="new-password" required minlength="6" /></label>
         <label class="ui-form-field">确认新密码<input v-model="passwordForm.confirmPassword" type="password" autocomplete="new-password" required minlength="6" /></label>
-        <p v-if="passwordError" class="error" role="alert">{{ passwordError }}</p>
         <div class="ui-dialog-actions"><button type="button" :disabled="passwordBusy" @click="passwordOpen = false">取消</button><button class="primary" type="submit" :disabled="passwordBusy">{{ passwordBusy ? '正在修改…' : '确认修改' }}</button></div>
       </form>
     </FormDialog>

@@ -33,4 +33,8 @@ export function showApiError(error, context) {
   apiErrorDialog.open = true;
 }
 
+export function showErrorDialog(title, message) {
+  Object.assign(apiErrorDialog, { title, message, open: true });
+}
+
 export function closeApiError() { apiErrorDialog.open = false; }

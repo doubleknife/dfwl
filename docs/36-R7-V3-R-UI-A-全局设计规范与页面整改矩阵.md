@@ -59,7 +59,7 @@
 | `#/routes` | 运输管理→调度工作台→运输任务；任务生命周期 | `TransportTasksV3View`、DataTable、DetailDrawer | `routeApi`、`routeTemplateApi`、`attachmentApi`、`masterApi` 等 | 大 View 包含列表/模板/重量/参与历史；目标紧凑筛选→任务表→事实分组抽屉，操作仅在合法状态出现 | DetailSection、EvidenceCard；`views/TransportTasksV3View.vue` | 取消/发车/转派/卸货/重量证据与正式状态一致，无作废/恢复 |
 | `#/dispatch-internal` | 运输管理→车辆出勤→自有车辆 | `MonthlyOperationsV3View` 自用模式 | `dispatchLedgerApi` | 月表宽，需要局部滚动和固定车牌/司机事实列；月份→摘要→月表→导出 | MonthlyGrid；`views/MonthlyOperationsV3View.vue` | 同车同日多任务计数、历史车挂/司机快照、导出同口径 |
 | `#/dispatch-outsourced` | 运输管理→车辆出勤→外协车辆 | `MonthlyOperationsV3View` 外协模式 | `dispatchLedgerApi` | 与自用月表共用骨架，突出真实外协车牌和司机；不展示公司车辆 ID | MonthlyGrid；`views/MonthlyOperationsV3View.vue` | 按实际发车及外协车牌统计，导出一致 |
-| `#/drivers` | 车辆与人员→司机管理；司机档案 | `MasterDataUi2View`、`DriverManagementSample` | `masterApi.drivers/driver/createDriver` | 已有服务端分页改动；目标筛选→司机表→档案/当前绑定/历史分区 | CatalogTable、DetailSection；`views/MasterDataUi2View.vue`、`components/DriverManagementSample.vue` | 全量筛选、业务车牌、内部/外协中文身份 |
+| `#/drivers` | 车辆与人员→司机管理；司机档案与自有司机车辆初始导入 | `MasterDataUi2View`、`DriverManagementSample` | `masterApi.drivers/driver/createDriver/initialDriverVehicleTemplate/initialDriverVehiclePreview/initialDriverVehicleConfirm` | 服务端分页；新增固定十列模板下载、只读逐行预览、全部通过后整批确认；司机表与档案/当前绑定/历史仍保留 | CatalogTable、DetailSection；`views/MasterDataUi2View.vue`、`components/DriverManagementSample.vue` | 全量筛选、业务车牌、内部/外协中文身份；导入状态待人工验收 |
 | `#/vehicles` | 车辆与人员→车辆管理；公司车辆 | `MasterDataUi2View`、`MasterCatalogUi2` | `masterApi.vehicles/vehicle/createVehicle/updateVehicle` | 资料页共用结构但对象专有列需保留；目标表格→详情/编辑 | CatalogTable；`views/MasterDataUi2View.vue`、`components/MasterCatalogUi2.vue` | 车牌和状态可读，编辑后列表刷新 |
 | `#/trailers` | 车辆与人员→车挂管理；车挂资料 | `MasterDataUi2View`、`MasterCatalogUi2` | `masterApi.trailers/createTrailer/updateTrailer` | 目标与车辆页相同的列表/弹窗范式，避免平铺字段 | CatalogTable；同上 | 当前绑定/历史不被误写成当前车挂 |
 | `#/binding` | 车辆与人员→绑定关系；司机/车/挂关系 | `MasterDataUi2View`、`BindingManagement` | `masterApi.bind*/unbind*/vehicleHistory/driverHistory/trailerHistory` | 目标当前关系表→绑定/解绑 Dialog→历史时间线；与轮胎三级菜单缩进一致 | RelationHistory；`views/MasterDataUi2View.vue`、`components/BindingManagement.vue` | 当前与历史分离，非法绑定仍由后端拒绝 |
@@ -77,9 +77,9 @@
 | `#/attendance` | 工资与考勤→司机出勤；实际发车日 | `MonthlyOperationsV3View` 出勤模式 | `attendanceApi` | 月表需固定司机列、局部横滚；目标月份/司机→月表→当日任务抽屉→导出 | MonthlyGrid；`views/MonthlyOperationsV3View.vue` | 同日多趟=1 天，外协不入表，跨日卸货不另计 |
 | `#/salaries` | 工资与考勤→工资台账；Participant 工资 | `SalaryLedgerV3View`、DataTable、DetailDrawer | `salaryApi`、`routeApi` | 目标筛选→工资汇总→分页明细→工资历史，转派标签明显 | MoneySummary、DetailSection；`views/SalaryLedgerV3View.vue` | 页面、导出、经营金额同一 Participant 工资 |
 | `#/salary-transfers` | 工资与考勤→转派工资核对 | `SalaryLedgerV3View` 转派模式 | `salaryApi`、`routeApi.participants/confirmSalaries` | 复用工资 View，但直接进入转派筛选；目标完整参与链→一次核薪 Dialog→历史 | ParticipantChain；`views/SalaryLedgerV3View.vue` | N 人与 0 元工资可见，同额无历史、并发冲突明确 |
-| `#/finance-company` | 经营与结算→经营→公司经营 | `FinanceReportsV3View` 公司模式 | `v3FinanceApi.company` | 目标月份→收入/支出/利润指标→费用结构→未归属 DAILY 说明 | MoneySummary；`views/FinanceReportsV3View.vue` | 不在前端重算，未归属费用计入一次 |
-| `#/finance-templates` | 经营与结算→经营→线路模板经营 | `FinanceReportsV3View` 模板模式 | `v3FinanceApi.templates/tasks` | 目标月份→模板表→其任务明细穿透，区分模板默认金额与任务实绩 | DrilldownTable；`views/FinanceReportsV3View.vue` | 模板经营与任务/公司口径交叉对账 |
-| `#/finance-tasks` | 经营与结算→经营→任务经营 | `FinanceReportsV3View` 任务模式 | `v3FinanceApi.tasks/task` | 目标筛选→任务经营表→参与人与费用档案抽屉，金额四列统一 | FinanceDetail；`views/FinanceReportsV3View.vue` | 收入、信息费、工资、费用、利润与正式 API 一致 |
+| `#/finance-company` | 经营与结算→收入与利润→公司收支利润 | `FinanceReportsV3View` 公司模式 | `v3FinanceApi.company` | 目标月份→收入/支出/利润指标→费用结构→未归属 DAILY 说明 | MoneySummary；`views/FinanceReportsV3View.vue` | 不在前端重算，未归属费用计入一次 |
+| `#/finance-templates` | 经营与结算→收入与利润→线路收支利润 | `FinanceReportsV3View` 模板模式 | `v3FinanceApi.templates/tasks` | 目标月份→模板表→其任务明细穿透，区分模板默认金额与任务实绩 | DrilldownTable；`views/FinanceReportsV3View.vue` | 模板经营与任务/公司口径交叉对账 |
+| `#/finance-tasks` | 经营与结算→收入与利润→单趟收支利润 | `FinanceReportsV3View` 任务模式 | `v3FinanceApi.tasks/task` | 目标筛选→任务经营表→参与人与费用档案抽屉，金额四列统一 | FinanceDetail；`views/FinanceReportsV3View.vue` | 收入、信息费、工资、费用、利润与正式 API 一致 |
 | `#/finance-vehicles` | 经营与结算→支出→车辆支出 | `ExpenseLedgerV3View` 车辆模式 | `v3ExpenseLedgerApi.list/summary` | 复用正式费用台账；目标车辆筛选→汇总→明细，不复制支出公式 | MoneySummary；`views/ExpenseLedgerV3View.vue` | 当时车辆事实可追溯，不用当前绑定覆盖历史 |
 | `#/finance-drivers` | 经营与结算→支出→司机支出 | `ExpenseLedgerV3View` 司机模式 | `v3ExpenseLedgerApi.list/summary` | 同一费用组件按司机维度展示；目标与车辆支出一致 | MoneySummary；同上 | 筛选与导出完整，不新建工资事实 |
 | `#/finance-energy` | 经营与结算→支出→能源费用 | `ExpenseLedgerV3View` 能源模式 | `v3ExpenseLedgerApi.list/summary` | 复用费用事实；类型名称业务中文，包含现有能源类别 | MoneySummary；同上 | 充电来源可追溯，零元来源不产生费用 |
@@ -144,3 +144,10 @@
 ## 页面＋按钮权限树同步说明（2026-10-19）
 
 八域导航中的 36 个管理端菜单页面及 5 个小程序业务页面，统一由后端 `FunctionRegistry` 登记页面功能；页面下登记其实际业务按钮。工作台“待办概览”由审批待办页面＋处理按钮、待归属费用页面＋归属按钮派生，不列为独立授权项。角色权限树只展示页面和按钮，按钮依赖所属页面，编码作为辅助信息。完整页面矩阵与 API 关联见 `docs/37-V3-页面按钮权限与API关联清单.md`。本更新是权限配置结构说明，不改变本文件已记录的视觉验收结论；人工 GUI 待复验。
+
+## 正式 Excel 导入视觉规范（2026-10-20）
+
+- 费用申请的 Excel 只是日常费用明细的辅助填表方式。模板下载和原生文件选择控件统一尺寸、边框与颜色；文件选择仍调用现有 `chooseFile`，服务端预览行直接追加到原费用明细表。手工行与 Excel 行继续同表编辑、删除和汇总，保留原提交前核对与审批生效链，不接入公共导入状态组件。
+- 司机车辆初始导入、任务导入、轮胎入库和充电订单导入共用文件选择视觉、结果统计卡片和“全部／通过／失败”展示筛选。筛选只影响当前可见结果；确认时仍使用各自的完整预览和原有 API。任务与轮胎的逐行部分成功、司机车辆的整批回滚、充电订单的只读候选与人工确认，分别保留。
+- 司机车辆导入仍使用固定高度的宽弹窗：标题和操作区不随预览滚动，结果表格单独滚动；其余导入仍在原页面。充电公司样本仅负责字段映射，不与订单结果筛选混用。
+- 纠错依据图片属于证据上传，不属于 Excel 导入；保持原文件输入、即时上传和逐图移除，不套用公共导入文件控件。上述调整均未完成 GUI 功能验收。
