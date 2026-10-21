@@ -451,7 +451,8 @@ CREATE TABLE expense_entry (
   CONSTRAINT chk_expense_task_scope CHECK (application_scope = 'DAILY' OR current_task_id IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- One current mapping per charging company; source identity is stable across files.
+-- One current mapping per charging company. The service generates source_system as [A-Z][0-9]{7};
+-- order_no_type is the internal fixed ORDER_NO value. Both remain stable across imported files.
 CREATE TABLE charging_company (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   company_name VARCHAR(128) NOT NULL,

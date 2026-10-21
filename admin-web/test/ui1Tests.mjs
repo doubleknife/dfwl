@@ -43,7 +43,7 @@ const tests = [
   }],
   ['participant salary view reads the unique salary fact and history', () => {
     assert.match(salaries, /:load-page="loadDriverOptions"/);
-    assert.match(salaries, /<DetailDrawer[^>]+:title=/);
+    assert.match(salaries, /<DetailDrawer[^>]+title="参与人工资详情"/);
     assert.match(salaries, /salaryApi\.history\(item\.id\)/);
     assert.match(salaries, /historyByParticipant\[item\.id\]/);
     assert.doesNotMatch(salaries, /salaryApi\.create|司机编号/);

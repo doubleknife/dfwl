@@ -91,7 +91,7 @@ public class TransportTaskService {
     @Transactional
     public List<TransportParticipantResponse> confirmParticipantSalaries(long taskId,
                                                                          TaskSalariesConfirmRequest request, long actor) {
-        authorization.require(actor, "BUTTON_SALARIES_ADJUST", "BUTTON_SALARY_TRANSFERS_ADJUST");
+        authorization.require(actor, "BUTTON_SALARIES_ADJUST");
         lockTask(taskId);
         TransportTaskResponse task = find(taskId);
         if (request == null || request.salaries() == null || request.salaries().isEmpty()

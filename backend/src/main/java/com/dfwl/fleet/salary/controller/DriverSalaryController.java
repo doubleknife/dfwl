@@ -35,7 +35,7 @@ public class DriverSalaryController {
     }
 
     @GetMapping("/api/v1/driver-salaries")
-    @FunctionAccess(anyOf={"PAGE_SALARIES", "PAGE_SALARY_TRANSFERS"})
+    @FunctionAccess(anyOf={"PAGE_SALARIES"})
     public ApiResponse<PageResponse<SalaryLedgerService.Row>> list(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) Long driverId,

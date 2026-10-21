@@ -12,9 +12,8 @@ import EntityPicker from '../components/EntityPicker.vue';
 import ErrorState from '../components/ErrorState.vue';
 import SummaryCards from '../components/SummaryCards.vue';
 
-const props = defineProps({ initialSituation: { type: String, default: '' } });
 const today = new Date();
-const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, driverId: '', driverType: '', templateId: '', taskId: '', transferOnly: props.initialSituation === 'TRANSFER' ? 'true' : '' });
+const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, driverId: '', driverType: '', templateId: '', taskId: '', transferOnly: '' });
 const mode = ref('ledger');
 const records = ref([]);
 const summary = ref(null);
@@ -55,7 +54,6 @@ const typeName = (type) => type === 'OUTSOURCED' ? '外协司机' : '自有司�
 const money = (value) => `¥ ${Number(value || 0).toFixed(2)}`;
 const identity = (index) => index === 1 ? '初始司机' : `第${index - 1}次接手`;
 const maskedPhone = (phone) => phone?.replace(/^(\d{3})\d+(\d{4})$/, '$1****$2') || '系统账号';
-const pageTitle = computed(() => props.initialSituation === 'TRANSFER' ? '转派工资核对' : '工资台账');
 const summaryItems = computed(() => summary.value ? [
   { label: '工资总额', value: money(summary.value.salaryTotal) },
   { label: '自有司机工资', value: money(summary.value.internalSalary) },
@@ -129,7 +127,7 @@ onMounted(() => load());
 
 <template>
   <main class="ui-page-container">
-    <PageHeader :title="pageTitle" description="仅已完成卸货的任务计入工资台账；转派链的每位司机均单独计薪。">
+    <PageHeader title="工资台账" description="仅已完成卸货的任务计入工资台账；转派链的每位司机均单独计薪。">
       <template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="can('BUTTON_SALARIES_EXPORT')" type="button" :disabled="exporting" @click="download">{{ exporting ? '正在导出…' : '下载当前筛选 Excel' }}</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
@@ -143,20 +141,20 @@ onMounted(() => load());
       <button type="button" @click="load(1)">查询</button>
     </FilterBar>
     <SummaryCards v-if="summary" label="当前筛选工资汇总" :items="summaryItems" />
-    <div class="ui-tabs" role="tablist" aria-label="工资视图"><button type="button" :aria-selected="mode === 'ledger'" @click="changeMode('ledger')">逐任务工资</button><button v-if="initialSituation !== 'TRANSFER'" type="button" :aria-selected="mode === 'drivers'" @click="changeMode('drivers')">司机月度汇总</button></div>
+    <div class="ui-tabs" role="tablist" aria-label="工资视图"><button type="button" :aria-selected="mode === 'ledger'" @click="changeMode('ledger')">逐任务工资</button><button type="button" :aria-selected="mode === 'drivers'" @click="changeMode('drivers')">司机月度汇总</button></div>
     <DataTable v-if="mode === 'ledger'" class="ui-paged-table" :columns="ledgerColumns" :rows="records" row-key="participantId" :loading="loading" empty-text="当前条件下暂无参与人工资">
       <template #driverType="{ row }">{{ typeName(row.driverType) }}</template>
       <template #sequenceNo="{ row }">{{ identity(row.sequenceNo) }}</template>
       <template #salaryAmount="{ row }">{{ money(row.salaryAmount) }}</template>
       <template #transferTask="{ row }"><span :class="row.transferTask ? 'v3-transfer-tag' : ''">{{ row.transferTask ? '转派任务' : '普通任务' }}</span></template>
-      <template #actions="{ row }"><button type="button" class="ui-detail-button" @click="openRow(row)">{{ row.transferTask ? '转派工资核对' : '工资详情' }}</button></template>
+      <template #actions="{ row }"><button type="button" class="ui-detail-button" @click="openRow(row)">工资详情</button></template>
     </DataTable>
     <DataTable v-else class="ui-paged-table" :columns="driverColumns" :rows="records" row-key="driverId" :loading="loading" empty-text="当前月份暂无司机工资">
       <template #driverType="{ row }">{{ typeName(row.driverType) }}</template><template #salaryTotal="{ row }">{{ money(row.salaryTotal) }}</template>
       <template #actions="{ row }"><button type="button" @click="selectDriver(row)">逐任务明细</button></template>
     </DataTable>
     <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
-    <DetailDrawer :open="!!selected" :title="selected?.transferTask ? '转派工资核对' : '参与人工资详情'" @close="selected = null">
+    <DetailDrawer :open="!!selected" title="参与人工资详情" @close="selected = null">
       <template #subtitle>{{ selected?.taskNo }} · {{ selected?.templateName }}</template>
       <p>按参与顺序核对全部司机；工资来自同一参与人事实。</p>
       <div v-for="(item, index) in participants" :key="item.id" class="v3-person-row">

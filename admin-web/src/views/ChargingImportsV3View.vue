@@ -34,18 +34,23 @@ const busy = ref(false), loading = ref(false), error = ref(''), notice = ref('')
 const selectedCompanyId = ref(''), importFile = ref(null), importBook = ref(null), preview = ref(null);
 const resultFilter = ref('ALL');
 const importParsing = ref(false);
+let importParseToken = 0;
 const selectedBatch = ref(null);
 const detailError = ref('');
 const sourcePage = ref(1);
 const companyFile = ref(null), companyBook = ref(null), editingId = ref(null);
 const editorOpen = ref(false), editorMode = ref(''), editorBaseline = ref('');
 const cancelPending = ref(false), pendingMode = ref('');
-const companyName = ref(''), sourceSystem = ref(''), orderNoType = ref('ORDER_NO');
+const companyName = ref('');
 const headerRowNo = ref(1), headers = ref([]);
 const mapping = ref({ orderNo: null, plateNo: null, chargedAt: null, amount: null });
 const fields = [
   { key: 'orderNo', label: '订单号' }, { key: 'plateNo', label: '车牌号' },
   { key: 'chargedAt', label: '充电时间' }, { key: 'amount', label: '入账金额' }
+];
+const companyColumns = [
+  { key: 'company_name', label: '公司' }, { key: 'source_system', label: '来源系统' },
+  { key: 'updated_at', label: '最近修改' }, { key: 'actions', label: '操作' }
 ];
 const orderColumns = [
   { key: 'rowNo', label: '原始行号' }, { key: 'orderNo', label: '订单号' },
@@ -60,8 +65,7 @@ const fromJson = (value, fallback) => {
   try { return typeof value === 'string' ? JSON.parse(value) : value || fallback; }
   catch { return fallback; }
 };
-const editorSnapshot = () => JSON.stringify({ companyName: companyName.value, sourceSystem: sourceSystem.value,
-  orderNoType: orderNoType.value, headerRowNo: headerRowNo.value, headers: headers.value,
+const editorSnapshot = () => JSON.stringify({ companyName: companyName.value, headerRowNo: headerRowNo.value, headers: headers.value,
   mapping: mapping.value, file: companyFile.value?.name || '' });
 const editorDirty = computed(() => editorSnapshot() !== editorBaseline.value);
 
@@ -88,11 +92,9 @@ async function changeHistoryPage(nextPage) {
 }
 
 function editCompany(item) {
-  editorOpen.value = true; editorMode.value = ''; cancelPending.value = false; pendingMode.value = '';
+  editorOpen.value = true; editorMode.value = item ? '' : 'sample'; cancelPending.value = false; pendingMode.value = '';
   editingId.value = item?.id ?? null;
   companyName.value = item?.company_name || '';
-  sourceSystem.value = item?.source_system || '';
-  orderNoType.value = item?.order_no_type || 'ORDER_NO';
   headerRowNo.value = Number(item?.header_row_no || 1);
   headers.value = fromJson(item?.headers_json, []);
   mapping.value = fromJson(item?.mapping_json, { orderNo: null, plateNo: null, chargedAt: null, amount: null });
@@ -124,8 +126,7 @@ function cancelEditor() {
 }
 function discardEditor() {
   const saved = companies.value.find(item => item.id === editingId.value);
-  companyName.value = saved?.company_name || ''; sourceSystem.value = saved?.source_system || '';
-  orderNoType.value = saved?.order_no_type || 'ORDER_NO';
+  companyName.value = saved?.company_name || '';
   headerRowNo.value = Number(saved?.header_row_no || 1);
   headers.value = fromJson(saved?.headers_json, []);
   mapping.value = fromJson(saved?.mapping_json, { orderNo: null, plateNo: null, chargedAt: null, amount: null });
@@ -164,8 +165,7 @@ async function saveCompany() {
       || !mappingComplete(mapping.value, headers.value) || busy.value) return;
   busy.value = true; error.value = ''; notice.value = '';
   try {
-    const body = { companyName: companyName.value.trim(), sourceSystem: sourceSystem.value.trim(),
-      orderNoType: orderNoType.value.trim(), headerRowNo: Number(headerRowNo.value),
+    const body = { companyName: companyName.value.trim(), headerRowNo: Number(headerRowNo.value),
       headers: headers.value, mapping: Object.fromEntries(fields.map(({ key }) => [key, Number(mapping.value[key])])) };
     if (editingId.value) await chargingApi.updateCompany(editingId.value, body);
     else await chargingApi.createCompany(body);
@@ -175,18 +175,28 @@ async function saveCompany() {
 }
 
 function clearImportFile() {
+  importParseToken++;
+  importParsing.value = false;
   importFile.value = null;
   resultFilter.value = 'ALL';
   importBook.value = null; preview.value = null; result.value = null; confirmFailure.value = null; error.value = '';
 }
 async function chooseImport(file) {
+  const token = ++importParseToken;
   importFile.value = file;
   resultFilter.value = 'ALL';
   importBook.value = null; preview.value = null; result.value = null; confirmFailure.value = null; error.value = '';
   importParsing.value = true;
-  try { importBook.value = await readChargingWorkbook(file); buildPreview(); }
-  catch (cause) { showErrorDialog('上传失败', cause.message || 'Excel 无法读取'); }
-  finally { importParsing.value = false; }
+  try {
+    const book = await readChargingWorkbook(file);
+    if (token !== importParseToken || tab.value !== 'import') return;
+    importBook.value = book; buildPreview();
+  } catch (cause) {
+    if (token === importParseToken && tab.value === 'import')
+      showErrorDialog('上传失败', cause.message || 'Excel 无法读取');
+  } finally {
+    if (token === importParseToken) importParsing.value = false;
+  }
 }
 function changeImportCompany() {
   if (!selectedCompany.value) { clearImportFile(); return; }
@@ -217,10 +227,11 @@ function buildPreview() {
 
 async function confirm() {
   if (!ready.value) return;
+  const submittedCount = preview.value.count;
   busy.value = true; error.value = ''; confirmFailure.value = null;
   try {
     const company = selectedCompany.value;
-    result.value = await chargingApi.confirm(importFile.value, {
+    const confirmed = await chargingApi.confirm(importFile.value, {
       companyId: Number(company.id), sheetName: importBook.value.sheetName,
       headerRowNo: importBook.value.headerRowNo, headers: importBook.value.headers,
       mapping: fromJson(company.mapping_json, {}),
@@ -229,13 +240,16 @@ async function confirm() {
       totalAmount: preview.value.totalAmount
     });
     historyPage.value = 1;
-    importFile.value = null; importBook.value = null; preview.value = null;
+    if (tab.value === 'import') {
+      result.value = confirmed;
+      importFile.value = null; importBook.value = null; preview.value = null;
+    }
     if (can('PAGE_CHARGING_IMPORTS')) {
       try { await loadHistory(); } catch { notice.value = '入账已成功，导入历史暂时无法刷新'; }
     }
   } catch (cause) {
-    if (Number(cause?.status) >= 400 && Number(cause?.status) < 500 && ![401, 403].includes(Number(cause.status))) {
-      confirmFailure.value = { total: preview.value.count, success: 0, failed: preview.value.count,
+    if (tab.value === 'import' && Number(cause?.status) >= 400 && Number(cause?.status) < 500 && ![401, 403].includes(Number(cause.status))) {
+      confirmFailure.value = { total: submittedCount, success: 0, failed: submittedCount,
         failures: [{ reason: `${cause.message || '校验失败'}；本批次未入账` }] };
     }
     // API 层已弹窗；网络或服务异常时不推断是否入账。
@@ -259,6 +273,7 @@ async function showBatch(batch) {
   catch { /* API 层已弹窗。 */ }
 }
 
+watch(tab, () => { selectedCompanyId.value = ''; clearImportFile(); });
 watch(() => props.initialTab, (value) => { tab.value = permittedTab(value); });
 onMounted(load);
 </script>
@@ -274,24 +289,23 @@ onMounted(load);
     <section v-if="companyPage" class="ui-section-card">
       <div class="ui-list-heading"><h2>当前有效字段映射</h2><button v-if="can('BUTTON_CHARGING_COMPANIES_MANAGE')" type="button" @click="editCompany(null)">新增公司</button></div>
       <p class="muted">每家公司只保留一份当前配置。修改映射无需上传文件；更换样本后必须重新选择订单号、车牌、时间和金额四列。</p>
-      <div class="charging-company-layout" :class="{ editing: editorOpen }"><div class="charging-company-list"><DataTable :columns="[{key:'company_name',label:'公司'},{key:'source_system',label:'来源系统'},{key:'updated_at',label:'最近修改'},{key:'actions',label:'操作'}]"
+      <div class="charging-company-layout" :class="{ editing: editorOpen }"><div class="charging-company-list"><DataTable :columns="companyColumns"
         :rows="companies" :loading="loading" empty-text="尚无充电公司">
-        <template #actions="{row}"><button type="button" @click="editCompany(row)">修改映射</button></template>
+        <template #company_name="{row}"><span class="charging-company-name" :title="row.company_name">{{ row.company_name }}</span></template>
+        <template #actions="{row}"><button type="button" @click="editCompany(row)">操作</button></template>
       </DataTable></div>
       <div v-if="can('BUTTON_CHARGING_COMPANIES_MANAGE') && editorOpen" class="charging-form">
         <h2>{{ editingId ? '修改公司与映射' : '新增充电公司' }}</h2>
-        <p class="muted">先选择本次修改方式。当前公司只保留一份立即生效的字段映射。</p>
-        <div class="charging-mode-choice" role="group" aria-label="模板修改方式">
-          <button type="button" :class="{ active: editorMode === 'mapping' }" :disabled="!editingId" @click="chooseEditorMode('mapping')">仅修改字段映射</button>
+        <p v-if="editingId" class="muted">选择本次修改方式。当前公司只保留一份立即生效的字段映射。</p>
+        <div v-if="editingId" class="charging-mode-choice" role="group" aria-label="模板修改方式">
+          <button type="button" :class="{ active: editorMode === 'mapping' }" @click="chooseEditorMode('mapping')">仅修改字段映射</button>
           <button type="button" :class="{ active: editorMode === 'sample' }" @click="chooseEditorMode('sample')">上传新模板并重新匹配</button>
         </div>
-        <p v-if="!editingId" class="muted">新增公司需上传样本；保存后可直接修改已保存的映射。</p>
+        <p v-else class="muted">填写公司名称、上传 Excel 样表并完成字段映射；来源系统标识保存时自动生成。</p>
         <p v-if="!editorMode" class="ui-empty">请选择修改方式后填写公司信息。</p>
         <template v-else>
-        <div class="ui-form-grid">
+        <div class="ui-form-grid" :class="{ 'charging-creation-fields': !editingId }">
           <label>公司名称<input v-model="companyName" maxlength="128" placeholder="填写正式公司名称" /></label>
-          <label>来源系统标识<input v-model="sourceSystem" :disabled="!!editingId" maxlength="64" placeholder="稳定英文编号，如 HONGXI" /></label>
-          <label>订单编号类型<input v-model="orderNoType" maxlength="64" placeholder="ORDER_NO" /></label>
           <ImportFilePicker v-if="editorMode === 'sample'" :file="companyFile" :disabled="busy" label="上传 Excel 样本" accept=".xls,.xlsx" @clear="clearCompanySample" @select="chooseCompanySample" />
           <label v-if="editorMode === 'sample' && companyBook">表头所在行<input v-model.number="headerRowNo" type="number" min="1" max="100" @change="correctHeader" /></label>
         </div>
@@ -305,17 +319,17 @@ onMounted(load);
         </div>
         <EmptyState v-else title="尚无表头" description="请上传一份原始 Excel 样本。" />
         </template>
-        <div class="ui-dialog-actions"><button type="button" :disabled="busy" @click="cancelEditor">取消</button><button v-if="editorMode" type="button" class="primary" :disabled="busy || editorMode === 'sample' && !companyBook || !companyName.trim() || !sourceSystem.trim() || !mappingComplete(mapping, headers)" @click="saveCompany">{{ busy ? '正在保存…' : '保存当前映射' }}</button></div>
+        <div class="ui-dialog-actions"><button type="button" :disabled="busy" @click="cancelEditor">取消</button><button v-if="editorMode" type="button" class="primary" :disabled="busy || editorMode === 'sample' && !companyBook || !companyName.trim() || !mappingComplete(mapping, headers)" @click="saveCompany">{{ busy ? '正在保存…' : '保存当前映射' }}</button></div>
       </div>
       </div>
     </section>
 
     <section v-else-if="tab==='import'" class="ui-section-card charging-upload-panel">
       <div class="ui-list-heading"><div><h2>上传原始订单</h2><p class="muted">选择公司与文件 → 只读预览 → 人工核对并确认。确认前不会入账或保存原文件。</p></div></div>
-      <div class="ui-form-grid">
+      <div class="charging-import-controls">
         <label>充电公司<select v-model="selectedCompanyId" :disabled="busy || importParsing" @change="changeImportCompany"><option value="">请选择公司</option><option v-for="company in companies" :key="company.id" :value="String(company.id)">{{ company.company_name }}</option></select></label>
+        <ImportFilePicker :file="importFile" :disabled="!selectedCompany || busy || importParsing" :loading="importParsing" label="原始 Excel 文件" accept=".xls,.xlsx" @clear="clearImportFile" @select="chooseImport" />
       </div>
-      <ImportFilePicker :file="importFile" :disabled="!selectedCompany || busy || importParsing" :loading="importParsing" label="原始 Excel 文件" accept=".xls,.xlsx" @clear="clearImportFile" @select="chooseImport" />
       <template v-if="preview">
         <div class="ui-list-heading"><h2>只读订单预览</h2><span>第一个工作表：{{ importBook.sheetName }}</span></div>
         <div class="ui-import-result-toolbar"><SummaryCards label="充电订单预览统计" :items="[
@@ -348,13 +362,13 @@ onMounted(load);
       </DataTable>
       <PaginationBar :page-no="historyPage" :page-size="historyPageSize" :total="historyTotal" @change="changeHistoryPage" @change-size="(size) => { historyPageSize = size; changeHistoryPage(1); }" />
     </section>
-    <DetailDrawer :open="!!selectedBatch" title="充电订单导入批次详情" @close="selectedBatch=null">
+    <DetailDrawer :open="!!selectedBatch" class="charging-import-detail-drawer" title="充电订单导入批次详情" @close="selectedBatch=null">
       <template #subtitle>{{ selectedBatch?.batch?.company_name }} · {{ selectedBatch?.batch?.original_filename }}</template>
       <template v-if="selectedBatch">
         <p>原始文件：{{ selectedBatch.batch.original_filename }}；有效 {{ selectedBatch.batch.confirmed_count }} = 入账 {{ selectedBatch.batch.imported_count }} + 零元不入账 {{ selectedBatch.batch.zero_count }} + 已存在重复 {{ selectedBatch.batch.duplicate_count }}；入账金额 {{ formatMoney(selectedBatch.batch.imported_amount) }}。</p>
         <p v-if="!selectedBatch.orders?.length && selectedBatch.batch.duplicate_count" class="muted">本批次订单均已存在，没有新增来源订单；重复数量按本次正式结果记录。</p>
         <button type="button" @click="downloadOriginal(selectedBatch.batch)">下载本批次原始 Excel</button>
-        <div class="charging-table"><DataTable :columns="[{key:'row_no',label:'原始行号'},{key:'original_order_no',label:'订单号'},{key:'plate_no',label:'车牌'},{key:'charged_at',label:'充电时间'},{key:'amount',label:'金额',numeric:true},{key:'processing_status',label:'处理方式'},{key:'task_no',label:'匹配任务'}]" :rows="(selectedBatch.orders || []).slice((sourcePage - 1) * 50, sourcePage * 50)" empty-text="本批次没有新增来源订单"><template #charged_at="{value}">{{ formatImportDateTime(value) }}</template><template #amount="{value}">{{ formatMoney(value) }}</template><template #task_no="{value}">{{ value || '未归属' }}</template></DataTable></div>
+        <div class="charging-table charging-detail-table"><DataTable :columns="[{key:'row_no',label:'原始行号'},{key:'original_order_no',label:'订单号'},{key:'plate_no',label:'车牌'},{key:'charged_at',label:'充电时间'},{key:'amount',label:'金额',numeric:true},{key:'processing_status',label:'处理方式'},{key:'task_no',label:'匹配任务'}]" :rows="(selectedBatch.orders || []).slice((sourcePage - 1) * 50, sourcePage * 50)" empty-text="本批次没有新增来源订单"><template #charged_at="{value}">{{ formatImportDateTime(value) }}</template><template #amount="{value}">{{ formatMoney(value) }}</template><template #task_no="{value}">{{ value || '未归属' }}</template></DataTable></div>
         <PaginationBar :show-size="false" :page-no="sourcePage" :page-size="50" :total="selectedBatch.orders?.length || 0" @change="sourcePage = $event" />
       </template>
     </DetailDrawer>
@@ -364,21 +378,35 @@ onMounted(load);
 </template>
 
 <style scoped>
-.charging-upload-panel .ui-form-grid { margin: 9px 0 5px; }
+.charging-import-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:end; width:min(100%,1200px); margin:12px 0 18px; }
+.charging-import-controls > label { min-width:0; }
+.charging-import-controls :deep(.ui-import-file-picker) { min-width:0; justify-items:stretch; margin:0; }
+.charging-import-controls :deep(.ui-import-file-controls) { width:100%; }
 .charging-upload-panel .ui-dialog-actions { margin: 5px 0; }
 .charging-upload-panel > .ui-empty { padding: 11px 16px; }
 .charging-form { margin-top: 24px; border-top: 1px solid var(--line, #dce8e3); padding-top: 18px; }
 .charging-table { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+.charging-import-detail-drawer :deep(.ui-drawer) { width:min(96vw,1120px); }
+.charging-detail-table { overflow-x:hidden; }
+.charging-detail-table :deep(.ui-data-table) { min-width:0; table-layout:fixed; }
+.charging-detail-table :deep(.ui-data-table th),
+.charging-detail-table :deep(.ui-data-table td) { white-space:normal; overflow-wrap:anywhere; padding:10px 8px; }
 .charging-form h2 { margin-bottom: 16px; }
 .ui-form-grid { margin: 16px 0; }
 .charging-mode-choice { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
 .charging-mode-choice button.active { color:#135d4d; background:#e5f4ed; border-color:#34856b; font-weight:700; }
 .charging-company-layout { min-width:0; }
-.charging-company-layout.editing { display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,.9fr); gap:14px; align-items:start; }
+.charging-company-layout.editing { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr); gap:14px; align-items:start; }
+.charging-creation-fields { grid-template-columns:1fr; }
 .charging-company-list { min-width:0; overflow-x:auto; }
-.charging-company-layout.editing .charging-company-list .ui-data-table { min-width:530px; }
-.charging-company-layout.editing .charging-form { min-width:0; max-height:calc(100vh - 240px); overflow-y:auto; margin:0; padding:15px; border:1px solid var(--ui-border); border-radius:10px; background:#f8fbf9; }
+.charging-company-name { display:block; overflow-wrap:anywhere; }
+.charging-company-layout.editing .charging-company-list :deep(.ui-data-table) { min-width:0; table-layout:fixed; }
+.charging-company-layout.editing .charging-company-list :deep(.ui-data-table .ui-action-column) { width:76px; white-space:nowrap; }
+.charging-company-layout.editing .charging-company-list :deep(.ui-data-table th),
+.charging-company-layout.editing .charging-company-list :deep(.ui-data-table td) { padding:10px 8px; white-space:normal; overflow-wrap:anywhere; }
+.charging-company-layout.editing .charging-form { min-width:0; margin:0; padding:20px; border:1px solid var(--ui-border); border-radius:10px; background:#f8fbf9; }
 .charging-company-layout.editing .charging-form h2 { margin:0 0 6px; }
 .charging-company-layout.editing .ui-form-grid { gap:9px; margin:10px 0; }
-@media (max-width:1150px) { .charging-company-layout.editing { grid-template-columns:1fr; } .charging-company-layout.editing .charging-form { max-height:none; } }
+@media (max-width:900px) { .charging-company-layout.editing { grid-template-columns:1fr; } }
+@media (max-width:760px) { .charging-import-controls { grid-template-columns:1fr; } }
 </style>

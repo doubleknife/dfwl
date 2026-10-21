@@ -178,18 +178,46 @@ public class ExpenseLedgerService {
                     """, Long.class, after, expense.get("vehicle_id"));
             if (match == 0) throw new BusinessException(ErrorCode.EXPENSE_003);
         }
+        Long chargingDriverId = null;
+        if (after != null && "CHARGING".equals(expense.get("source_type"))) {
+            chargingDriverId = jdbc.queryForObject("""
+                    SELECT p.driver_id FROM transport_participant p
+                    JOIN transport_task t ON t.id=p.task_id
+                    LEFT JOIN charging_source_order o ON o.expense_id=?
+                    WHERE p.task_id=? AND p.company_vehicle_id=?
+                      AND p.driver_type_snapshot='INTERNAL' AND p.status<>'CANCELLED'
+                    ORDER BY CASE WHEN o.charged_at>=p.departed_at
+                      AND o.charged_at<COALESCE(p.ended_at,t.completed_at,CURRENT_TIMESTAMP)
+                      THEN 0 ELSE 1 END, p.is_current DESC,p.sequence_no DESC
+                    LIMIT 1
+                    """, Long.class, id, after, expense.get("vehicle_id"));
+        }
         int changed = jdbc.update("""
-                UPDATE expense_entry SET current_task_id=?,version=version+1,updated_by=?
+                UPDATE expense_entry SET current_task_id=?,
+                  driver_id=CASE WHEN source_type='CHARGING' THEN ? ELSE driver_id END,
+                  expense_type=CASE WHEN source_type='CHARGING' THEN ? ELSE expense_type END,
+                  version=version+1,updated_by=?
                 WHERE id=? AND version=? AND status='ACTIVE'
-                """, after, actor, id, version);
+                """, after, chargingDriverId, after == null ? "TEMP_ELECTRIC" : "ELECTRIC",
+                actor, id, version);
         if (changed != 1) throw invalid("费用已由他人修改，请刷新后重试");
         jdbc.update("""
                 INSERT INTO expense_attribution_history(expense_id,previous_task_id,new_task_id,reason,operator_id)
                 VALUES(?,?,?,?,?)
                 """, id, before, after, command.reason().trim(), actor);
-        audit.write("EXPENSE", "EXPENSE", id, "ATTRIBUTION", Map.of("version", version),
-                Map.of("version", version + 1, "target", after == null ? "UNASSIGNED" : after), actor,
-                command.reason().trim());
+        Map<String, Object> auditBefore = new LinkedHashMap<>();
+        auditBefore.put("version", version);
+        Map<String, Object> auditAfter = new LinkedHashMap<>();
+        auditAfter.put("version", version + 1);
+        auditAfter.put("target", after == null ? "UNASSIGNED" : after);
+        if ("CHARGING".equals(expense.get("source_type"))) {
+            auditBefore.put("expenseType", expense.get("expense_type"));
+            auditBefore.put("driverId", expense.get("driver_id"));
+            auditAfter.put("expenseType", after == null ? "TEMP_ELECTRIC" : "ELECTRIC");
+            auditAfter.put("driverId", chargingDriverId);
+        }
+        audit.write("EXPENSE", "EXPENSE", id, "ATTRIBUTION", auditBefore, auditAfter,
+                actor, command.reason().trim());
         return detail(id);
     }
 

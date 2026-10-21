@@ -41,7 +41,6 @@ public final class FunctionRegistry {
         page("审批中心", "", "approvals-flows", "流程与模板配置", "审批模板与冻结版本");
         page("工资与考勤", "", "attendance", "司机出勤", "自有司机出勤");
         page("工资与考勤", "", "salaries", "工资台账", "参与人工资资料");
-        page("工资与考勤", "", "salary-transfers", "转派工资核对", "转派参与工资");
         page("经营与结算", "收入与利润", "finance-company", "公司收支利润", "公司经营汇总");
         page("经营与结算", "收入与利润", "finance-templates", "线路收支利润", "模板经营汇总");
         page("经营与结算", "收入与利润", "finance-tasks", "单趟收支利润", "任务经营汇总");
@@ -98,7 +97,6 @@ public final class FunctionRegistry {
         button("attendance", "export", "导出司机出勤");
         button("salaries", "adjust", "核对参与工资");
         button("salaries", "export", "导出工资台账");
-        button("salary-transfers", "adjust", "核对转派工资");
         button("settlements", "generate", "生成结算版本");
         button("users", "add", "新增用户");
         button("users", "edit", "编辑及启停用户");

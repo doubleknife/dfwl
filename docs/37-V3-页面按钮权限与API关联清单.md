@@ -33,7 +33,6 @@
 | 审批中心 | 流程与模板配置 | `PAGE_APPROVALS_FLOWS` | 审批模板与冻结版本 | 维护审批流程（`BUTTON_APPROVALS_FLOWS_MANAGE`） |
 | 工资与考勤 | 司机出勤 | `PAGE_ATTENDANCE` | 自有司机出勤 | 导出司机出勤（`BUTTON_ATTENDANCE_EXPORT`） |
 | 工资与考勤 | 工资台账 | `PAGE_SALARIES` | 参与人工资资料 | 核对参与工资（`BUTTON_SALARIES_ADJUST`）；导出工资台账（`BUTTON_SALARIES_EXPORT`） |
-| 工资与考勤 | 转派工资核对 | `PAGE_SALARY_TRANSFERS` | 转派参与工资 | 核对转派工资（`BUTTON_SALARY_TRANSFERS_ADJUST`） |
 | 经营与结算 / 经营 | 公司经营 | `PAGE_FINANCE_COMPANY` | 公司经营汇总 | 无写入按钮 |
 | 经营与结算 / 经营 | 线路模板经营 | `PAGE_FINANCE_TEMPLATES` | 模板经营汇总 | 无写入按钮 |
 | 经营与结算 / 经营 | 任务经营 | `PAGE_FINANCE_TASKS` | 任务经营汇总 | 无写入按钮 |
@@ -136,7 +135,7 @@
 | GET | `/api/v1/task-imports/{id}/rows` | `PAGE_TASK_IMPORTS` |
 | GET | `/api/v1/transport-tasks` | `PAGE_ROUTES` |
 | GET | `/api/v1/transport-tasks/{id}` | `PAGE_ROUTES` |
-| GET | `/api/v1/transport-tasks/{id}/participants` | `PAGE_ROUTES` OR `PAGE_SALARIES` OR `PAGE_SALARY_TRANSFERS` |
+| GET | `/api/v1/transport-tasks/{id}/participants` | `PAGE_ROUTES` OR `PAGE_SALARIES` |
 | GET | `/api/v1/transport-tasks/{id}/weight-versions` | `PAGE_ROUTES` |
 | POST | `/api/v1/transport-tasks/{id}/transfer` | `BUTTON_ROUTES_TRANSFER` |
 | POST | `/api/v1/transport-tasks/{id}/depart` | `BUTTON_ROUTES_DEPART` OR `BUTTON_MINI_ROUTES_DEPART` |
@@ -145,10 +144,10 @@
 | POST | `/api/v1/transport-tasks/{id}/weight-adjustments` | `BUTTON_ROUTES_WEIGHT_ADJUST` |
 | POST | `/api/v1/transport-tasks/{taskId}/amount-adjustments` | `BUTTON_ROUTES_AMOUNT_ADJUST` |
 | GET | `/api/v1/transport-tasks/{taskId}/amount-history` | `PAGE_ROUTES` |
-| POST | `/api/v1/transport-tasks/{id}/participant-salaries/confirm` | `BUTTON_SALARIES_ADJUST` OR `BUTTON_SALARY_TRANSFERS_ADJUST` |
+| POST | `/api/v1/transport-tasks/{id}/participant-salaries/confirm` | `BUTTON_SALARIES_ADJUST` |
 | GET | `/api/v1/driver/transport-tasks` | `PAGE_MINI_ROUTES` |
 | GET | `/api/v1/driver/transport-tasks/{id}` | `PAGE_MINI_ROUTES` |
-| GET | `/api/v1/driver-salaries` | `PAGE_SALARIES` OR `PAGE_SALARY_TRANSFERS` |
+| GET | `/api/v1/driver-salaries` | `PAGE_SALARIES` |
 | GET | `/api/v1/driver-salaries/summary` | `PAGE_SALARIES` |
 | GET | `/api/v1/driver-salaries/filter-options` | `PAGE_SALARIES` |
 | GET | `/api/v1/driver-salaries/drivers` | `PAGE_SALARIES` |

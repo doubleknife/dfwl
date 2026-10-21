@@ -15,6 +15,7 @@ import ApprovalEvidence from '../components/ApprovalEvidence.vue';
 import RouteWeightImageUpload from '../components/RouteWeightImageUpload.vue';
 import { adjustedNetWeight, operatorIdentity, weightAdjustmentBody, weightEntries, weightText } from './routeWeightEvidence.js';
 import { formatDateTime } from '../utils/dateTime.js';
+import { expenseTypeLabels } from '../utils/displayLabels.js';
 import { canCancelTask, canTransferTask, cancelBody, transferBody } from './taskOperations.js';
 
 const props = defineProps({ initialSection: { type: String, default: 'tasks' } });
@@ -295,7 +296,7 @@ onMounted(async () => {
           <button v-if="can('BUTTON_TEMPLATES_MANAGE')" type="button" :class="{ 'ui-danger-link': row.enabled }" @click="setTemplateEnabled(row)">{{ row.enabled ? '停用' : '启用' }}</button></template>
       </DataTable>
     </template>
-    <DetailDrawer :open="!!selected" title="运输任务详情" @close="selected = null">
+    <DetailDrawer :open="!!selected" :class="{ 'task-finance-drawer': detailTab === 'expenses' }" :resizable="detailTab === 'expenses'" title="运输任务详情" @close="selected = null">
       <template #subtitle>{{ selected?.taskNo }}</template>
       <template v-if="selected">
         <div class="task-detail-tabs" role="tablist" aria-label="任务详情分区">
@@ -313,25 +314,35 @@ onMounted(async () => {
           <p v-else class="ui-empty">暂无参与信息或当前账号无查看权限</p>
         </section>
         <section v-if="detailTab === 'expenses' && can('PAGE_FINANCE_TASKS')" class="task-detail-section">
-        <section v-if="selectedFinance" class="ui-section-card">
+        <section v-if="selectedFinance" class="ui-section-card task-finance-card">
           <h3>任务经营与费用</h3>
-          <p>收入 ¥{{ Number(selectedFinance.summary.income_amount).toFixed(2) }} · 信息费 ¥{{ Number(selectedFinance.summary.information_fee_amount).toFixed(2) }} · 参与工资 ¥{{ Number(selectedFinance.summary.salary_amount).toFixed(2) }}</p>
-          <p>归属费用净额 ¥{{ Number(selectedFinance.summary.task_expense_amount).toFixed(2) }} · 总支出 ¥{{ Number(selectedFinance.summary.total_expense_amount).toFixed(2) }} · 利润 ¥{{ Number(selectedFinance.summary.profit_amount).toFixed(2) }}</p>
-          <p v-if="selectedFinance.expenseTypes.length">按类型：<span v-for="type in selectedFinance.expenseTypes" :key="type.expense_type">{{ ({ REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', TOLL: '过路费' })[type.expense_type] || '其他费用' }} ¥{{ Number(type.amount_total).toFixed(2) }}（{{ type.entry_count }} 笔）　</span></p>
-          <DataTable :columns="[
-            { key: 'expense_no', label: '费用编号' }, { key: 'business_date', label: '日期' },
-            { key: 'expense_type', label: '类型' }, { key: 'application_scope', label: '申请属性' },
-            { key: 'source_type', label: '来源' }, { key: 'driver_name', label: '司机' },
-            { key: 'vehicle_plate', label: '公司车牌' }, { key: 'description', label: '明细' },
-            { key: 'amount', label: '金额', numeric: true },
-            { key: 'attribution_method', label: '归属方式' }, { key: 'approval_no', label: '审批单' },
-            { key: 'display_status', label: '状态' }
-          ]" :rows="selectedFinance.expenses" empty-text="当前没有归属此任务的正式费用">
-            <template #expense_type="{ row }">{{ ({ REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', TOLL: '过路费' })[row.expense_type] || '其他费用' }}</template>
-            <template #application_scope="{ row }">{{ row.application_scope === 'TASK' ? '任务费用' : '日常费用' }}</template>
-            <template #source_type="{ row }">{{ row.source_type === 'REVERSAL' ? '费用冲销' : '审批通过' }}</template>
-            <template #amount="{ row }">¥{{ Number(row.amount).toFixed(2) }}</template>
-          </DataTable>
+          <dl class="ui-detail-list task-finance-summary">
+            <div><dt>收入</dt><dd>¥{{ Number(selectedFinance.summary.income_amount).toFixed(2) }}</dd></div>
+            <div><dt>信息费</dt><dd>¥{{ Number(selectedFinance.summary.information_fee_amount).toFixed(2) }}</dd></div>
+            <div><dt>参与工资</dt><dd>¥{{ Number(selectedFinance.summary.salary_amount).toFixed(2) }}</dd></div>
+            <div><dt>归属费用净额</dt><dd>¥{{ Number(selectedFinance.summary.task_expense_amount).toFixed(2) }}</dd></div>
+            <div><dt>总支出</dt><dd>¥{{ Number(selectedFinance.summary.total_expense_amount).toFixed(2) }}</dd></div>
+            <div><dt>利润</dt><dd>¥{{ Number(selectedFinance.summary.profit_amount).toFixed(2) }}</dd></div>
+            <div v-for="type in selectedFinance.expenseTypes" :key="type.expense_type"><dt>{{ expenseTypeLabels[type.expense_type] || '其他费用' }}（{{ type.entry_count }} 笔）</dt><dd>¥{{ Number(type.amount_total).toFixed(2) }}</dd></div>
+          </dl>
+          <div v-if="selectedFinance.expenses.length" class="task-expense-list">
+            <article v-for="expense in selectedFinance.expenses" :key="expense.id" class="task-expense-card">
+              <header class="task-expense-heading">
+                <div><strong>{{ expenseTypeLabels[expense.expense_type] || '其他费用' }}</strong><span>{{ expense.business_date }} · {{ expense.application_scope === 'TASK' ? '任务费用' : '日常费用' }}</span></div>
+                <div class="task-expense-amount"><strong>¥{{ Number(expense.amount).toFixed(2) }}</strong><StatusTag :value="expense.display_status" /></div>
+              </header>
+              <dl class="task-expense-fields">
+                <div><dt>司机</dt><dd>{{ expense.driver_name || '—' }}</dd></div>
+                <div><dt>公司车牌</dt><dd>{{ expense.vehicle_plate || '—' }}</dd></div>
+                <div><dt>来源</dt><dd>{{ expense.source_type === 'REVERSAL' ? '费用冲销' : expense.source_type === 'CHARGING' ? '充电订单' : '审批通过' }}</dd></div>
+                <div><dt>明细</dt><dd>{{ expense.description || '—' }}</dd></div>
+                <div><dt>归属方式</dt><dd>{{ expense.attribution_method || '—' }}</dd></div>
+                <div><dt>费用编号</dt><dd>{{ expense.expense_no || '—' }}</dd></div>
+                <div><dt>审批单</dt><dd>{{ expense.approval_no || '—' }}</dd></div>
+              </dl>
+            </article>
+          </div>
+          <p v-else class="ui-empty">当前没有归属此任务的正式费用</p>
         </section>
         <p v-else class="ui-empty">当前任务暂无可查看的经营与费用信息</p>
         </section>
@@ -408,6 +419,19 @@ onMounted(async () => {
 .task-detail-tabs button { flex: 0 0 auto; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--ui-muted); padding: 10px 12px; }
 .task-detail-tabs button.active { background: var(--ui-surface-muted, #eef6f2); border-bottom-color: var(--ui-primary, #087563); color: var(--ui-primary, #087563); font-weight: 700; }
 .task-detail-section { display: grid; gap: 12px; min-width: 0; }
+.task-finance-drawer :deep(.ui-drawer) { width: min(calc(100vw - 24px), 960px); }
+.task-finance-card { min-width: 0; max-width: 100%; overflow: hidden; }
+.task-expense-list { display: grid; gap: 10px; max-height: min(440px, 50dvh); overflow-y: auto; overflow-x: hidden; }
+.task-expense-card { min-width: 0; padding: 14px; border: 1px solid var(--ui-border); border-radius: 9px; background: #fbfdfb; }
+.task-expense-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--ui-border); }
+.task-expense-heading > div, .task-expense-amount { display: grid; gap: 4px; min-width: 0; }
+.task-expense-heading span, .task-expense-fields dt { color: var(--ui-muted); font-size: 12px; }
+.task-expense-amount { justify-items: end; white-space: nowrap; }
+.task-expense-amount strong { color: var(--ui-primary); font-variant-numeric: tabular-nums; }
+.task-expense-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; margin: 12px 0 0; }
+.task-expense-fields > div { min-width: 0; }
+.task-expense-fields dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .task-expense-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .task-weight-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .task-weight-heading h4 { margin:0; }
 .task-weight-current { color:var(--ui-muted); font-size:12px; }

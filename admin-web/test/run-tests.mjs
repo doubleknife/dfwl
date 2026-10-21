@@ -208,7 +208,7 @@ const tests = [
     assert.match(binding, /:load-page="masterApi\.unboundVehicleTrailers"/);
     assert.doesNotMatch(binding, /masterApi\.drivers\(page, pageSize\)/);
   }],
-  ['eight domains and 36 menu pages use a unique page function', () => {
+  ['eight domains and 35 menu pages use a unique page function', () => {
     const expected = ['工作台','运输管理','车辆与人员','费用管理','审批中心','工资与考勤','经营与结算','系统设置'];
     assert.deepEqual(navigation.map((entry) => entry.label), expected);
     const finance = navigation.find((entry) => entry.key === 'finance');
@@ -220,8 +220,8 @@ const tests = [
     assert.match(router, /key: 'finance-tasks', label: '单趟收支利润', permission: 'PAGE_FINANCE_TASKS'/);
     const pageRoutes = [...router.matchAll(/\{ key: '([^']+)', label: '[^']+', permission: '([^']+)'/g)]
       .map((match) => ({ key: match[1], permission: match[2] }));
-    assert.equal(pageRoutes.length, 36);
-    assert.equal(new Set(pageRoutes.map((route) => route.key)).size, 36);
+    assert.equal(pageRoutes.length, 35);
+    assert.equal(new Set(pageRoutes.map((route) => route.key)).size, 35);
     for (const route of pageRoutes) assert.equal(route.permission,
       `PAGE_${route.key.replaceAll('-', '_').toUpperCase()}`);
     assert.match(router, /key: 'my-todos', label: '待办概览', permission: todoOverviewPermissions/);
@@ -256,7 +256,8 @@ const tests = [
     const owned = tree.domains.flatMap(function walk(node) {
       return node.type === 'page' ? node.codes : (node.children || []).flatMap(walk);
     });
-    assert.equal(pages.length, 41);
+    assert.equal(pages.length, 40);
+    assert.doesNotMatch(registry, /PAGE_SALARY_TRANSFERS|BUTTON_SALARY_TRANSFERS|salary-transfers/);
     assert.equal(new Set(owned).size, pages.length + buttons.length);
     assert.deepEqual(tree.common, []);
     assert.deepEqual(tree.domains.map((domain) => domain.label), [...navigation.map((domain) => domain.label), '小程序']);
@@ -597,7 +598,10 @@ const tests = [
     assert.match(calls[4].url, /\/attendance\?pageNo=1&pageSize=20&month=2026-09$/);
     assert.match(calls[5].url, /\/dispatch-ledger\/outsourced\?pageNo=1&pageSize=20&month=2026-09$/);
     const view = source('views/SalaryLedgerV3View.vue');
-    assert.match(view, /转派工资核对/);
+    assert.match(view, /转派任务/);
+    assert.match(view, /value="true">转派任务/);
+    assert.doesNotMatch(source('router/routes.js'), /salary-transfers|PAGE_SALARY_TRANSFERS/);
+    assert.doesNotMatch(source('router/navigationModel.js'), /salary-transfers/);
     assert.match(view, /confirmSalaries/);
     assert.doesNotMatch(view, /salaryApi\.create|salaryApi\.update/);
     assert.match(source('views/MonthlyOperationsV3View.vue'), /月合计/);
@@ -659,7 +663,31 @@ const tests = [
     }
     assert.match(source('views/TaskImportsV3View.vue'), /previewFile\(\);/);
     assert.match(source('views/TireImportsV3View.vue'), /upload\(\);/);
-    assert.match(source('views/ChargingImportsV3View.vue'), /await readChargingWorkbook\(file\); buildPreview\(\)/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /const book = await readChargingWorkbook\(file\);/);
+    assert.match(source('views/ChargingImportsV3View.vue'), /importBook\.value = book; buildPreview\(\)/);
+  }],
+  ['charging company creation starts with a sample and existing companies choose an edit mode', () => {
+    const page = source('views/ChargingImportsV3View.vue');
+    assert.match(page, /editorMode\.value = item \? '' : 'sample'/);
+    assert.match(page, /<div v-if="editingId" class="charging-mode-choice"/);
+    assert.match(page, /<button type="button" @click="editCompany\(row\)">操作<\/button>/);
+    assert.match(page, /grid-template-columns:minmax\(0,2fr\) minmax\(0,3fr\)/);
+    assert.match(page, /\{ key: 'source_system', label: '来源系统' \}/);
+    assert.match(page, /\{ key: 'updated_at', label: '最近修改' \}/);
+    assert.match(page, /white-space:normal; overflow-wrap:anywhere/);
+    assert.match(page, /table-layout:fixed/);
+    assert.match(page, /const body = \{ companyName: companyName\.value\.trim\(\), headerRowNo:/);
+    assert.doesNotMatch(page, /v-model="(?:sourceSystem|orderNoType)"/);
+  }],
+  ['charging import controls stay balanced and tab changes clear prior import results', () => {
+    const page = source('views/ChargingImportsV3View.vue');
+    assert.match(page, /class="charging-import-controls"/);
+    assert.match(page, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+    assert.match(page, /\.charging-import-controls :deep\(\.ui-import-file-controls\) \{ width:100%; \}/);
+    assert.match(page, /watch\(tab, \(\) => \{ selectedCompanyId\.value = ''; clearImportFile\(\); \}\)/);
+    assert.match(page, /class="charging-import-detail-drawer"/);
+    assert.match(page, /\.charging-import-detail-drawer :deep\(\.ui-drawer\) \{ width:min\(96vw,1120px\); \}/);
+    assert.match(page, /\.charging-detail-table :deep\(\.ui-data-table\) \{ min-width:0; table-layout:fixed; \}/);
   }],
   ['import file selection stays the same size and API errors have only one popup', () => {
     const driver = source('components/DriverManagementSample.vue');

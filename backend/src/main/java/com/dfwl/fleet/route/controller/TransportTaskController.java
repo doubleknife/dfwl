@@ -62,12 +62,12 @@ public class TransportTaskController {
     }
 
     @GetMapping("/{id}/participants")
-    @FunctionAccess(anyOf={"PAGE_ROUTES", "PAGE_SALARIES", "PAGE_SALARY_TRANSFERS"})
+    @FunctionAccess(anyOf={"PAGE_ROUTES", "PAGE_SALARIES"})
     public ApiResponse<List<TransportParticipantResponse>> participants(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
         users.denyAllDrivers(user);
         return ApiResponse.success(tasks.participants(id,
-                user.permissions().contains("PAGE_SALARIES") || user.permissions().contains("PAGE_SALARY_TRANSFERS")),
+                user.permissions().contains("PAGE_SALARIES")),
                 RequestIdHolder.get());
     }
 
@@ -80,7 +80,7 @@ public class TransportTaskController {
     }
 
     @PostMapping("/{id}/participant-salaries/confirm")
-    @FunctionAccess(anyOf={"BUTTON_SALARIES_ADJUST", "BUTTON_SALARY_TRANSFERS_ADJUST"})
+    @FunctionAccess(anyOf={"BUTTON_SALARIES_ADJUST"})
     public ApiResponse<List<TransportParticipantResponse>> confirmParticipantSalaries(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id,
             @Valid @RequestBody TaskSalariesConfirmRequest request) {

@@ -22,7 +22,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "spring.datasource.url=jdbc:h2:mem:v3finance;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa",
         "spring.datasource.password=", "spring.flyway.enabled=false", "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql"
+        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql",
+        "fleet.ocr.provider=DISABLED"
 })
 class V3FinanceFactsTests {
     @Autowired JdbcTemplate jdbc;
@@ -105,6 +106,19 @@ class V3FinanceFactsTests {
         assertThatThrownBy(() -> ledger.attribute(3,new ExpenseLedgerService.Attribution(1L,"错车",0),1))
                 .isInstanceOf(BusinessException.class);
         assertThat(((Map<?,?>)ledger.detail(3).get("entry")).get("current_task_id")).isNull();
+    }
+
+    @Test void chargingAttributionUpdatesDriverAndElectricTypeTogether() {
+        jdbc.update("UPDATE expense_entry SET source_type='CHARGING',source_record_key='CHARGING_ORDER:2',"
+                + "expense_type='TEMP_ELECTRIC',driver_id=NULL WHERE id=2");
+        ledger.attribute(2, new ExpenseLedgerService.Attribution(1L,"人工确认归属",0),1);
+        Map<?,?> assigned = (Map<?,?>) ledger.detail(2).get("entry");
+        assertThat(assigned.get("driver_id")).isEqualTo(1L);
+        assertThat(assigned.get("expense_type")).isEqualTo("ELECTRIC");
+        ledger.attribute(2, new ExpenseLedgerService.Attribution(null,"撤销归属",1),1);
+        Map<?,?> unassigned = (Map<?,?>) ledger.detail(2).get("entry");
+        assertThat(unassigned.get("driver_id")).isNull();
+        assertThat(unassigned.get("expense_type")).isEqualTo("TEMP_ELECTRIC");
     }
 
     @Test void reversalKeepsOriginalAndWritesOneNegativeFact() {

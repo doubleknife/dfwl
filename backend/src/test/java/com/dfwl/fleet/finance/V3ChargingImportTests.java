@@ -28,7 +28,8 @@ import org.springframework.mock.web.MockMultipartFile;
         "spring.datasource.url=jdbc:h2:mem:v3charging;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver", "spring.datasource.username=sa",
         "spring.datasource.password=", "spring.flyway.enabled=false", "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql"
+        "spring.sql.init.schema-locations=classpath:schema-auth-test.sql",
+        "fleet.ocr.provider=DISABLED"
 })
 class V3ChargingImportTests {
     @Autowired JdbcTemplate jdbc;
@@ -74,8 +75,26 @@ class V3ChargingImportTests {
                 new ChargingImportService.Header(3,"入账金额"));
         var mapping = Map.of("orderNo",0,"plateNo",1,"chargedAt",2,"amount",3);
         var saved = charging.saveCompany(null, new ChargingImportService.CompanyCommand(
-                "充电公司"+source,source,"PLATFORM_ORDER",1,headers,mapping),1);
+                "充电公司"+source,1,headers,mapping),1);
         return ((Number)saved.get("id")).longValue();
+    }
+
+    @Test void newCompanyGeneratesStableSourceAndFixedOrderType() {
+        long id = company("GEN");
+        var created = charging.company(id);
+        String source = String.valueOf(created.get("source_system"));
+        assertThat(source).matches("[A-Z][0-9]{7}");
+        assertThat(created.get("order_no_type")).isEqualTo("ORDER_NO");
+        assertThat(charging.company(company("SECOND")).get("source_system")).isNotEqualTo(source);
+
+        var changed = charging.saveCompany(id, new ChargingImportService.CompanyCommand(
+                "重命名充电公司", null, null, null), 1);
+        assertThat(changed.get("company_name")).isEqualTo("重命名充电公司");
+        assertThat(changed.get("source_system")).isEqualTo(source);
+        assertThat(changed.get("order_no_type")).isEqualTo("ORDER_NO");
+        assertThatThrownBy(() -> charging.saveCompany(null,
+                new ChargingImportService.CompanyCommand("未配置样表", null, null, null), 1))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("上传样本");
     }
 
     private MockMultipartFile file(String orderNo, String amount) throws Exception {
@@ -118,6 +137,8 @@ class V3ChargingImportTests {
         long expenseId = jdbc.queryForObject("SELECT id FROM expense_entry",Long.class);
         assertThat(charging.sourceOrder(expenseId).get("original_order_no")).isEqualTo(key);
         assertThat(jdbc.queryForObject("SELECT current_task_id FROM expense_entry",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT driver_id FROM expense_entry",Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT expense_type FROM expense_entry",String.class)).isEqualTo("ELECTRIC");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_attribution_history",Integer.class)).isEqualTo(1);
         assertThat(charging.originalFile(((Number)((Map<?,?>)first.get("batch")).get("id")).longValue()).exists())
                 .isTrue();
@@ -138,6 +159,24 @@ class V3ChargingImportTests {
         long second = company("C3");
         charging.confirm(confirm(second,key,"12.34"),file(key,"12.34"),1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_entry",Integer.class)).isEqualTo(2);
+    }
+
+    @Test void matchedTransferUsesDriverWhoParticipatedAtChargingTime() throws Exception {
+        jdbc.update("INSERT INTO driver(id,driver_type,name,phone,id_card_no,driving_license_no,status) "
+                + "VALUES(2,'INTERNAL','接手司机','13900000222','110105199001010020','TEST-DL-002',1)");
+        jdbc.update("UPDATE transport_participant SET is_current=0,ended_at=TIMESTAMP '2026-08-15 09:00:00' WHERE id=1");
+        jdbc.update("""
+                INSERT INTO transport_participant(id,task_id,sequence_no,driver_id,driver_type_snapshot,
+                  company_vehicle_id,vehicle_plate_snapshot,source_type,status,salary_amount,is_current,
+                  departed_at,ended_at)
+                VALUES(2,1,2,2,'INTERNAL',1,'云A001','TRANSFER','COMPLETED',20,1,
+                  TIMESTAMP '2026-08-15 09:00:00',TIMESTAMP '2026-08-15 16:00:00')
+                """);
+        long companyId = company("TRANSFER");
+        charging.confirm(confirm(companyId,"TRANSFER-ORDER","12.34"),file("TRANSFER-ORDER","12.34"),1);
+        assertThat(jdbc.queryForObject("SELECT current_task_id FROM expense_entry", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT driver_id FROM expense_entry", Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT expense_type FROM expense_entry", String.class)).isEqualTo("ELECTRIC");
     }
 
     @Test void amountOnlyOrderRowCannotBeSilentlyOmitted() throws Exception {
@@ -190,6 +229,9 @@ class V3ChargingImportTests {
         charging.confirm(confirm(companyId,"NO-TASK","3.00"),file("NO-TASK","3.00"),1);
         assertThat(jdbc.queryForObject("SELECT current_task_id FROM expense_entry WHERE source_record_key LIKE 'CHARGING_ORDER:%'", Long.class))
                 .isNull();
+        assertThat(jdbc.queryForObject("SELECT driver_id FROM expense_entry WHERE description='充电订单 NO-TASK'", Long.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT expense_type FROM expense_entry WHERE description='充电订单 NO-TASK'", String.class))
+                .isEqualTo("TEMP_ELECTRIC");
         jdbc.update("UPDATE transport_participant SET departed_at=TIMESTAMP '2026-08-15 08:00:00' WHERE id=1");
         jdbc.update("INSERT INTO transport_task(id,task_no,template_id,template_code_snapshot,template_name_snapshot,"
                 + "customer_name_snapshot,product_name_snapshot,loading_place_snapshot,unloading_place_snapshot,"
@@ -204,6 +246,10 @@ class V3ChargingImportTests {
         charging.confirm(confirm(companyId,"TWO-TASKS","4.00"),file("TWO-TASKS","4.00"),1);
         assertThat(jdbc.queryForObject("SELECT current_task_id FROM expense_entry WHERE description='充电订单 TWO-TASKS'", Long.class))
                 .isNull();
+        assertThat(jdbc.queryForObject("SELECT driver_id FROM expense_entry WHERE description='充电订单 TWO-TASKS'", Long.class))
+                .isNull();
+        assertThat(jdbc.queryForObject("SELECT expense_type FROM expense_entry WHERE description='充电订单 TWO-TASKS'", String.class))
+                .isEqualTo("TEMP_ELECTRIC");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM expense_attribution_history", Integer.class)).isZero();
     }
 
@@ -215,9 +261,7 @@ class V3ChargingImportTests {
         assertThat(samples.size()).isEqualTo(12);
         var plates = new HashSet<String>();
         plates.add("云A001");
-        int index = 0;
         for (var sample : samples) {
-            index++;
             System.out.println("核验真实样本：" + sample.get("name").asText());
             var payload = json.treeToValue(sample.get("payload"), ChargingImportService.Confirmation.class);
             assertThat(sample.get("errors").size()).isZero();
@@ -227,8 +271,7 @@ class V3ChargingImportTests {
                     VALUES(?,CONCAT('TEST-VL-',?),1,'ELECTRIC',30,'PERCENT',0.9,1)
                     """, order.plateNo(), order.plateNo());
             var saved = charging.saveCompany(null, new ChargingImportService.CompanyCommand(
-                    sample.get("company").asText(), "SAMPLE" + index, "ORDER_NO",
-                    payload.headerRowNo(), payload.headers(), payload.mapping()), 1);
+                    sample.get("company").asText(), payload.headerRowNo(), payload.headers(), payload.mapping()), 1);
             long companyId = ((Number) saved.get("id")).longValue();
             var confirmed = new ChargingImportService.Confirmation(companyId, payload.sheetName(),
                     payload.headerRowNo(), payload.headers(), payload.mapping(), payload.orders(),

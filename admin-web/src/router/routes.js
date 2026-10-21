@@ -36,7 +36,6 @@ export const routes = [
   { key: 'charging-companies', label: '充电公司模板配置', permission: 'PAGE_CHARGING_COMPANIES', component: Charging, props: { initialTab: 'companies' } },
   { key: 'charging-imports', label: '充电订单导入', permission: 'PAGE_CHARGING_IMPORTS', component: Charging, props: { initialTab: 'import' } },
   { key: 'salaries', label: '工资台账', permission: 'PAGE_SALARIES', component: Salaries },
-  { key: 'salary-transfers', label: '转派工资核对', permission: 'PAGE_SALARY_TRANSFERS', component: Salaries, props: { initialSituation: 'TRANSFER' } },
   { key: 'attendance', label: '司机出勤', permission: 'PAGE_ATTENDANCE', component: Monthly, props: { scope: 'ATTENDANCE' } },
   { key: 'approvals-todo', label: '我的待办', permission: 'PAGE_APPROVALS_TODO', component: Approvals, props: { initialScope: 'TODO' } },
   { key: 'approvals-mine', label: '我的申请', permission: 'PAGE_APPROVALS_MINE', component: Approvals, props: { initialScope: 'MINE' } },

@@ -4,7 +4,7 @@ export const navigation = [
   { key: 'master', label: '车辆与人员', children: ['drivers', 'vehicles', 'trailers', 'binding', { label: '轮胎管理', children: ['tires', 'tire-imports'] }] },
   { key: 'expense-domain', label: '费用管理', children: ['expense-apply', 'expense-ledger', 'expense-unassigned', 'charging-imports', 'charging-companies'] },
   { key: 'approvals', label: '审批中心', children: ['approvals-todo', 'approvals-mine', 'approvals-history', 'approvals-flows'] },
-  { key: 'wages', label: '工资与考勤', children: ['attendance', 'salaries', 'salary-transfers'] },
+  { key: 'wages', label: '工资与考勤', children: ['attendance', 'salaries'] },
   { key: 'finance', label: '经营与结算', children: [{ label: '收入与利润', children: ['finance-company', 'finance-templates', 'finance-tasks'] }, { label: '支出', children: ['finance-vehicles', 'finance-drivers', 'finance-energy'] }, 'settlements'] },
   { key: 'system', label: '系统设置', children: ['users', 'roles', 'audit'] }
 ];

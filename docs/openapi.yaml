@@ -677,7 +677,7 @@ paths:
     get:
       tags: [TransportTasks]
       summary: 参与历史；工资字段另需 PAGE_SALARIES
-      x-function-any-of: [PAGE_ROUTES, PAGE_SALARIES, PAGE_SALARY_TRANSFERS]
+      x-function-any-of: [PAGE_ROUTES, PAGE_SALARIES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /transport-tasks/{id}/weight-versions:
@@ -742,7 +742,7 @@ paths:
     post:
       tags: [DriverSalaries]
       summary: 按参与人统一核定实际工资并追加调整历史
-      x-function-any-of: [BUTTON_SALARIES_ADJUST, BUTTON_SALARY_TRANSFERS_ADJUST]
+      x-function-any-of: [BUTTON_SALARIES_ADJUST]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskSalariesConfirmRequest'}}}}
       responses: {'200': {description: OK}}
@@ -763,7 +763,7 @@ paths:
     get:
       tags: [DriverSalaries]
       summary: 已完成卸货任务的有效 Participant 工资台账；服务端筛选与分页
-      x-function-any-of: [PAGE_SALARIES, PAGE_SALARY_TRANSFERS]
+      x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
         - {name: month, in: query, schema: {type: string}}
@@ -1173,16 +1173,17 @@ paths:
       responses: {'200': {description: 公司配置列表}}
     post:
       tags: [ChargingImports]
-      summary: 新增充电公司；表头列位置及四字段映射必须完整
+      summary: 新增充电公司；只输入公司名称并上传样表完成四字段映射，来源系统标识由服务端生成一位大写英文字母加七位数字，订单编号类型固定为 ORDER_NO
       x-function-any-of: [BUTTON_CHARGING_COMPANIES_MANAGE]
-      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [companyName, sourceSystem, headerRowNo, headers, mapping], properties: {companyName: {type: string}, sourceSystem: {type: string}, orderNoType: {type: string}, headerRowNo: {type: integer}, headers: {type: array, items: {type: object}}, mapping: {type: object}}}}}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [companyName, headerRowNo, headers, mapping], properties: {companyName: {type: string}, headerRowNo: {type: integer}, headers: {type: array, items: {type: object}}, mapping: {type: object}}}}}}
       responses: {'200': {description: 保存后的公司配置}}
   /charging/companies/{id}:
     put:
       tags: [ChargingImports]
-      summary: 修改当前映射并立即生效；来源系统标识不可修改
+      summary: 修改公司名称及当前映射并立即生效；来源系统标识及订单编号类型不可修改
       x-function-any-of: [BUTTON_CHARGING_COMPANIES_MANAGE]
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [companyName], properties: {companyName: {type: string}, headerRowNo: {type: integer}, headers: {type: array, items: {type: object}}, mapping: {type: object}}}}}}
       responses: {'200': {description: 保存后的公司配置}}
   /charging/imports:
     get:
@@ -1194,7 +1195,7 @@ paths:
     post:
       tags: [ChargingImports]
       summary: 人工确认只读预览后正式入账；服务端重新核验原始 Excel、四字段、数量、金额和唯一订单
-      description: 零元合法来源订单保留并参与去重，但不生成 ExpenseEntry；空金额、负数和无法解析金额拒绝整批。有效订单数等于正常入账+零元不入账+已存在重复。
+      description: 零元合法来源订单保留并参与去重，但不生成 ExpenseEntry；空金额、负数和无法解析金额拒绝整批。有效订单数等于正常入账+零元不入账+已存在重复。唯一匹配任务的订单生成 ELECTRIC 费用并记录充电时段对应的参与司机；未归属订单生成 TEMP_ELECTRIC 费用且司机为空。
       x-function-any-of: [BUTTON_CHARGING_IMPORTS_IMPORT]
       requestBody: {required: true, content: {multipart/form-data: {schema: {type: object, required: [file, payload], properties: {file: {type: string, format: binary}, payload: {type: object, description: '包含公司、工作表、表头列位置映射、逐行订单/原始行号、count、zeroCount、totalAmount'}}}}}}
       responses: {'200': {description: 正式批次及新增来源订单；失败不返回成功}}
@@ -1299,6 +1300,7 @@ paths:
       x-function-any-of: [BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE]
       tags: [ExpenseLedger]
       summary: 有版本校验的费用任务归属调整；车辆必须匹配正式自有参与车辆
+      description: 充电来源费用归属任务时同步确定该任务参与司机并记为 ELECTRIC；解除归属时司机清空并记为 TEMP_ELECTRIC。其它费用类型和司机保持原值。
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, required: [reason, expectedVersion], properties: {targetTaskId: {type: integer, format: int64, nullable: true}, reason: {type: string}, expectedVersion: {type: integer}}}}}}
       responses: {'200': {description: 更新后的费用详情}}
@@ -1771,7 +1773,6 @@ components:
         - PAGE_APPROVALS_FLOWS
         - PAGE_ATTENDANCE
         - PAGE_SALARIES
-        - PAGE_SALARY_TRANSFERS
         - PAGE_FINANCE_COMPANY
         - PAGE_FINANCE_TEMPLATES
         - PAGE_FINANCE_TASKS
@@ -1827,7 +1828,6 @@ components:
         - BUTTON_ATTENDANCE_EXPORT
         - BUTTON_SALARIES_ADJUST
         - BUTTON_SALARIES_EXPORT
-        - BUTTON_SALARY_TRANSFERS_ADJUST
         - BUTTON_SETTLEMENTS_GENERATE
         - BUTTON_USERS_ADD
         - BUTTON_USERS_EDIT

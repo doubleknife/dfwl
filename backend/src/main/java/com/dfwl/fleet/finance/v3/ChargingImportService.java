@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
@@ -35,8 +37,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class ChargingImportService {
     public record Header(int index, String label) {}
-    public record CompanyCommand(String companyName, String sourceSystem, String orderNoType,
-                                 Integer headerRowNo, List<Header> headers, Map<String, Integer> mapping) {}
+    public record CompanyCommand(String companyName, Integer headerRowNo,
+                                 List<Header> headers, Map<String, Integer> mapping) {}
     public record Order(int rowNo, String sheetName, String orderNo, String plateNo,
                         LocalDateTime chargedAt, BigDecimal amount) {}
     public record Confirmation(long companyId, String sheetName, int headerRowNo,
@@ -46,6 +48,7 @@ public class ChargingImportService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     private final StorageService storage;
+    private static final SecureRandom SOURCE_RANDOM = new SecureRandom();
 
     public ChargingImportService(JdbcTemplate jdbc, ObjectMapper json, StorageService storage) {
         this.jdbc = jdbc; this.json = json; this.storage = storage;
@@ -60,32 +63,38 @@ public class ChargingImportService {
 
     @Transactional
     public Map<String, Object> saveCompany(Long id, CompanyCommand command, long actor) {
-        if (command == null || blank(command.companyName()) || blank(command.sourceSystem()))
-            throw invalid("请填写公司名称和来源系统标识");
-        String name = command.companyName().trim(), source = command.sourceSystem().trim();
-        if (!source.matches("[A-Za-z0-9_-]{2,64}")) throw invalid("来源系统标识只允许字母、数字、下划线和横线");
-        String orderType = blank(command.orderNoType()) ? "ORDER_NO" : command.orderNoType().trim();
-        if (!orderType.matches("[A-Za-z0-9_-]{2,64}")) throw invalid("订单编号类型不合法");
+        if (command == null || blank(command.companyName())) throw invalid("请填写公司名称");
+        String name = command.companyName().trim();
         if (command.headers() != null || command.mapping() != null) validateMapping(command);
         String headers = toJson(command.headers()), mapping = toJson(command.mapping());
         if (id == null) {
             if (command.headers() == null || command.mapping() == null)
                 throw invalid("新增公司时请上传样本并完成四字段映射");
-            long created = insert("""
-                    INSERT INTO charging_company(company_name,source_system,order_no_type,header_row_no,
-                      headers_json,mapping_json,updated_by) VALUES(?,?,?,?,?,?,?)
-                    """, name, source, orderType, command.headerRowNo(), headers, mapping, actor);
-            return company(created);
+            for (int attempt = 0; attempt < 10; attempt++) {
+                String source = generateSourceSystem();
+                try {
+                    long created = insert("""
+                            INSERT INTO charging_company(company_name,source_system,order_no_type,header_row_no,
+                              headers_json,mapping_json,updated_by) VALUES(?,?,'ORDER_NO',?,?,?,?)
+                            """, name, source, command.headerRowNo(), headers, mapping, actor);
+                    return company(created);
+                } catch (DuplicateKeyException ex) {
+                    if (!jdbc.queryForList("SELECT id FROM charging_company WHERE company_name=?", name).isEmpty())
+                        throw invalid("充电公司名称已存在");
+                    if (jdbc.queryForList("SELECT id FROM charging_company WHERE source_system=?", source).isEmpty())
+                        throw ex;
+                }
+            }
+            throw invalid("来源系统标识生成失败，请重试");
         }
         Map<String, Object> existing = company(id);
-        if (!source.equals(existing.get("source_system"))) throw invalid("来源系统标识入账后不可修改");
         if (command.headers() == null || command.mapping() == null) {
             jdbc.update("UPDATE charging_company SET company_name=?,updated_by=? WHERE id=?", name, actor, id);
         } else {
             jdbc.update("""
-                    UPDATE charging_company SET company_name=?,order_no_type=?,header_row_no=?,
+                    UPDATE charging_company SET company_name=?,header_row_no=?,
                       headers_json=?,mapping_json=?,updated_by=? WHERE id=?
-                    """, name, orderType, command.headerRowNo(), headers, mapping, actor, id);
+                    """, name, command.headerRowNo(), headers, mapping, actor, id);
         }
         return company(id);
     }
@@ -161,7 +170,7 @@ public class ChargingImportService {
         if (input.headerRowNo() != ((Number) company.get("header_row_no")).intValue()
                 || !sameJson(input.mapping(), company.get("mapping_json")))
             throw invalid("公司字段映射已经变化，请重新解析和预览");
-        validateMapping(new CompanyCommand("x", "SOURCE", "ORDER_NO", input.headerRowNo(),
+        validateMapping(new CompanyCommand("x", input.headerRowNo(),
                 input.headers(), input.mapping()));
         for (Order order : input.orders()) validateOrder(order, input.sheetName(), input.headerRowNo());
         byte[] bytes;
@@ -218,7 +227,8 @@ public class ChargingImportService {
                         """, order.plateNo()).stream().findFirst()
                         .orElseThrow(() -> invalid("第 " + order.rowNo() + " 行公司车辆不存在：" + order.plateNo()));
                 long vehicleId = ((Number) vehicle.get("id")).longValue();
-                Long taskId = uniqueTask(vehicleId, order.chargedAt());
+                TaskMatch match = uniqueTask(vehicleId, order.chargedAt());
+                Long taskId = match == null ? null : match.taskId();
                 long sourceOrderId = insert("""
                         INSERT INTO charging_source_order(batch_id,source_system,order_no_type,original_order_no,
                           sheet_name,row_no,plate_no,charged_at,amount)
@@ -227,11 +237,12 @@ public class ChargingImportService {
                         order.plateNo(), order.chargedAt(), order.amount());
                 if (order.amount().signum() == 0) continue;
                 long expenseId = insert("""
-                        INSERT INTO expense_entry(expense_no,application_scope,current_task_id,vehicle_id,
+                        INSERT INTO expense_entry(expense_no,application_scope,current_task_id,vehicle_id,driver_id,
                           expense_type,business_date,description,amount,source_type,source_record_key,
                           status,created_by)
-                        VALUES(?,'DAILY',?,?,'TEMP_ELECTRIC',?, ?,?,'CHARGING',?,'ACTIVE',?)
+                        VALUES(?,'DAILY',?,?,?,?,?,?,?,'CHARGING',?,'ACTIVE',?)
                         """, "CE" + UUID.randomUUID().toString().replace("-", ""), taskId, vehicleId,
+                        match == null ? null : match.driverId(), taskId == null ? "TEMP_ELECTRIC" : "ELECTRIC",
                         order.chargedAt().toLocalDate(), "充电订单 " + order.orderNo(), order.amount(),
                         "CHARGING_ORDER:" + sourceOrderId, actor);
                 jdbc.update("UPDATE charging_source_order SET expense_id=? WHERE id=?", expenseId, sourceOrderId);
@@ -247,16 +258,22 @@ public class ChargingImportService {
         }
     }
 
-    private Long uniqueTask(long vehicleId, LocalDateTime time) {
-        List<Long> matches = jdbc.query("""
-                SELECT DISTINCT p.task_id FROM transport_participant p
+    private record TaskMatch(long taskId, Long driverId) {}
+
+    private TaskMatch uniqueTask(long vehicleId, LocalDateTime time) {
+        List<TaskMatch> matches = jdbc.query("""
+                SELECT p.task_id,
+                  CASE WHEN COUNT(DISTINCT p.driver_id)=1 THEN MIN(p.driver_id) ELSE NULL END driver_id
+                FROM transport_participant p
                 JOIN transport_task t ON t.id=p.task_id
                 WHERE p.company_vehicle_id=? AND p.driver_type_snapshot='INTERNAL'
                   AND p.departed_at IS NOT NULL AND p.departed_at<=?
                   AND COALESCE(p.ended_at,t.completed_at,CURRENT_TIMESTAMP)>?
                   AND p.status<>'CANCELLED' AND t.deleted_at IS NULL AND t.status<>'CANCELLED'
+                GROUP BY p.task_id
                 LIMIT 2
-                """, (rs, index) -> rs.getLong(1), vehicleId, time, time);
+                """, (rs, index) -> new TaskMatch(rs.getLong(1),
+                        rs.getObject(2) == null ? null : rs.getLong(2)), vehicleId, time, time);
         return matches.size() == 1 ? matches.getFirst() : null;
     }
 
@@ -388,5 +405,9 @@ public class ChargingImportService {
         return keys.getKey().longValue();
     }
     private boolean blank(String value) { return value == null || value.isBlank(); }
+    private String generateSourceSystem() {
+        return (char) ('A' + SOURCE_RANDOM.nextInt(26))
+                + String.format(java.util.Locale.ROOT, "%07d", SOURCE_RANDOM.nextInt(10_000_000));
+    }
     private BusinessException invalid(String message) { return new BusinessException("SYS_002", message); }
 }

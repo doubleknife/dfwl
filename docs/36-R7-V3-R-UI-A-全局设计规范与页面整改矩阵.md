@@ -76,7 +76,6 @@
 | `#/approvals-queue` | 旧审批处理深链；重定向至 `#/approvals-todo` | `ApprovalCenterV3View` TODO 模式 | 与正式审批待办相同 | 不再实例化第二个路由页面 | `router/routes.js` | 重定向后审批中心菜单高亮，后端权限不变 |
 | `#/attendance` | 工资与考勤→司机出勤；实际发车日 | `MonthlyOperationsV3View` 出勤模式 | `attendanceApi` | 月表需固定司机列、局部横滚；目标月份/司机→月表→当日任务抽屉→导出 | MonthlyGrid；`views/MonthlyOperationsV3View.vue` | 同日多趟=1 天，外协不入表，跨日卸货不另计 |
 | `#/salaries` | 工资与考勤→工资台账；Participant 工资 | `SalaryLedgerV3View`、DataTable、DetailDrawer | `salaryApi`、`routeApi` | 目标筛选→工资汇总→分页明细→工资历史，转派标签明显 | MoneySummary、DetailSection；`views/SalaryLedgerV3View.vue` | 页面、导出、经营金额同一 Participant 工资 |
-| `#/salary-transfers` | 工资与考勤→转派工资核对 | `SalaryLedgerV3View` 转派模式 | `salaryApi`、`routeApi.participants/confirmSalaries` | 复用工资 View，但直接进入转派筛选；目标完整参与链→一次核薪 Dialog→历史 | ParticipantChain；`views/SalaryLedgerV3View.vue` | N 人与 0 元工资可见，同额无历史、并发冲突明确 |
 | `#/finance-company` | 经营与结算→收入与利润→公司收支利润 | `FinanceReportsV3View` 公司模式 | `v3FinanceApi.company` | 目标月份→收入/支出/利润指标→费用结构→未归属 DAILY 说明 | MoneySummary；`views/FinanceReportsV3View.vue` | 不在前端重算，未归属费用计入一次 |
 | `#/finance-templates` | 经营与结算→收入与利润→线路收支利润 | `FinanceReportsV3View` 模板模式 | `v3FinanceApi.templates/tasks` | 目标月份→模板表→其任务明细穿透，区分模板默认金额与任务实绩 | DrilldownTable；`views/FinanceReportsV3View.vue` | 模板经营与任务/公司口径交叉对账 |
 | `#/finance-tasks` | 经营与结算→收入与利润→单趟收支利润 | `FinanceReportsV3View` 任务模式 | `v3FinanceApi.tasks/task` | 目标筛选→任务经营表→参与人与费用档案抽屉，金额四列统一 | FinanceDetail；`views/FinanceReportsV3View.vue` | 收入、信息费、工资、费用、利润与正式 API 一致 |
