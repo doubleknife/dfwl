@@ -219,7 +219,10 @@ public class DispatchBatchService {
             if (input == null || input.driverId() == null) errors.add("请选择司机");
             else {
                 try { driver = driverValidation.require(input.driverId(), input.outsourcedPlateNo()); }
-                catch (BusinessException invalid) { errors.add("司机、车辆或车挂不满足发布条件"); }
+                catch (BusinessException invalid) {
+                    errors.add("OUTSOURCED_PLATE_MISSING".equals(invalid.code())
+                            ? "车辆信息未补充" : "司机、车辆或车挂不满足发布条件");
+                }
             }
             BigDecimal unit = input == null ? null : input.actualUnitPrice();
             BigDecimal info = input == null ? null : input.actualInformationFee();

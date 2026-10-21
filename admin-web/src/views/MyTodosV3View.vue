@@ -63,6 +63,7 @@ onMounted(() => load());
 <style scoped>
 .todo-overview-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; width:min(100%,980px); }
 .todo-overview-grid .ui-todo-card { width:100%; cursor:pointer; }
+.todo-overview-grid .ui-todo-card small { justify-self:end; text-align:right; }
 .todo-overview-grid .ui-todo-card:focus-visible { outline:3px solid var(--ui-primary); outline-offset:3px; }
 @media (max-width:640px) { .todo-overview-grid { grid-template-columns:1fr; } }
 </style>

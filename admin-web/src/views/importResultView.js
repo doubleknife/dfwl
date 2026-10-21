@@ -1,3 +1,5 @@
+import { formatDateTime } from '../utils/dateTime.js';
+
 const failedStatuses = new Set(['INVALID', 'FAILED']);
 
 export function filterImportRows(rows, filter) {
@@ -20,7 +22,5 @@ export function summarizeCompletedRows(rows, successStatus) {
 }
 
 export function formatImportDateTime(value, empty = '—') {
-  if (!value) return empty;
-  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?$/);
-  return match ? `${match[1]} ${match[2]}:${match[3] || '00'}` : String(value);
+  return formatDateTime(value, empty);
 }

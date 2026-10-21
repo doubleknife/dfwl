@@ -39,11 +39,11 @@ function request(options) {
           return;
         }
         const error = apiError(res.data, res.statusCode === 403 ? '无权访问' : '请求失败', res.statusCode);
-        wx.showToast({ title: error.message, icon: 'none' });
+        if (!options.silentError) wx.showToast({ title: error.message, icon: 'none' });
         reject(error);
       },
       fail(err) {
-        wx.showToast({ title: '网络不可用', icon: 'none' });
+        if (!options.silentError) wx.showToast({ title: '网络不可用', icon: 'none' });
         reject(apiError(null, '网络不可用'));
       }
     });

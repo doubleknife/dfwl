@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { masterApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import PageHeader from './PageHeader.vue';
 import FilterBar from './FilterBar.vue';
 import DataTable from './DataTable.vue';
@@ -15,7 +16,7 @@ import ErrorState from './ErrorState.vue';
 
 const tab = ref('driver');
 const pageNo = ref(1);
-const pageSize = 20;
+const pageSize = ref(20);
 const total = ref(0);
 const rows = ref([]);
 const drivers = ref([]);
@@ -47,7 +48,7 @@ async function load(page = 1) {
   loading.value = true; error.value = '';
   try {
     const [result, driverResult, vehicleResult, trailerResult] = await Promise.all([
-      tab.value === 'driver' ? masterApi.bindingDrivers(page, pageSize) : masterApi.bindingVehicles(page, pageSize),
+      tab.value === 'driver' ? masterApi.bindingDrivers(page, pageSize.value) : masterApi.bindingVehicles(page, pageSize.value),
       masterApi.bindingDrivers(1),
       masterApi.bindingVehicles(1),
       masterApi.bindingTrailers(1)
@@ -118,18 +119,18 @@ onMounted(() => load(1));
     <div class="ui-subtabs"><button type="button" :class="{ active: tab === 'driver' }" @click="changeTab('driver')">司机车辆绑定</button><button type="button" :class="{ active: tab === 'trailer' }" @click="changeTab('trailer')">车辆车挂绑定</button></div>
     <div class="binding-overview" role="status"><strong>{{ tab === 'driver' ? '司机与公司车辆' : '公司车辆与车挂' }}</strong><span>当前页 {{ rows.length }} 条，其中已绑定 {{ rows.filter((row) => tab === 'driver' ? !!row.currentVehicleId : !!row.currentTrailerId).length }} 条</span><small>更换时先解绑再绑定；每次操作均由服务端校验并保留历史。</small></div>
     <FilterBar><label class="ui-search">{{ tab === 'driver' ? '司机姓名或手机号' : '车牌号' }}<input v-model.trim="keyword" type="search" placeholder="搜索当前页" /></label><span class="muted">筛选当前页；使用分页查看其他记录</span></FilterBar>
-    <DataTable v-if="!error && tab === 'driver'" :columns="[{key:'name',label:'司机'},{key:'phone',label:'手机号'},{key:'driverType',label:'类型'},{key:'currentVehicleId',label:'当前车辆'},{key:'status',label:'状态'},{key:'actions',label:'操作'}]" :rows="visibleRows" :loading="loading" :empty-text="keyword ? '当前页没有匹配司机' : '暂无司机'">
+    <DataTable v-if="!error && tab === 'driver'" class="ui-paged-table" :columns="[{key:'name',label:'司机'},{key:'phone',label:'手机号'},{key:'driverType',label:'类型'},{key:'currentVehicleId',label:'当前车辆'},{key:'status',label:'状态'},{key:'actions',label:'操作'}]" :rows="visibleRows" :loading="loading" :empty-text="keyword ? '当前页没有匹配司机' : '暂无司机'">
       <template #driverType="{value}">{{ value === 'INTERNAL' ? '自有司机' : '外协司机' }}</template>
       <template #currentVehicleId="{value,row}">{{ vehicleLabel(value, row.currentVehiclePlateNo) }}</template>
       <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template>
-      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="row.driverType === 'INTERNAL' && row.status === 1 && !row.currentVehicleId && can('BUTTON_BINDING_BIND_DRIVER')" type="button" @click="openBind(row)">绑定车辆</button><button v-if="row.driverType === 'INTERNAL' && row.status === 1 && row.currentVehicleId && can('BUTTON_BINDING_BIND_DRIVER') && can('BUTTON_BINDING_UNBIND_DRIVER')" type="button" @click="openChange(row)">更换</button><button v-if="row.driverType === 'INTERNAL' && row.currentVehicleId && can('BUTTON_BINDING_UNBIND_DRIVER')" type="button" class="ui-danger-link" @click="openUnbind(row)">解绑</button><button v-if="can('PAGE_BINDING')" type="button" @click="openHistory(row)">历史</button></div></template>
+      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="row.driverType === 'INTERNAL' && row.status === 1 && !row.currentVehicleId && can('BUTTON_BINDING_BIND_DRIVER')" type="button" @click="openBind(row)">绑定车辆</button><button v-if="row.driverType === 'INTERNAL' && row.status === 1 && row.currentVehicleId && can('BUTTON_BINDING_BIND_DRIVER') && can('BUTTON_BINDING_UNBIND_DRIVER')" type="button" @click="openChange(row)">更换</button><button v-if="row.driverType === 'INTERNAL' && row.currentVehicleId && can('BUTTON_BINDING_UNBIND_DRIVER')" type="button" class="ui-danger-link" @click="openUnbind(row)">解绑</button><button v-if="can('PAGE_BINDING')" type="button" class="ui-detail-button" @click="openHistory(row)">历史</button></div></template>
     </DataTable>
-    <DataTable v-else-if="!error" :columns="[{key:'plateNo',label:'车辆'},{key:'currentTrailerId',label:'当前车挂'},{key:'status',label:'状态'},{key:'actions',label:'操作'}]" :rows="visibleRows" :loading="loading" :empty-text="keyword ? '当前页没有匹配车辆' : '暂无车辆'">
+    <DataTable v-else-if="!error" class="ui-paged-table" :columns="[{key:'plateNo',label:'车辆'},{key:'currentTrailerId',label:'当前车挂'},{key:'status',label:'状态'},{key:'actions',label:'操作'}]" :rows="visibleRows" :loading="loading" :empty-text="keyword ? '当前页没有匹配车辆' : '暂无车辆'">
       <template #currentTrailerId="{value,row}">{{ trailerLabel(value, row.currentTrailerPlateNo) }}</template>
       <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template>
-      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="row.status === 1 && !row.currentTrailerId && can('BUTTON_BINDING_BIND_TRAILER')" type="button" @click="openBind(row)">绑定车挂</button><button v-if="row.status === 1 && row.currentTrailerId && can('BUTTON_BINDING_BIND_TRAILER') && can('BUTTON_BINDING_UNBIND_TRAILER')" type="button" @click="openChange(row)">更换</button><button v-if="row.currentTrailerId && can('BUTTON_BINDING_UNBIND_TRAILER')" type="button" class="ui-danger-link" @click="openUnbind(row)">解绑</button><button v-if="can('PAGE_BINDING')" type="button" @click="openHistory(row)">历史</button></div></template>
+      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="row.status === 1 && !row.currentTrailerId && can('BUTTON_BINDING_BIND_TRAILER')" type="button" @click="openBind(row)">绑定车挂</button><button v-if="row.status === 1 && row.currentTrailerId && can('BUTTON_BINDING_BIND_TRAILER') && can('BUTTON_BINDING_UNBIND_TRAILER')" type="button" @click="openChange(row)">更换</button><button v-if="row.currentTrailerId && can('BUTTON_BINDING_UNBIND_TRAILER')" type="button" class="ui-danger-link" @click="openUnbind(row)">解绑</button><button v-if="can('PAGE_BINDING')" type="button" class="ui-detail-button" @click="openHistory(row)">历史</button></div></template>
     </DataTable>
-    <PaginationBar v-if="!error" :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" />
+    <PaginationBar v-if="!error" :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
     <FormDialog :open="!!changeTarget" title="更换绑定" @close="changeTarget = null"><div v-if="changeTarget"><p>{{ displayName(changeTarget) }} 当前绑定 {{ tab === 'driver' ? vehicleLabel(changeTarget.currentVehicleId, changeTarget.currentVehiclePlateNo) : trailerLabel(changeTarget.currentTrailerId, changeTarget.currentTrailerPlateNo) }}。</p><p class="muted">系统按“先解绑、再绑定”执行。解绑立即生效；如果后续绑定失败，该对象会保持未绑定。运输中的绑定由后端拒绝解除。</p><div class="ui-dialog-actions"><button type="button" @click="changeTarget = null">取消</button><button class="ui-danger-button" type="button" @click="proceedChange">继续：确认解绑</button></div></div></FormDialog>
     <FormDialog :open="action === 'bind'" :title="tab === 'driver' ? '绑定司机车辆' : '绑定车辆车挂'" :busy="busy" @close="closeAction">
       <form v-if="target" @submit.prevent="saveBinding"><p>当前对象：<strong>{{ displayName(target) }}</strong></p><p class="muted">当前绑定：{{ tab === 'driver' ? vehicleLabel(target.currentVehicleId, target.currentVehiclePlateNo) : trailerLabel(target.currentTrailerId, target.currentTrailerPlateNo) }}</p>
@@ -139,7 +140,7 @@ onMounted(() => load(1));
       </form>
     </FormDialog>
     <ConfirmDialog :open="!!confirmTarget" title="确认解绑" :message="confirmTarget ? `确认将${displayName(confirmTarget)}与${tab === 'driver' ? vehicleLabel(confirmTarget.currentVehicleId, confirmTarget.currentVehiclePlateNo) : trailerLabel(confirmTarget.currentTrailerId, confirmTarget.currentTrailerPlateNo)}解绑？当前运输中的绑定由后端拒绝，历史会保留。${replacePending ? '解绑立即生效，后续绑定若失败将保持未绑定。' : ''}` : ''" danger :busy="busy" @cancel="confirmTarget = null; replacePending = null" @confirm="confirmUnbind" />
-    <DetailDrawer :open="!!historyTarget" :title="'绑定历史'" @close="historyTarget = null"><p v-if="historyTarget">{{ displayName(historyTarget) }}</p><p v-if="historyLoading">正在加载历史…</p><p v-else-if="!history.length" class="muted">暂无绑定历史</p><ol v-else class="ui-timeline"><li v-for="item in history" :key="item.id"><strong>{{ item.targetName || (tab === 'driver' ? driverLabel(item.targetId) : trailerLabel(item.targetId)) }} · {{ item.subjectName || vehicleLabel(item.subjectId) }}</strong><p>绑定 {{ item.bindTime }} · {{ item.bindByPhone || '操作人信息未提供' }}</p><p v-if="item.unbindTime">解绑 {{ item.unbindTime }} · {{ item.unbindByPhone || '操作人信息未提供' }}<span v-if="item.unbindReason"> · {{ item.unbindReason }}</span></p><p v-else>当前有效</p></li></ol></DetailDrawer>
+    <DetailDrawer :open="!!historyTarget" :title="'绑定历史'" @close="historyTarget = null"><p v-if="historyTarget">{{ displayName(historyTarget) }}</p><p v-if="historyLoading">正在加载历史…</p><p v-else-if="!history.length" class="muted">暂无绑定历史</p><ol v-else class="ui-timeline"><li v-for="item in history" :key="item.id"><strong>{{ item.targetName || (tab === 'driver' ? driverLabel(item.targetId) : trailerLabel(item.targetId)) }} · {{ item.subjectName || vehicleLabel(item.subjectId) }}</strong><p>绑定 {{ formatDateTime(item.bindTime) }} · {{ item.bindByPhone || '操作人信息未提供' }}</p><p v-if="item.unbindTime">解绑 {{ formatDateTime(item.unbindTime) }} · {{ item.unbindByPhone || '操作人信息未提供' }}<span v-if="item.unbindReason"> · {{ item.unbindReason }}</span></p><p v-else>当前有效</p></li></ol></DetailDrawer>
   </div>
 </template>
 

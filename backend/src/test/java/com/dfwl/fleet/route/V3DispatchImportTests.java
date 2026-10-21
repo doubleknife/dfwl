@@ -44,6 +44,8 @@ class V3DispatchImportTests {
     private final AuthenticatedUser operator = new AuthenticatedUser(1L, "13900000001", 1L, "ADMIN", "管理员",
             grants("BUTTON_TASK_IMPORTS_SUBMIT", "PAGE_TASK_IMPORTS", "BUTTON_DISPATCH_PUBLISH", "PAGE_DISPATCH"));
 
+    private String templateCode;
+
     @BeforeEach
     void setup() {
         for (String table : List.of("import_row", "import_task", "task_status_history", "transport_participant",
@@ -59,15 +61,24 @@ class V3DispatchImportTests {
                 + "VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', '110105199001010125', 'TEST-DL-012', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) "
                 + "VALUES (11, 10, CURRENT_TIMESTAMP, 1)");
-        templates.create(new RouteTemplateRequest("TPL-01", "砂石运输", "中文客户", 1L, "昆明", "曲靖",
-                new BigDecimal("100.00"), new BigDecimal("10.00"), new BigDecimal("20.00"), null, null), 1);
+        templateCode = templates.create(new RouteTemplateRequest("砂石运输", "中文客户", 1L, "昆明", "曲靖",
+                new BigDecimal("100.00"), new BigDecimal("10.00"), new BigDecimal("20.00"), null, null), 1).stableCode();
+    }
+
+    @Test
+    void dispatchPreviewNamesMissingOutsourcedVehicleInformation() {
+        DispatchBatchRequest batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30),
+                List.of(new DispatchBatchRequest.Row(templateCode, 12L, "", null, null, null, null)));
+        var preview = dispatch.preview(batch, 1);
+        assertThat(preview.valid()).isFalse();
+        assertThat(preview.rows().getFirst().errors()).containsExactly("车辆信息未补充");
     }
 
     @Test
     void fixedWorkbookPublishesRowsUsingSharedDefaultsAndKeepsHistory() throws Exception {
         byte[] workbook = workbook(List.of(
-                List.of("2026-09-30", "TPL-01", "13911111111", "", "", "", "", "首趟"),
-                List.of("2026-09-30", "TPL-01", "13922222222", "外协甲001", "120.00", "0.00", "0.00", "外协")));
+                List.of("2026-09-30", templateCode, "13911111111", "", "", "", "", "首趟"),
+                List.of("2026-09-30", templateCode, "13922222222", "外协甲001", "120.00", "0.00", "0.00", "外协")));
         var preview = imports.preview(file(workbook), "import-1", operator);
         assertThat(preview.rows()).hasSize(2);
         assertThat(preview.rows()).allMatch(row -> "VALID".equals(row.status()));
@@ -91,11 +102,30 @@ class V3DispatchImportTests {
     }
 
     @Test
+    void fixedWorkbookAcceptsCompactTextAndNumericBusinessDates() throws Exception {
+        byte[] workbook = workbook(List.of(
+                List.of("20261021", templateCode, "13911111111", "", "", "", "", ""),
+                List.of("20261022", templateCode, "13911111111", "", "", "", "", "")));
+        try (XSSFWorkbook xlsx = new XSSFWorkbook(new ByteArrayInputStream(workbook));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            xlsx.getSheetAt(0).getRow(2).getCell(0).setCellValue(20261022);
+            xlsx.write(out);
+            workbook = out.toByteArray();
+        }
+        var preview = imports.preview(file(workbook), "compact-dates", operator);
+        assertThat(preview.rows()).allMatch(row -> "VALID".equals(row.status()));
+        assertThat(imports.confirm(file(workbook), "compact-dates", operator).rows())
+                .allMatch(row -> "PUBLISHED".equals(row.status()));
+        assertThat(jdbc.queryForList("SELECT business_date FROM transport_task ORDER BY business_date", LocalDate.class))
+                .containsExactly(LocalDate.of(2026, 10, 21), LocalDate.of(2026, 10, 22));
+    }
+
+    @Test
     void badAndDuplicateRowsHaveIndividualResultsWithoutCreatingDrivers() throws Exception {
         byte[] workbook = workbook(List.of(
-                List.of("2026-09-30", "TPL-01", "13911111111", "", "", "", "", ""),
-                List.of("2026-09-30", "TPL-01", "13911111111", "", "", "", "", ""),
-                List.of("2026-09-30", "TPL-01", "13999999999", "", "", "", "", "")));
+                List.of("2026-09-30", templateCode, "13911111111", "", "", "", "", ""),
+                List.of("2026-09-30", templateCode, "13911111111", "", "", "", "", ""),
+                List.of("2026-09-30", templateCode, "13999999999", "", "", "", "", "")));
         var preview = imports.preview(file(workbook), "import-bad", operator);
         assertThat(preview.rows()).extracting(TaskImportService.ImportRowView::status)
                 .containsExactly("VALID", "INVALID", "INVALID");
@@ -108,13 +138,13 @@ class V3DispatchImportTests {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM driver", Integer.class)).isEqualTo(2);
         var duplicate = imports.preview(file(workbook(List.of(
-                List.of("2026-09-30", "TPL-01", "13911111111", "", "", "", "", "")))), "import-again", operator);
+                List.of("2026-09-30", templateCode, "13911111111", "", "", "", "", "")))), "import-again", operator);
         assertThat(duplicate.rows().getFirst().message()).contains("已经导入");
     }
 
     @Test
     void rejectsChangedHeaderAndRevalidatesDispatchAfterPreview() throws Exception {
-        byte[] workbook = workbook(List.of(List.of("2026-09-30", "TPL-01", "13911111111", "", "", "", "", "")));
+        byte[] workbook = workbook(List.of(List.of("2026-09-30", templateCode, "13911111111", "", "", "", "", "")));
         try (XSSFWorkbook xlsx = new XSSFWorkbook(new ByteArrayInputStream(workbook));
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             xlsx.getSheetAt(0).getRow(0).getCell(1).setCellValue("数据库模板ID");
@@ -123,7 +153,7 @@ class V3DispatchImportTests {
                     .isInstanceOf(BusinessException.class).hasMessageContaining("表头");
         }
         DispatchBatchRequest batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30),
-                List.of(new DispatchBatchRequest.Row("TPL-01", 11L, null, null, null, null, null)));
+                List.of(new DispatchBatchRequest.Row(templateCode, 11L, null, null, null, null, null)));
         var preview = dispatch.preview(batch, 1);
         jdbc.update("UPDATE vehicle SET status = 0 WHERE id = 10");
         assertThatThrownBy(() -> dispatch.confirm(new DispatchConfirmRequest(preview.previewId(), "changed", batch), 1))
@@ -134,13 +164,18 @@ class V3DispatchImportTests {
     @Test
     void dispatchPublishesMultipleRowsForSameDriverAndCopiesOverrides() {
         DispatchBatchRequest batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
-                new DispatchBatchRequest.Row("TPL-01", 11L, null, null, null, null, "第一趟"),
-                new DispatchBatchRequest.Row("TPL-01", 11L, null, new BigDecimal("125.00"),
+                new DispatchBatchRequest.Row(templateCode, 11L, null, null, null, null, "第一趟"),
+                new DispatchBatchRequest.Row(templateCode, 11L, null, new BigDecimal("125.00"),
                         new BigDecimal("0.00"), new BigDecimal("8.00"), "第二趟")));
         var preview = dispatch.preview(batch, 1);
         assertThat(preview.valid()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isZero();
         var result = dispatch.confirm(new DispatchConfirmRequest(preview.previewId(), "multi-same-driver", batch), 1);
         assertThat(result.rows()).hasSize(2);
+        assertThat(jdbc.queryForList("SELECT status FROM transport_task ORDER BY id", String.class))
+                .containsExactly("PUBLISHED", "PUBLISHED");
+        assertThatThrownBy(() -> jdbc.update("UPDATE transport_task SET status='UNPUBLISHED'"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
         assertThat(jdbc.queryForList("SELECT actual_unit_price FROM transport_task ORDER BY id", BigDecimal.class))
                 .containsExactly(new BigDecimal("100.00"), new BigDecimal("125.00"));
         assertThat(jdbc.queryForList("SELECT salary_amount FROM transport_participant ORDER BY id", BigDecimal.class))
@@ -153,8 +188,8 @@ class V3DispatchImportTests {
     @Test
     void templateOrBindingChangesAfterPreviewPublishNothing() {
         DispatchBatchRequest batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
-                new DispatchBatchRequest.Row("TPL-01", 11L, null, null, null, null, null),
-                new DispatchBatchRequest.Row("TPL-01", 12L, "外协乙001", null, null, null, null)));
+                new DispatchBatchRequest.Row(templateCode, 11L, null, null, null, null, null),
+                new DispatchBatchRequest.Row(templateCode, 12L, "外协乙001", null, null, null, null)));
         var firstPreview = dispatch.preview(batch, 1);
         jdbc.update("UPDATE route_template SET enabled = 0");
         assertThatThrownBy(() -> dispatch.confirm(new DispatchConfirmRequest(firstPreview.previewId(),
@@ -171,7 +206,7 @@ class V3DispatchImportTests {
     @Test
     void concurrentConfirmationWithSameKeyCreatesOneBatch() throws Exception {
         DispatchBatchRequest batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30),
-                List.of(new DispatchBatchRequest.Row("TPL-01", 11L, null, null, null, null, null)));
+                List.of(new DispatchBatchRequest.Row(templateCode, 11L, null, null, null, null, null)));
         var preview = dispatch.preview(batch, 1);
         DispatchConfirmRequest confirm = new DispatchConfirmRequest(preview.previewId(), "concurrent-key", batch);
         try (var executor = Executors.newFixedThreadPool(2)) {

@@ -20,7 +20,7 @@ public class DriverSalaryRepository {
     public DriverSalaryRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public PageResponse<ParticipantSalaryResponse> list(Long driverId, String month, int pageNo, int pageSize) {
-        StringBuilder where = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status <> 'CANCELLED'"
+        StringBuilder where = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status = 'COMPLETED'"
                 + " AND p.status <> 'CANCELLED'");
         List<Object> args = new ArrayList<>();
         if (driverId != null) { where.append(" AND p.driver_id = ?"); args.add(driverId); }
@@ -51,7 +51,7 @@ public class DriverSalaryRepository {
                 SELECT COALESCE(SUM(p.salary_amount), 0) AS total_amount, COUNT(*) AS entry_count
                 FROM transport_participant p JOIN transport_task t ON t.id = p.task_id
                 WHERE p.driver_id = ? AND p.driver_type_snapshot = 'INTERNAL'
-                  AND p.status <> 'CANCELLED' AND t.status <> 'CANCELLED'
+                  AND p.status <> 'CANCELLED' AND t.status = 'COMPLETED'
                   AND t.deleted_at IS NULL AND t.business_date >= ? AND t.business_date < ?
                 """, (rs, row) -> new DriverSalaryMonthlySummaryResponse(month,
                 rs.getBigDecimal("total_amount"), rs.getLong("entry_count")), driverId,

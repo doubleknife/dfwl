@@ -137,7 +137,7 @@ onMounted(() => load(1));
           {{ labelOf(item) }}{{ itemDisabled(item) ? '（停用）' : '' }}
         </button>
         <small class="muted">{{ remoteSearch ? '搜索全部记录' : '搜索当前页' }} · 共 {{ total }} 条</small>
-        <PaginationBar v-if="total > pageSize" :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" />
+        <PaginationBar :show-size="false" v-if="total > pageSize" :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" />
       </template>
     </div>
   </div>

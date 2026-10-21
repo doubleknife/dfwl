@@ -1,6 +1,7 @@
 package com.dfwl.fleet.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dfwl.fleet.route.domain.TransportTaskStatus;
 import com.dfwl.fleet.security.FunctionRegistry;
@@ -23,8 +24,11 @@ class BaselineContractTests {
         String openapi = read("docs/openapi.yaml");
 
         assertThat(enumNames(TransportTaskStatus.class))
-                .containsExactly("UNPUBLISHED", "PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING", "COMPLETED", "CANCELLED");
-        assertThat(openapi).contains("enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]");
+                .containsExactly("PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING", "COMPLETED", "CANCELLED");
+        assertThat(openapi).contains("enum: [PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]");
+        assertThat(openapi).doesNotContain("UNPUBLISHED");
+        assertThatThrownBy(() -> TransportTaskStatus.valueOf("UNPUBLISHED"))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(openapi).doesNotContain("VOIDED", "/routes/{id}/void", "/routes/{id}/reactivate");
     }
 
@@ -67,6 +71,12 @@ class BaselineContractTests {
     void sqlUsesSingleFinalTaskBaseline() throws IOException {
         String sql = read("database/database.sql");
         String migration = read("backend/src/main/resources/db/migration/V1__baseline_schema.sql");
+
+        assertThat(sql).contains("status VARCHAR(32) NOT NULL DEFAULT 'PUBLISHED'",
+                "CHECK (status IN ('PUBLISHED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'COMPLETED', 'CANCELLED'))")
+                .doesNotContain("UNPUBLISHED");
+        assertThat(migration).contains("CHECK (status IN ('PUBLISHED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'COMPLETED', 'CANCELLED'))")
+                .doesNotContain("UNPUBLISHED");
 
         assertThat(sql).doesNotContain("ENUM(");
         assertThat(sql).contains("CREATE TABLE route_template", "CREATE TABLE transport_task",

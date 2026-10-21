@@ -1,0 +1,23 @@
+<view class="search-select-field {{disabled?'disabled':''}}" bindtap="open" aria-label="{{title}}">
+  <text class="search-select-value {{displayText?'':'placeholder'}} {{multiLine?'multiline':''}}">{{displayText || placeholder}}</text>
+  <text class="search-select-chevron">⌄</text>
+</view>
+<view wx:if="{{opened}}" class="search-select-mask" bindtap="close">
+  <view class="search-select-sheet" style="{{sheetStyle}}" catchtap="noop">
+    <view class="search-select-heading">
+      <text class="search-select-title">{{title}}</text>
+      <view class="search-select-close" bindtap="close" aria-label="关闭">×</view>
+    </view>
+    <input class="search-select-search" value="{{query}}" placeholder="搜索当前选项" confirm-type="search"
+      adjust-position="{{false}}" bindinput="onSearch" bindkeyboardheightchange="onKeyboardHeightChange" />
+    <scroll-view class="search-select-results" style="{{listStyle}}" scroll-y="true" enhanced="true">
+      <view wx:if="{{allowClear}}" class="search-select-option clear" bindtap="clear">清空选择</view>
+      <view wx:for="{{filteredOptions}}" wx:key="index" data-index="{{item.index}}" bindtap="choose"
+        class="search-select-option {{item.selected?'selected':''}} {{item.disabled?'option-disabled':''}}">
+        <text class="search-select-option-label {{multiLine?'multiline':''}}">{{item.label}}</text>
+        <text wx:if="{{item.selected}}" class="search-select-check">✓</text>
+      </view>
+      <view wx:if="{{!filteredOptions.length}}" class="search-select-empty">没有匹配的选项</view>
+    </scroll-view>
+  </view>
+</view>

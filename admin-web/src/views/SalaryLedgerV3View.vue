@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { routeApi, salaryApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import PageHeader from '../components/PageHeader.vue';
 import FilterBar from '../components/FilterBar.vue';
 import DataTable from '../components/DataTable.vue';
@@ -17,7 +18,7 @@ const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMont
 const mode = ref('ledger');
 const records = ref([]);
 const summary = ref(null);
-const pageNo = ref(1);
+const pageNo = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const loading = ref(false);
 const exporting = ref(false);
@@ -59,14 +60,14 @@ const summaryItems = computed(() => summary.value ? [
   { label: '工资总额', value: money(summary.value.salaryTotal) },
   { label: '自有司机工资', value: money(summary.value.internalSalary) },
   { label: '外协司机工资', value: money(summary.value.outsourcedSalary) },
-  { label: '参与次数 / 转派任务', value: `${summary.value.participantCount} / ${summary.value.transferTaskCount}` }
+  { label: '转派任务 / 参与次数', value: `${summary.value.transferTaskCount} / ${summary.value.participantCount}` }
 ] : []);
 
 async function load(next = 1) {
   loading.value = true; error.value = '';
   try {
     const [page, totals] = await Promise.all([
-      mode.value === 'drivers' ? salaryApi.drivers(effectiveFilters.value, next) : salaryApi.list(effectiveFilters.value, next),
+      mode.value === 'drivers' ? salaryApi.drivers(effectiveFilters.value, next, pageSize.value) : salaryApi.list(effectiveFilters.value, next, pageSize.value),
       salaryApi.summary(effectiveFilters.value)
     ]);
     records.value = page.records || [];
@@ -128,7 +129,7 @@ onMounted(() => load());
 
 <template>
   <main class="ui-page-container">
-    <PageHeader :title="pageTitle" description="按运输任务参与人核定工资；转派链的每位司机均单独计薪。">
+    <PageHeader :title="pageTitle" description="仅已完成卸货的任务计入工资台账；转派链的每位司机均单独计薪。">
       <template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="can('BUTTON_SALARIES_EXPORT')" type="button" :disabled="exporting" @click="download">{{ exporting ? '正在导出…' : '下载当前筛选 Excel' }}</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
@@ -143,28 +144,28 @@ onMounted(() => load());
     </FilterBar>
     <SummaryCards v-if="summary" label="当前筛选工资汇总" :items="summaryItems" />
     <div class="ui-tabs" role="tablist" aria-label="工资视图"><button type="button" :aria-selected="mode === 'ledger'" @click="changeMode('ledger')">逐任务工资</button><button v-if="initialSituation !== 'TRANSFER'" type="button" :aria-selected="mode === 'drivers'" @click="changeMode('drivers')">司机月度汇总</button></div>
-    <DataTable v-if="mode === 'ledger'" :columns="ledgerColumns" :rows="records" row-key="participantId" :loading="loading" empty-text="当前条件下暂无参与人工资">
+    <DataTable v-if="mode === 'ledger'" class="ui-paged-table" :columns="ledgerColumns" :rows="records" row-key="participantId" :loading="loading" empty-text="当前条件下暂无参与人工资">
       <template #driverType="{ row }">{{ typeName(row.driverType) }}</template>
       <template #sequenceNo="{ row }">{{ identity(row.sequenceNo) }}</template>
       <template #salaryAmount="{ row }">{{ money(row.salaryAmount) }}</template>
       <template #transferTask="{ row }"><span :class="row.transferTask ? 'v3-transfer-tag' : ''">{{ row.transferTask ? '转派任务' : '普通任务' }}</span></template>
-      <template #actions="{ row }"><button type="button" @click="openRow(row)">{{ row.transferTask ? '转派工资核对' : '工资详情' }}</button></template>
+      <template #actions="{ row }"><button type="button" class="ui-detail-button" @click="openRow(row)">{{ row.transferTask ? '转派工资核对' : '工资详情' }}</button></template>
     </DataTable>
-    <DataTable v-else :columns="driverColumns" :rows="records" row-key="driverId" :loading="loading" empty-text="当前月份暂无司机工资">
+    <DataTable v-else class="ui-paged-table" :columns="driverColumns" :rows="records" row-key="driverId" :loading="loading" empty-text="当前月份暂无司机工资">
       <template #driverType="{ row }">{{ typeName(row.driverType) }}</template><template #salaryTotal="{ row }">{{ money(row.salaryTotal) }}</template>
       <template #actions="{ row }"><button type="button" @click="selectDriver(row)">逐任务明细</button></template>
     </DataTable>
-    <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="load" />
+    <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
     <DetailDrawer :open="!!selected" :title="selected?.transferTask ? '转派工资核对' : '参与人工资详情'" @close="selected = null">
       <template #subtitle>{{ selected?.taskNo }} · {{ selected?.templateName }}</template>
       <p>按参与顺序核对全部司机；工资来自同一参与人事实。</p>
       <div v-for="(item, index) in participants" :key="item.id" class="v3-person-row">
         <strong>{{ identity(item.sequenceNo) }} · {{ item.driverName }} · {{ typeName(item.driverType) }}</strong>
         <span>{{ item.outsourcedPlate || item.companyVehiclePlate || '暂无车牌' }}<template v-if="item.trailerPlate"> · 车挂 {{ item.trailerPlate }}</template></span>
-        <small>发车 {{ item.departedAt || '未发车' }} · 结束 {{ item.endedAt || '尚未结束' }}</small>
+        <small>发车 {{ formatDateTime(item.departedAt, '未发车') }} · 结束 {{ formatDateTime(item.endedAt, '尚未结束') }}</small>
         <label v-if="review">核定工资（元）<input v-model="reviewRows[index].amount" type="number" min="0" step="0.01" /></label>
         <strong v-else>{{ money(item.salary) }}</strong>
-        <details v-if="historyByParticipant[item.id]?.length" class="v3-salary-history"><summary>查看该司机工资调整历史（{{ historyByParticipant[item.id].length }} 条）</summary><ol class="ui-timeline"><li v-for="change in historyByParticipant[item.id]" :key="change.id">{{ money(change.beforeAmount) }} → {{ money(change.afterAmount) }}<p>{{ change.operatedAt }} · 操作账号 {{ maskedPhone(change.operatorPhone) }} · {{ change.reason }}</p></li></ol></details>
+        <details v-if="historyByParticipant[item.id]?.length" class="v3-salary-history"><summary>查看该司机工资调整历史（{{ historyByParticipant[item.id].length }} 条）</summary><ol class="ui-timeline"><li v-for="change in historyByParticipant[item.id]" :key="change.id">{{ money(change.beforeAmount) }} → {{ money(change.afterAmount) }}<p>{{ formatDateTime(change.operatedAt) }} · 操作账号 {{ maskedPhone(change.operatorPhone) }} · {{ change.reason }}</p></li></ol></details>
       </div>
       <template v-if="review"><label>调整原因<textarea v-model.trim="reviewReason" rows="3" placeholder="填写本次核薪原因" /></label></template>
       <p v-if="!Object.values(historyByParticipant).some((changes) => changes.length)" class="muted">本任务暂无工资调整历史</p>

@@ -188,6 +188,8 @@ CREATE TABLE route_template (
   updated_by BIGINT NOT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT uk_route_template_stable_code UNIQUE (stable_code),
+  CONSTRAINT uk_route_template_business UNIQUE (customer_name, product_id, loading_place, unloading_place,
+    default_unit_price, default_information_fee, default_driver_salary),
   CONSTRAINT fk_route_template_product FOREIGN KEY (product_id) REFERENCES product(id),
   CONSTRAINT chk_route_template_defaults CHECK (default_unit_price >= 0 AND default_information_fee >= 0 AND default_driver_salary >= 0)
 );
@@ -253,7 +255,7 @@ CREATE TABLE transport_task (
   CONSTRAINT uk_task_import_business_key UNIQUE (import_business_key),
   CONSTRAINT fk_task_template FOREIGN KEY (template_id) REFERENCES route_template(id),
   CONSTRAINT chk_task_amounts CHECK (actual_unit_price >= 0 AND actual_information_fee >= 0),
-  CONSTRAINT chk_task_status CHECK (status IN ('UNPUBLISHED', 'PUBLISHED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'COMPLETED', 'CANCELLED'))
+  CONSTRAINT chk_task_status CHECK (status IN ('PUBLISHED', 'IN_TRANSIT', 'TRANSFER_PENDING', 'COMPLETED', 'CANCELLED'))
 );
 
 CREATE TABLE task_amount_history (
@@ -397,6 +399,7 @@ CREATE TABLE expense_entry (
   invoice_no VARCHAR(128) NULL,
   remark VARCHAR(1000) NULL,
   station_name VARCHAR(255) NULL,
+  trailer_no VARCHAR(64) NULL,
   source_type VARCHAR(16) NOT NULL,
   source_record_key VARCHAR(128) NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
@@ -614,6 +617,7 @@ CREATE TABLE approval_expense_item (
   invoice_no VARCHAR(128) NULL,
   remark VARCHAR(1000) NULL,
   station_name VARCHAR(128) NULL,
+  trailer_no VARCHAR(64) NULL,
   target_task_id BIGINT NULL,
   CONSTRAINT uk_approval_expense_item UNIQUE (submission_version_id, item_no),
   CONSTRAINT chk_approval_expense_positive CHECK (amount > 0),
@@ -703,6 +707,7 @@ CREATE TABLE tire_history (
 
 CREATE TABLE tire_request (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  batch_key VARCHAR(128) NOT NULL,
   applicant_driver_id BIGINT NOT NULL,
   approval_instance_id BIGINT NULL,
   vehicle_id BIGINT NOT NULL,
@@ -712,10 +717,11 @@ CREATE TABLE tire_request (
   tire_id BIGINT NOT NULL,
   status VARCHAR(32) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT uk_tire_request_approval UNIQUE (approval_instance_id)
+  CONSTRAINT uk_tire_request_batch_no UNIQUE (batch_key, confirmed_tire_no)
 );
 
 CREATE INDEX idx_tire_request_tire_status ON tire_request(tire_id, status);
+CREATE INDEX idx_tire_request_approval ON tire_request(approval_instance_id);
 
 
 
@@ -821,9 +827,9 @@ VALUES
   ('ADMIN', '管理员', 1);
 
 INSERT INTO expense_category (category_code,category_name,display_order) VALUES
-  ('PENALTY','罚款',10),('CARRYING','搬运费',20),('REPAIR','维修费',30),
+  ('PENALTY','罚款',10),('REPAIR','维修费',30),
   ('ELECTRIC','电费',40),('GAS','气费',50),('TEMP_ELECTRIC','临时电费',60),
-  ('TEMP_GAS','临时气费',65),('WATER','水费',70),('TOLL','过路费',80),('CAR_WASH','洗车费',90);
+  ('TEMP_GAS','临时气费',65),('WATER','水费',70),('TOLL','过路费',80);
 
 -- 页面与按钮权限由后端功能注册表在启动时同步；普通角色新增功能默认不授权。
 

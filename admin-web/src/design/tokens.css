@@ -19,6 +19,16 @@
   --ui-info-soft: #eaf2fb;
   --ui-disabled: #8b9a95;
   --ui-radius-control: 6px;
+  --ui-button-height: 38px;
+  --ui-button-radius: 8px;
+  --ui-button-padding-x: 14px;
+  --ui-button-font-size: 14px;
+  --ui-button-icon-size: 16px;
+  --ui-button-primary-bg: #155e50;
+  --ui-button-secondary-border: #cbded5;
+  --ui-button-secondary-text: #24483e;
+  --ui-button-detail-text: #176f62;
+  --ui-button-focus: #69b59b;
   --ui-radius-card: 8px;
   --ui-radius-overlay: 10px;
   --ui-space-1: 4px;

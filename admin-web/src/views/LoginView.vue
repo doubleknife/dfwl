@@ -1,10 +1,10 @@
 <script setup>
 import { reactive, ref } from 'vue';
 import { authStore } from '../stores/auth.js';
+import IcpFooter from '../components/IcpFooter.vue';
 
 const form = reactive({ phone: '', password: '' });
 const notice = ref(sessionStorage.getItem('admin.loginNotice') || '');
-const icpNumber = import.meta.env.VITE_ICP_NUMBER?.trim() || '';
 sessionStorage.removeItem('admin.loginNotice');
 
 async function submit() {
@@ -26,6 +26,6 @@ async function submit() {
       <label>密码<input v-model="form.password" type="password" autocomplete="current-password" /></label>
       <button class="primary" :disabled="authStore.loading">登录</button>
     </form>
-    <small v-if="icpNumber" class="login-icp">{{ icpNumber }}</small>
+    <IcpFooter />
   </main>
 </template>

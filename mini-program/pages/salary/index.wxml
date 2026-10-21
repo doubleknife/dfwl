@@ -21,6 +21,6 @@
       <view class="salary-entry-line"><text>{{item.taskNo || '参与工资'}}</text><text class="salary-entry-amount">¥ {{item.salaryAmount}}</text></view>
       <view class="salary-entry-note">{{item.businessDate}} · 参与顺序 {{item.sequenceNo}}</view>
     </view>
-    <button wx:if="{{hasMore}}" class="salary-more" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">{{loadingMore ? '加载中…' : '加载更多明细'}}</button>
+    <button wx:if="{{hasMore}}" class="salary-more secondary" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">{{loadingMore ? '加载中…' : '加载更多明细'}}</button>
   </block>
 </view>

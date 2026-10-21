@@ -1,3 +1,4 @@
 {
-  "navigationBarTitleText": "换胎申请"
+  "navigationBarTitleText": "换胎申请",
+  "usingComponents": { "search-select": "../../components/search-select/index" }
 }

@@ -39,7 +39,7 @@ public class ExpenseLedgerService {
             e.id,e.expense_no,e.business_date,e.expense_type,e.application_scope,
             e.current_task_id,t.task_no,e.vehicle_id,v.plate_no vehicle_plate,
             e.driver_id,d.name driver_name,e.amount,e.description,e.receipt_no,e.invoice_no,
-            e.remark,e.station_name,e.source_type,e.source_record_key,e.status,e.version,
+            e.remark,e.station_name,e.trailer_no,e.source_type,e.source_record_key,e.status,e.version,
             e.approval_instance_id,e.approval_item_no,a.approval_no,a.created_at approval_started_at,
             atpl.name approval_name,a.request_key approval_batch_key,
             CASE WHEN e.source_type='REVERSAL' THEN '冲销记录'
@@ -211,15 +211,15 @@ public class ExpenseLedgerService {
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                     INSERT INTO expense_entry(expense_no,application_scope,current_task_id,vehicle_id,driver_id,
-                      expense_type,business_date,description,amount,receipt_no,invoice_no,remark,station_name,
+                      expense_type,business_date,description,amount,receipt_no,invoice_no,remark,station_name,trailer_no,
                       source_type,source_record_key,status,created_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'REVERSAL',?,'ACTIVE',?)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'REVERSAL',?,'ACTIVE',?)
                     """, new String[]{"id"});
             Object[] values = {no, original.get("application_scope"), original.get("current_task_id"),
                     original.get("vehicle_id"), original.get("driver_id"), original.get("expense_type"),
                     original.get("business_date"), original.get("description"), amount.negate(),
                     original.get("receipt_no"), original.get("invoice_no"), original.get("remark"),
-                    original.get("station_name"), "REVERSAL:" + id, actor};
+                    original.get("station_name"), original.get("trailer_no"), "REVERSAL:" + id, actor};
             for (int i = 0; i < values.length; i++) statement.setObject(i + 1, values[i]);
             return statement;
         }, holder);
@@ -243,7 +243,7 @@ public class ExpenseLedgerService {
                 + " ORDER BY e.business_date DESC,e.id DESC", args.toArray());
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             var sheet = workbook.createSheet("费用台账");
-            String[] headings = {"日期", "费用编号", "费用类型", "申请属性", "司机", "公司车牌", "当前任务",
+            String[] headings = {"日期", "费用编号", "费用类型", "申请属性", "司机", "公司车牌", "车挂号", "当前任务",
                     "明细", "金额", "来源", "状态", "归属方式", "票据号", "发票号", "站点名称", "备注"};
             var header = sheet.createRow(0);
             for (int i = 0; i < headings.length; i++) header.createCell(i).setCellValue(headings[i]);
@@ -252,7 +252,7 @@ public class ExpenseLedgerService {
                 var excel = sheet.createRow(number++);
                 Object[] values = {row.get("business_date"),row.get("expense_no"),typeName(row.get("expense_type")),
                         scopeName(row.get("application_scope")),row.get("driver_name"),row.get("vehicle_plate"),
-                        row.get("task_no"),row.get("description"),row.get("amount"),sourceName(row.get("source_type")),
+                        row.get("trailer_no"),row.get("task_no"),row.get("description"),row.get("amount"),sourceName(row.get("source_type")),
                         row.get("display_status"),row.get("attribution_method"),row.get("receipt_no"),
                         row.get("invoice_no"),row.get("station_name"),row.get("remark")};
                 for (int i = 0; i < values.length; i++) excel.createCell(i).setCellValue(

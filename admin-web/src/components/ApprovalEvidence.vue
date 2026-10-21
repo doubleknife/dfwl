@@ -127,7 +127,6 @@ onUnmounted(() => {
         </button>
       </li>
     </ul>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div v-if="preview" class="approval-preview" role="dialog" aria-label="图片预览">
       <div class="approval-preview-card">
         <div class="approval-preview-head"><strong>{{ preview.name }}</strong><button type="button" @click="closePreview">关闭预览</button></div>

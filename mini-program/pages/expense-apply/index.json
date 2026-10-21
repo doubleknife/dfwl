@@ -1,3 +1,4 @@
 {
-  "navigationBarTitleText": "发起费用申请"
+  "navigationBarTitleText": "发起费用申请",
+  "usingComponents": { "search-select": "../../components/search-select/index" }
 }

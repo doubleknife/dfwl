@@ -1,17 +1,18 @@
 // Display text only. API requests, filtering and persistence keep the original codes.
+import { formatDateTime } from './dateTime.js';
 export const businessTypeLabels = {
   ROUTE: '线路', TIRE: '轮胎', EXPENSE: '费用', SALARY: '工资',
   TIRE_REQUEST: '换胎申请', DAILY_EXPENSE: '日常费用', OTHER: '其他'
 };
 
 export const expenseTypeLabels = {
-  PENALTY: '罚款', CARRYING: '搬运费', REPAIR: '维修费', ELECTRIC: '电费', GAS: '气费',
-  TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', WATER: '水费', TOLL: '过路费', CAR_WASH: '洗车费',
+  PENALTY: '罚款', REPAIR: '维修费', ELECTRIC: '电费', GAS: '气费',
+  TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费', WATER: '水费', TOLL: '过路费',
   INFORMATION: '信息费', DRIVER_SALARY: '司机工资', OTHER: '其他费用'
 };
 
 export const statusLabels = {
-  UNPUBLISHED: '未发布', PUBLISHED: '已发布', TRANSFER_PENDING: '等待接手',
+  PUBLISHED: '已发布', TRANSFER_PENDING: '等待接手',
   ASSIGNED: '待发车', TRANSFERRED: '已转派', LEGACY_ENDED: '历史结束',
   IN_TRANSIT: '运输中', COMPLETED: '已完成',
   CANCELLED: '已取消',
@@ -48,5 +49,5 @@ export function displayValue(key, value, row = {}) {
     configurationStatus: statusLabels
   }[key];
   if (key === 'status' && value === 'ACTIVE' && (row.templateCode || row.flowName)) return '已发布';
-  return labels?.[value] ?? value;
+  return labels?.[value] ?? formatDateTime(value);
 }

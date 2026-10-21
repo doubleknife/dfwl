@@ -15,5 +15,5 @@
 .mp-route-weight { font-size: 38rpx; font-weight: 700; }
 .mp-route-evidence-link { margin: 22rpx 0 0; min-height: 80rpx; display: flex; align-items: center; justify-content: center; border: 1rpx solid var(--mp-border); border-radius: var(--mp-radius-control); background: var(--mp-surface); color: var(--mp-primary); font-size: 29rpx; font-weight: 600; }
 .mp-route-bottom { position: fixed; left: 0; right: 0; bottom: 0; padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom)); background: var(--mp-surface); border-top: 1rpx solid var(--mp-border); }
-.mp-route-primary { min-height: 96rpx; display: flex; align-items: center; justify-content: center; border-radius: var(--mp-radius-control); background: var(--mp-primary); color: #fff; font-size: 32rpx; font-weight: 700; }
+.mp-route-primary { min-height: var(--mp-button-height); display: flex; align-items: center; justify-content: center; border-radius: var(--mp-button-radius); font-size: 30rpx; font-weight: 700; }
 .mp-route-permission { padding: 20rpx; color: var(--mp-warning); font-size: 28rpx; }

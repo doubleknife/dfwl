@@ -18,6 +18,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.PreparedStatement;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -281,8 +282,12 @@ public class TaskImportService {
     private Evaluated evaluate(RawRow raw, Set<String> seen) {
         List<String> errors = new ArrayList<>();
         LocalDate date = null;
-        try { date = LocalDate.parse(raw.businessDate()); }
-        catch (RuntimeException ex) { errors.add("业务日期须为 yyyy-MM-dd"); }
+        try {
+            String value = raw.businessDate();
+            date = value.matches("[0-9]{8}")
+                    ? LocalDate.parse(value, DateTimeFormatter.BASIC_ISO_DATE)
+                    : LocalDate.parse(value);
+        } catch (RuntimeException ex) { errors.add("业务日期须为 yyyy-MM-dd 或 yyyyMMdd"); }
         Long driverId = null;
         if (raw.driverPhone() == null || !raw.driverPhone().matches("1[0-9]{10}")) errors.add("司机手机号格式不正确");
         else {

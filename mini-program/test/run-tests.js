@@ -52,7 +52,7 @@ const tests = [
     assert.equal(cards.includes('salary'), true);
     assert.equal(cards.includes('tire'), false);
   }],
-  ['approval and expense workflows require internal driver and permission', () => {
+  ['driver expense actions require permission and exclude outsourced drivers', () => {
     const user = { permissions: ['PAGE_MINI_EXPENSE_APPLY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT', 'PAGE_MINI_APPROVALS', 'BUTTON_MINI_APPROVALS_APPROVE'] };
     const { visibleHomeActions } = require('../utils/permissions');
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }).map((item) => item.key), ['expense', 'approval']);
@@ -116,7 +116,7 @@ const tests = [
     assert.match(tire, /chooseMedia/);
     assert.match(tire, /purpose: 'TIRE_OCR'/);
     assert.match(tire, /\/tire-requests\/ocr/);
-    assert.match(tire, /\/tires\/request-target/);
+    assert.match(tire, /\/tire-requests\/validate/);
     assert.match(tire, /\/tire-requests/);
     assert.match(tire, /driverType !== 'INTERNAL'/);
   }]
@@ -126,6 +126,95 @@ tests.push(...require('./f4e-tests'));
 tests.push(...require('./ui3-tests'));
 tests.push(...require('./auth-session-tests'));
 tests.push(...require('./change-password-tests'));
+tests.push(...require('./tire-request-tests'));
+tests.push(...require('./search-select-tests'));
+
+tests.push(['transport detail shows readable departure and unload times', () => {
+  const { formatDateTime } = require('../utils/dateTime');
+  assert.equal(formatDateTime('2026-10-21T05:30:51.325'), '2026-10-21 05:30:51');
+  const page = fs.readFileSync(path.join(root, 'pages/route-detail/index.js'), 'utf8');
+  const markup = fs.readFileSync(path.join(root, 'pages/route-detail/index.wxml'), 'utf8');
+  assert.match(page, /departureLabel: formatDateTime\(safe\.departureTime\)/);
+  assert.match(page, /unloadLabel: formatDateTime\(safe\.unloadTime\)/);
+  assert.match(markup, /\{\{route\.departureLabel\}\}/);
+  assert.match(markup, /\{\{route\.unloadLabel\}\}/);
+}]);
+
+tests.push(['button roles keep touch targets and existing approval actions', () => {
+  const appStyle = fs.readFileSync(path.join(root, 'app.wxss'), 'utf8');
+  const tokens = fs.readFileSync(path.join(root, 'design/tokens.wxss'), 'utf8');
+  for (const role of ['button.primary', 'button.secondary', 'button.mp-return-button', 'button.mp-detail-button', 'button.mp-danger'])
+    assert.ok(appStyle.includes(role), `missing ${role} styling`);
+  assert.match(tokens, /--mp-button-height:\s*88rpx/);
+  assert.match(appStyle, /button\[disabled\]\s*\{[^}]*opacity:/);
+  const approval = fs.readFileSync(path.join(root, 'pages/approvals/index.wxml'), 'utf8');
+  assert.match(approval, /class="page-return-button mp-return-button" bindtap="back"/);
+  assert.match(approval, /class="card-action mp-detail-link">查看详情 ›/);
+  assert.match(approval, /class="approval-card" data-id="\{\{item\.id\}\}" bindtap="open"/);
+  assert.match(approval, /wx:if="\{\{detail\.canApprove\}\}"[^>]*data-kind="APPROVE" bindtap="act"/);
+  assert.match(fs.readFileSync(path.join(root, 'pages/tire-request/index.wxml'), 'utf8'), /class="mp-danger"[^>]*bindtap="removeItem"/);
+  assert.match(fs.readFileSync(path.join(root, 'pages/weight/index.wxml'), 'utf8'), /class="mp-danger"[^>]*bindtap="removeTicket"/);
+}]);
+
+tests.push(['expense energy choices filter daily plates and participated task vehicles', () => {
+  const { vehicleEnergyError, energyHint, eligibleVehicles, eligibleTasks } = require('../utils/expenseEnergy');
+  const vehicles = [{ id: 1, energyType: 'ELECTRIC' }, { id: 2, energyType: 'GAS' }];
+  const tasks = [{ taskId: 10, vehicleId: 1 }, { taskId: 11, vehicleId: 2 }];
+  for (const type of ['ELECTRIC', 'TEMP_ELECTRIC']) {
+    assert.deepEqual(eligibleVehicles(type, vehicles).map((row) => row.id), [1]);
+    assert.deepEqual(eligibleTasks(type, tasks, vehicles).map((row) => row.taskId), [10]);
+  }
+  for (const type of ['GAS', 'TEMP_GAS']) {
+    assert.deepEqual(eligibleVehicles(type, vehicles).map((row) => row.id), [2]);
+    assert.deepEqual(eligibleTasks(type, tasks, vehicles).map((row) => row.taskId), [11]);
+  }
+  assert.equal(eligibleVehicles('REPAIR', vehicles).length, 2);
+  assert.equal(vehicleEnergyError('ELECTRIC', { energyType: 'GAS' }), '电费、临时电费只能选择电车');
+  assert.equal(vehicleEnergyError('TEMP_GAS', { energyType: 'ELECTRIC' }), '气费、临时气费只能选择气车');
+  assert.equal(vehicleEnergyError('GAS', { energyType: 'GAS' }), '');
+  assert.match(energyHint('TEMP_ELECTRIC'), /电车/);
+}]);
+
+tests.push(['mini expense remains one item and approval images keep only successful uploads', async () => {
+  const requestModule = require('../utils/request');
+  const originalUpload = requestModule.uploadFile;
+  const originalWx = global.wx;
+  const helperPath = require.resolve('../utils/approvalImages');
+  const selected = [];
+  let uploads = 0;
+  let retained = [];
+  try {
+    global.wx = { chooseMedia(options) {
+      selected.push(options);
+      options.success({ tempFiles: [{ tempFilePath: '/tmp/one.jpg', size: 10 },
+        { tempFilePath: '/tmp/two.jpg', size: 10 }] });
+    } };
+    requestModule.uploadFile = async (options) => {
+      uploads += 1;
+      assert.equal(options.formData.ownerType, 'APPROVAL_UPLOAD');
+      assert.equal(options.formData.ownerId, '501');
+      if (uploads === 2) throw new Error('第二张上传失败');
+      return { id: 70 };
+    };
+    delete require.cache[helperPath];
+    const { chooseApprovalImages, singleExpenseItem } = require('../utils/approvalImages');
+    assert.deepEqual(singleExpenseItem({ amount: 1 }), [{ amount: 1 }]);
+    assert.throws(() => singleExpenseItem([{ amount: 1 }, { amount: 2 }]), /只能提交一笔/);
+    await assert.rejects(chooseApprovalImages([], 501, 'APPROVAL_APPLICATION', (images) => { retained = images; }),
+      /第二张上传失败/);
+    assert.deepEqual(retained.map((image) => image.id), [70]);
+    assert.deepEqual(selected[0].sourceType, ['camera', 'album']);
+    const expense = fs.readFileSync(path.join(root, 'pages/expense-apply/index.js'), 'utf8');
+    const approval = fs.readFileSync(path.join(root, 'pages/approvals/index.js'), 'utf8');
+    assert.match(expense, /const items = singleExpenseItem\(item\)/);
+    assert.match(expense, /items, attachmentIds: d\.images\.map/);
+    assert.match(approval, /attachmentIds: this\.data\.actionImages\.map/);
+  } finally {
+    requestModule.uploadFile = originalUpload;
+    global.wx = originalWx;
+    delete require.cache[helperPath];
+  }
+}]);
 
 (async () => {
   for (const [name, run] of tests) {

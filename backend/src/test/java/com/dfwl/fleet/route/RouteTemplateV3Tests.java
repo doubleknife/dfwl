@@ -37,13 +37,14 @@ class RouteTemplateV3Tests {
     @Test
     void createsUpdatesAndDisablesWithoutChangingStableIdentity() {
         var created = templates.create(request(null, "100.00"), 1);
-        assertThat(created.stableCode()).isEqualTo("T-V3-001");
+        assertThat(created.stableCode()).matches("L\\d{7}");
         assertThat(created.customerName()).isEqualTo("昆明客户");
         assertThat(created.defaultUnitPrice()).isEqualByComparingTo("100.00");
         assertThat(created.enabled()).isTrue();
 
         var updated = templates.update(created.id(), request(created.version(), "110.00"), 1);
         assertThat(updated.id()).isEqualTo(created.id());
+        assertThat(updated.stableCode()).isEqualTo(created.stableCode());
         assertThat(updated.defaultUnitPrice()).isEqualByComparingTo("110.00");
         assertThat(templates.setEnabled(created.id(), updated.version(), false, 1).enabled()).isFalse();
         assertThatThrownBy(() -> templates.update(created.id(), request(created.version(), "120.00"), 1))
@@ -53,18 +54,35 @@ class RouteTemplateV3Tests {
     }
 
     @Test
-    void duplicateTemplateCodeAndDisabledProductAreRejected() {
-        templates.create(request(null, "100.00"), 1);
+    void identicalBusinessFieldsAreRejectedForCreateAndUpdateEvenWithDifferentNameOrStatus() {
+        var first = templates.create(request(null, "100.00"), 1);
+        assertThatThrownBy(() -> templates.create(new RouteTemplateRequest("另一名称", "昆明客户", 901L,
+                "昆明", "曲靖", new BigDecimal("100.0"), new BigDecimal("20.00"),
+                new BigDecimal("30.00"), "另一备注", null), 1))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("线路模板已存在");
+        var second = templates.create(request(null, "101.00"), 1);
+        assertThat(second.stableCode()).matches("L\\d{7}").isNotEqualTo(first.stableCode());
+        assertThatThrownBy(() -> templates.update(second.id(), request(second.version(), "100.00"), 1))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("线路模板已存在");
+        var disabled = templates.setEnabled(first.id(), first.version(), false, 1);
         assertThatThrownBy(() -> templates.create(request(null, "100.00"), 1))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class).hasMessageContaining("线路模板已存在");
+        assertThat(templates.update(disabled.id(), new RouteTemplateRequest("改名", "昆明客户", 901L,
+                "昆明", "曲靖", new BigDecimal("100.00"), new BigDecimal("20.00"),
+                new BigDecimal("30.00"), "备注修改", disabled.version()), 1).stableCode())
+                .isEqualTo(first.stableCode());
+    }
+
+    @Test
+    void disabledProductIsRejected() {
         jdbc.update("UPDATE product SET enabled=0 WHERE id=901");
-        assertThatThrownBy(() -> templates.create(new RouteTemplateRequest("T-V3-002", "备用", "昆明客户", 901L,
+        assertThatThrownBy(() -> templates.create(new RouteTemplateRequest("备用", "昆明客户", 901L,
                 "昆明", "曲靖", BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, null, null), 1))
                 .isInstanceOf(BusinessException.class);
     }
 
     private RouteTemplateRequest request(Integer version, String price) {
-        return new RouteTemplateRequest("T-V3-001", "昆明至曲靖", "昆明客户", 901L,
+        return new RouteTemplateRequest("昆明至曲靖", "昆明客户", 901L,
                 "昆明", "曲靖", new BigDecimal(price), new BigDecimal("20.00"),
                 new BigDecimal("30.00"), "测试模板", version);
     }

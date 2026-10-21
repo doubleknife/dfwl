@@ -8,4 +8,4 @@
 .notice-arrow { margin-left: auto; font-size: 36rpx; color: #81938f; }
 .notice-summary { font-size: 27rpx; color: #526d67; margin-top: 12rpx; }
 .notice-time { font-size: 24rpx; color: #70837e; margin-top: 16rpx; }
-.notice-more { min-height: 88rpx; background: #e4f3ee; color: #126f62; border-radius: 18rpx; }
+.notice-more { min-height: var(--mp-button-height); border-radius: var(--mp-button-radius); }

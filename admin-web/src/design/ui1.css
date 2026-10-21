@@ -21,6 +21,6 @@
 .ui-permission-item span { display:grid; gap:2px; }
 .ui-permission-item small { color:var(--ui-text-secondary); }
 .ui-more-menu > div span { display:block; padding:8px; font-size:12px; }
-.ui-object-actions { display:grid; gap:8px; margin-top:16px; }
-.ui-object-actions button { text-align:left; padding:10px 12px; }
+.ui-object-actions { display:grid; justify-items:end; gap:8px; margin-top:16px; }
+.ui-object-actions button { text-align:center; padding:10px 12px; }
 @media (max-width:760px) { .ui-list-heading { align-items:flex-start; } .ui-entity-picker { min-width:0; } .ui-permission-group-head { gap:8px; } }

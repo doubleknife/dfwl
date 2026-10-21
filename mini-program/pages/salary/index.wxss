@@ -12,4 +12,4 @@
 .salary-entry-line { display: flex; justify-content: space-between; gap: 20rpx; font-size: 31rpx; font-weight: 600; }
 .salary-entry-amount { color: #137668; }
 .salary-entry-note { margin-top: 12rpx; }
-.salary-more { margin: 20rpx 0 50rpx; min-height: 88rpx; border-radius: 18rpx; background: #e4f3ee; color: #116f62; font-size: 30rpx; }
+.salary-more { margin: 20rpx 0 50rpx; min-height: var(--mp-button-height); border-radius: var(--mp-button-radius); font-size: 30rpx; }

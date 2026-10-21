@@ -1,24 +1,25 @@
 <view class="approval-page">
-  <view class="page-title">审批中心</view>
+  <view class="page-header"><view class="page-title">我的审批</view><button wx:if="{{detail}}" class="page-return-button mp-return-button" bindtap="back">← 返回列表</button></view>
   <view class="subtabs" wx:if="{{!detail}}">
-    <view class="tab {{scope==='MINE'?'active':''}}" data-scope="MINE" bindtap="changeScope">我的申请</view>
-    <view wx:if="{{canTodo}}"
-      class="tab {{scope==='TODO'?'active':''}}" data-scope="TODO" bindtap="changeScope">待我处理</view>
+    <view class="tab {{scope==='MINE'?'active':''}}" data-scope="MINE" bindtap="changeScope">我发起的</view>
+    <view class="tab {{scope==='TODO'?'active':''}}" data-scope="TODO" bindtap="changeScope">待我处理</view>
+    <view class="tab {{scope==='PROCESSED'?'active':''}}" data-scope="PROCESSED" bindtap="changeScope">我处理过的</view>
   </view>
   <view wx:if="{{error}}" class="feedback error">{{error}} <text bindtap="bootstrap">重试</text></view>
   <view wx:if="{{loading}}" class="feedback">正在加载审批信息…</view>
   <block wx:if="{{!detail}}">
     <view wx:if="{{!loading && !rows.length && !error}}" class="feedback">当前没有审批记录</view>
     <view wx:for="{{rows}}" wx:key="id" class="approval-card" data-id="{{item.id}}" bindtap="open">
-      <view class="row"><text class="name">{{item.templateName}}</text><status-tag label="{{item.statusLabel}}" tone="{{item.statusTone}}" /></view>
-      <view class="muted">{{item.businessLabel}} · {{item.applicationScope==='DAILY'?'日常费用':item.applicationScope==='TASK'?'任务费用':'审批'}}</view>
-      <view class="muted">{{item.approvalNo}}</view>
-      <view class="card-action">查看申请与处理记录 ›</view>
+      <view class="row"><text class="name">{{item.businessLabel}}</text><status-tag label="{{item.statusLabel}}" tone="{{item.statusTone}}" /></view>
+      <view class="muted">{{item.businessSummary || item.templateName}}</view>
+      <view class="muted">申请时间：{{item.createdLabel}}</view>
+      <view class="muted">最近处理：{{item.handledLabel || '尚未处理'}}</view>
+      <view wx:if="{{item.status==='RETURNED_TO_APPLICANT'}}" class="muted">最近打回：{{item.returnLabel}}</view>
+      <view class="card-action mp-detail-link">查看详情 ›</view>
     </view>
-    <button wx:if="{{hasMore}}" class="more" bindtap="more">加载更多</button>
+    <button wx:if="{{hasMore}}" class="more secondary" bindtap="more">加载更多</button>
   </block>
   <block wx:else>
-    <view class="back" bindtap="back">‹ 返回审批列表</view>
     <view class="approval-card">
       <view class="row"><text class="name">{{detail.approval.template_name}}</text><status-tag label="{{detail.statusLabel}}" tone="{{detail.statusTone}}" /></view>
       <view class="muted">{{detail.approval.approval_no}}</view>
@@ -30,31 +31,74 @@
       <view class="row"><text>{{item.business_date}}</text><text class="amount">¥{{item.amount}}</text></view>
       <view class="muted">{{item.description || '未填写明细'}} · {{item.station_name || '未填写站点'}}</view>
     </view>
+    <view wx:if="{{detail.tireRequests.length}}" class="approval-card">
+      <view class="name">本次换胎胎号（{{detail.tireRequests.length}} 个）</view>
+      <view wx:for="{{detail.tireRequests}}" wx:for-item="tire" wx:key="tireNo" class="muted">
+        {{index+1}}. {{tire.vehiclePlate}} · {{tire.tireNo}} · {{tire.driverName}}
+      </view>
+    </view>
+    <view wx:if="{{detail.returnAction && detail.approval.status==='RETURNED_TO_APPLICANT'}}" class="approval-card">
+      <view class="name">打回信息</view>
+      <view class="muted">打回人：{{detail.returnAction.operator_role}} · {{detail.returnAction.operator_phone}}</view>
+      <view class="muted">打回时间：{{detail.returnAction.operatedLabel}}</view>
+      <view class="muted">打回原因：{{detail.returnAction.comment}}</view>
+    </view>
     <button wx:if="{{detail.canResubmitExpense}}" class="primary" bindtap="reapply">修改费用并重新提交</button>
-    <view wx:if="{{!detail.items.length}}" class="approval-card muted">请核对业务申请摘要及审批步骤。</view>
+    <button wx:if="{{detail.canResubmitTire}}" class="primary" bindtap="reapplyTire">修改并重新提交</button>
+    <view wx:if="{{!detail.items.length && !detail.tireRequests.length}}" class="approval-card muted">请核对业务申请摘要及审批步骤。</view>
     <view wx:if="{{detail.evidence.length}}" class="section-title">申请凭证</view>
     <view wx:for="{{detail.evidence}}" wx:key="id" class="approval-card" data-index="{{index}}" bindtap="previewEvidence">
       <image wx:if="{{item.path}}" class="evidence-image" src="{{item.path}}" mode="aspectFill" />
       <view wx:else class="feedback error">{{item.error || '图片加载中…'}}</view>
     </view>
+    <view wx:for="{{detail.earlierEvidence}}" wx:for-item="version" wx:for-index="versionIndex" wx:key="id" class="approval-card">
+      <view class="name">第 {{version.number}} 次提交凭证</view>
+      <view class="approval-image-grid">
+        <view wx:for="{{version.images}}" wx:for-item="photo" wx:for-index="photoIndex" wx:key="id"
+          data-version="{{versionIndex}}" data-index="{{photoIndex}}" bindtap="previewEarlierEvidence">
+          <image wx:if="{{photo.path}}" class="evidence-image" src="{{photo.path}}" mode="aspectFill" />
+          <view wx:else class="feedback error">{{photo.error || '图片加载中…'}}</view>
+        </view>
+      </view>
+    </view>
     <view class="section-title">处理记录</view>
     <view wx:if="{{!detail.actions.length}}" class="approval-card muted">尚无处理记录</view>
-    <view wx:for="{{detail.actions}}" wx:key="id" class="approval-card">
-      <view class="name">{{item.label}}{{item.target_step_name_snapshot?' → '+item.target_step_name_snapshot:''}}</view>
-      <view class="muted">{{item.comment || '无补充意见'}}</view>
-      <view class="muted">{{item.operated_at}}</view>
+    <view wx:for="{{detail.actions}}" wx:for-item="action" wx:for-index="actionIndex" wx:key="id" class="approval-card">
+      <view class="name">{{action.label}}</view>
+      <view class="muted">操作时间：{{action.operatedLabel}}</view>
+      <view class="muted">操作人：{{action.operator_role}} · {{action.operator_phone}}</view>
+      <view class="muted">审批节点：{{action.node_name}}</view>
+      <view wx:if="{{action.action_type==='RETURN_APPLICANT'}}" class="muted">打回目标：申请人</view>
+      <view wx:if="{{action.action_type==='RETURN_STEP'}}" class="muted">打回目标：{{action.target_step_name_snapshot}}</view>
+      <view class="muted">审批意见：{{action.comment || '未填写'}}</view>
+      <view wx:if="{{action.evidence.length}}" class="approval-image-grid">
+        <view wx:for="{{action.evidence}}" wx:for-item="photo" wx:for-index="photoIndex" wx:key="id"
+          data-action="{{actionIndex}}" data-index="{{photoIndex}}" bindtap="previewActionEvidence">
+          <image wx:if="{{photo.path}}" class="evidence-image" src="{{photo.path}}" mode="aspectFill" />
+          <view wx:else class="feedback error">{{photo.error || '图片加载中…'}}</view>
+        </view>
+      </view>
     </view>
     <view wx:if="{{detail.canProcess}}" class="approval-card">
       <view class="section-title">处理当前步骤</view>
       <view class="field-label">处理意见（打回必填）</view>
       <textarea class="field" value="{{comment}}" bindinput="onComment" placeholder="说明通过或打回原因" />
+      <view class="field-label">处理图片凭证（选填）</view>
+      <button class="secondary" disabled="{{busy || uploading}}" bindtap="addActionImages">{{uploading?'上传中…':'拍照或从相册选择'}}</button>
+      <view class="approval-image-grid">
+        <view wx:for="{{actionImages}}" wx:key="id" class="approval-image-item">
+          <image src="{{item.path}}" mode="aspectFill" data-index="{{index}}" bindtap="previewActionDraft" />
+          <text data-index="{{index}}" bindtap="removeActionImage">移除</text>
+        </view>
+      </view>
       <view wx:if="{{detail.canReturn && returnable.length}}" class="field-label">返回至指定步骤</view>
-      <picker wx:if="{{detail.canReturn && returnable.length}}" mode="selector" range="{{returnable}}" range-key="stepName" bindchange="onTarget">
-        <view class="field">{{targetFlowNodeId ? '已选择返回步骤' : '请选择合法的前置步骤'}}</view>
-      </picker>
-      <button wx:if="{{detail.canReturn && returnable.length}}" class="secondary" disabled="{{busy || !targetFlowNodeId}}" data-kind="RETURN_STEP" bindtap="act">打回指定步骤</button>
-      <button wx:if="{{detail.canReturn}}" class="secondary" disabled="{{busy}}" data-kind="RETURN_APPLICANT" bindtap="act">打回申请人</button>
-      <button wx:if="{{detail.canApprove}}" class="primary" disabled="{{busy}}" data-kind="APPROVE" bindtap="act">{{busy?'处理中…':'通过当前步骤'}}</button>
+      <search-select wx:if="{{detail.canReturn && returnable.length}}" title="选择返回步骤"
+        options="{{returnable}}" label-key="stepName" value-key="flowNodeId"
+        current-value="{{targetFlowNodeId}}" display-text="{{targetStepName}}"
+        placeholder="请选择合法的前置步骤" bind:change="onTarget" />
+      <button wx:if="{{detail.canReturn && returnable.length}}" class="secondary" disabled="{{busy || uploading || !targetFlowNodeId}}" data-kind="RETURN_STEP" bindtap="act">打回指定步骤</button>
+      <button wx:if="{{detail.canReturn}}" class="secondary" disabled="{{busy || uploading}}" data-kind="RETURN_APPLICANT" bindtap="act">打回申请人</button>
+      <button wx:if="{{detail.canApprove}}" class="primary" disabled="{{busy || uploading}}" data-kind="APPROVE" bindtap="act">{{busy?'处理中…':'同意'}}</button>
     </view>
   </block>
 </view>

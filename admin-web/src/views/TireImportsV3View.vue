@@ -25,7 +25,7 @@ const historyFile = ref(null);
 const detailError = ref('');
 const detailPage = ref(1);
 const history = ref([]);
-const page = ref(1);
+const page = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const rowPage = ref(1);
 const tab = ref('upload');
@@ -82,7 +82,7 @@ async function confirm() {
 async function loadHistory(next = 1) {
   loading.value = true; error.value = '';
   try {
-    const response = await tireApi.imports(next);
+    const response = await tireApi.imports(next, pageSize.value);
     history.value = response.records || []; total.value = Number(response.total || 0); page.value = next;
   } catch { /* API 层已弹窗。 */ }
   finally { loading.value = false; }
@@ -135,20 +135,20 @@ onMounted(() => { if (can('PAGE_TIRE_IMPORTS')) loadHistory(); });
           <template #status="{value}"><StatusTag :value="stateName[value] || '待处理'" /></template>
           <template #message="{value}">{{ value || '等待确认' }}</template>
         </DataTable>
-        <PaginationBar :page-no="rowPage" :page-size="50" :total="filteredRows.length" @change="rowPage=$event" />
+        <PaginationBar :show-size="false" :page-no="rowPage" :page-size="50" :total="filteredRows.length" @change="rowPage=$event" />
       </template>
       <EmptyState v-else-if="!previewing" title="尚未选择文件" description="请先下载系统固定模板并填写，选择 Excel 后自动校验。" />
     </section>
     <section v-else class="ui-section-card import-history-card">
       <div class="ui-list-heading"><div><h2>轮胎入库历史</h2><p class="muted">选择一批查看每条轮胎的入库结果。</p></div><button type="button" :disabled="loading" @click="loadHistory(page)">刷新</button></div>
-      <DataTable :columns="[{key:'createdAt',label:'上传时间'},{key:'status',label:'状态'},{key:'confirmedAt',label:'确认时间'},{key:'actions',label:'操作'}]"
+      <DataTable class="ui-paged-table" :columns="[{key:'createdAt',label:'上传时间'},{key:'status',label:'状态'},{key:'confirmedAt',label:'确认时间'},{key:'actions',label:'操作'}]"
         :rows="history" :loading="loading" empty-text="暂无轮胎入库记录">
         <template #createdAt="{value}">{{ formatImportDateTime(value) }}</template>
         <template #status="{value}"><StatusTag :value="stateName[value] || '处理中'" /></template>
         <template #confirmedAt="{value}">{{ formatImportDateTime(value, '尚未确认') }}</template>
-        <template #actions="{row}"><button type="button" @click="open(row)">查看详情</button></template>
+        <template #actions="{row}"><button type="button" class="ui-detail-button" @click="open(row)">查看详情</button></template>
       </DataTable>
-      <PaginationBar :page-no="page" :page-size="20" :total="total" @change="loadHistory" />
+      <PaginationBar :page-no="page" :page-size="pageSize" :total="total" @change="loadHistory" @change-size="(size) => { pageSize = size; loadHistory(1); }" />
     </section>
     <DetailDrawer :open="!!historyDetail" class="tire-import-detail-drawer" title="轮胎入库批次详情" @close="historyDetail = null">
       <template #subtitle>上传于 {{ formatImportDateTime(historyDetail?.createdAt) }} · <StatusTag :value="stateName[historyDetail?.status] || '处理中'" /></template>
@@ -165,7 +165,7 @@ onMounted(() => { if (can('PAGE_TIRE_IMPORTS')) loadHistory(); });
             <template #message="{value}"><span class="tire-import-ellipsis" :title="value || '—'">{{ value || '—' }}</span></template>
           </DataTable>
         </div>
-        <PaginationBar :page-no="detailPage" :page-size="50" :total="historyDetail.rows?.length || 0" @change="detailPage = $event" />
+        <PaginationBar :show-size="false" :page-no="detailPage" :page-size="50" :total="historyDetail.rows?.length || 0" @change="detailPage = $event" />
       </template>
     </DetailDrawer>
   </main>

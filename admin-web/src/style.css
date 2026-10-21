@@ -24,13 +24,14 @@ textarea {
 }
 
 button {
-  min-height: 34px;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-control);
+  min-height: var(--ui-button-height);
+  border: 1px solid var(--ui-button-secondary-border);
+  border-radius: var(--ui-button-radius);
   background: #fff;
-  color: #22313f;
+  color: var(--ui-button-secondary-text);
   cursor: pointer;
-  padding: 0 12px;
+  padding: 0 var(--ui-button-padding-x);
+  font-size: var(--ui-button-font-size);
 }
 
 button:disabled {

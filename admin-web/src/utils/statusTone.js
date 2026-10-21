@@ -15,7 +15,7 @@ const warning = new Set([
   '运输中', '正在处理', '正在发布', '处理中', '维护中', '待确认归属', '未发布', '草稿',
   'PENDING', 'PREVIEWED', 'IN_PROGRESS', 'APPROVAL_RESERVED', 'TRANSFER_PENDING',
   'ASSIGNED', 'IN_TRANSIT', 'CONFIRMING', 'MAINTENANCE', 'PENDING_ATTRIBUTION',
-  'UNPUBLISHED', 'DRAFT', 'PUBLISHED'
+  'DRAFT', 'PUBLISHED'
 ]);
 
 export function statusTone(value, tone = '') {

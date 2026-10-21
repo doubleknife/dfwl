@@ -27,7 +27,7 @@ const tests = [
     const uses = ['components/BindingManagement.vue', 'views/ExpenseLedgerV3View.vue',
       'views/MonthlyOperationsV3View.vue', 'views/SalaryLedgerV3View.vue',
       'views/TransportTasksV3View.vue', 'views/DispatchWorkbenchV3View.vue'];
-    assert.equal(uses.reduce((count, file) => count + (source(file).match(/<EntityPicker\b/g) || []).length, 0), 12);
+    assert.equal(uses.reduce((count, file) => count + (source(file).match(/<EntityPicker\b/g) || []).length, 0), 13);
   }],
   ['binding uses business choices, server paging and per-object unbind confirmation', () => {
     assert.match(binding, /司机车辆绑定/);

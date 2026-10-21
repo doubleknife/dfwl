@@ -28,11 +28,11 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class DailyExpenseWorkbook {
     private static final List<String> HEADERS = List.of(
-            "业务日期", "公司车牌", "司机手机号", "金额", "明细", "票据号", "发票号", "备注", "站点名称");
+            "业务日期", "公司车牌", "车挂号", "司机手机号", "金额", "明细", "票据号", "发票号", "备注", "站点名称");
     private final JdbcTemplate jdbc;
     public DailyExpenseWorkbook(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    public record PreviewRow(int rowNo, String businessDate, String plateNo, String driverPhone,
+    public record PreviewRow(int rowNo, String businessDate, String plateNo, String trailerNo, String driverPhone,
                              String amount, String description, String receiptNo, String invoiceNo,
                              String remark, String stationName, List<String> errors) {}
     public record Preview(List<PreviewRow> rows, BigDecimal total, int errorCount) {}
@@ -78,14 +78,15 @@ public class DailyExpenseWorkbook {
                 try { LocalDate.parse(values[0]); }
                 catch (RuntimeException ex) { problems.add("业务日期请填写 YYYY-MM-DD"); }
                 if (values[1].isBlank()) problems.add("公司车牌不能为空");
-                if (values[2].isBlank()) problems.add("司机手机号不能为空");
+                if (values[3].isBlank()) problems.add("司机手机号不能为空");
+                if (values[2].length() > 64) problems.add("车挂号不能超过 64 字");
                 try {
-                    BigDecimal amount = new BigDecimal(values[3]);
+                    BigDecimal amount = new BigDecimal(values[4]);
                     if (amount.signum() <= 0 || amount.scale() > 2) problems.add("金额必须大于 0 且最多两位小数");
                     else sum = sum.add(amount);
                 } catch (RuntimeException ex) { problems.add("金额格式不正确"); }
-                rows.add(new PreviewRow(index + 1, values[0], values[1], values[2], values[3],
-                        values[4], values[5], values[6], values[7], values[8], problems));
+                rows.add(new PreviewRow(index + 1, values[0], values[1], values[2], values[3], values[4],
+                        values[5], values[6], values[7], values[8], values[9], problems));
             }
         } catch (IOException | RuntimeException ex) {
             if (ex instanceof BusinessException business) throw business;
@@ -96,6 +97,8 @@ public class DailyExpenseWorkbook {
                 rows.stream().map(PreviewRow::plateNo).collect(Collectors.toSet()));
         Map<String, Long> drivers = lookupAll("driver", "phone",
                 rows.stream().map(PreviewRow::driverPhone).collect(Collectors.toSet()));
+        Map<String, Long> trailers = lookupAll("trailer", "trailer_no",
+                rows.stream().map(PreviewRow::trailerNo).collect(Collectors.toSet()), false);
         List<PreviewRow> checked = new ArrayList<>();
         for (PreviewRow row : rows) {
             List<String> problems = new ArrayList<>(row.errors());
@@ -103,8 +106,10 @@ public class DailyExpenseWorkbook {
                 problems.add("公司车牌不存在或已停用");
             if (!row.driverPhone().isBlank() && !drivers.containsKey(row.driverPhone()))
                 problems.add("司机不存在或已停用");
+            if (!row.trailerNo().isBlank() && !trailers.containsKey(row.trailerNo()))
+                problems.add("车挂号不存在");
             if (!problems.isEmpty()) errors++;
-            checked.add(new PreviewRow(row.rowNo(), row.businessDate(), row.plateNo(), row.driverPhone(),
+            checked.add(new PreviewRow(row.rowNo(), row.businessDate(), row.plateNo(), row.trailerNo(), row.driverPhone(),
                     row.amount(), row.description(), row.receiptNo(), row.invoiceNo(), row.remark(),
                     row.stationName(), problems));
         }
@@ -112,12 +117,15 @@ public class DailyExpenseWorkbook {
     }
 
     private Map<String, Long> lookupAll(String table, String column, Set<String> values) {
+        return lookupAll(table, column, values, true);
+    }
+    private Map<String, Long> lookupAll(String table, String column, Set<String> values, boolean activeOnly) {
         List<String> keys = values.stream().filter(Objects::nonNull).filter(value -> !value.isBlank()).toList();
         if (keys.isEmpty()) return Map.of();
         String placeholders = String.join(",", java.util.Collections.nCopies(keys.size(), "?"));
         List<Map<String, Object>> found = jdbc.queryForList("SELECT id," + column + " businessKey FROM "
                 + table + " WHERE " + column + " IN (" + placeholders
-                + ") AND status=1 AND deleted_at IS NULL", keys.toArray());
+                + ") AND deleted_at IS NULL" + (activeOnly ? " AND status=1" : ""), keys.toArray());
         Map<String, Long> result = new LinkedHashMap<>();
         for (Map<String, Object> row : found)
             result.put((String) row.get("businessKey"), ((Number) row.get("id")).longValue());

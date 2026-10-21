@@ -71,7 +71,7 @@ public class SalaryLedgerService {
             }
             default -> throw new BusinessException(ErrorCode.SYS_002);
         }
-        StringBuilder clause = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status <> 'CANCELLED'"
+        StringBuilder clause = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status = 'COMPLETED'"
                 + " AND p.status <> 'CANCELLED'");
         List<Object> args = new ArrayList<>();
         if (month != null && !month.isBlank()) {
@@ -198,7 +198,7 @@ public class SalaryLedgerService {
 
     private Clause where(Filter filter) {
         if (filter == null) filter = new Filter(null, null, null, null, null, null);
-        StringBuilder sql = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status <> 'CANCELLED'"
+        StringBuilder sql = new StringBuilder(" WHERE t.deleted_at IS NULL AND t.status = 'COMPLETED'"
                 + " AND p.status <> 'CANCELLED'");
         List<Object> args = new ArrayList<>();
         if (filter.month() != null && !filter.month().isBlank()) {
@@ -268,7 +268,8 @@ public class SalaryLedgerService {
             case "IN_TRANSIT" -> "运输中";
             case "TRANSFER_PENDING" -> "待接手发车";
             case "COMPLETED" -> "已完成";
-            default -> "未发布";
+            case "CANCELLED" -> "已取消";
+            default -> "状态异常";
         };
     }
     private record Clause(String sql, List<Object> args) {}

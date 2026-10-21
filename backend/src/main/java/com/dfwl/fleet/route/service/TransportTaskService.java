@@ -264,7 +264,7 @@ public class TransportTaskService {
         if (repeat(id, "CANCEL", request.requestKey(), request.toString())) return find(id);
         TransportTaskResponse task = find(id);
         if (request.expectedVersion() != task.version() || request.reason() == null || request.reason().isBlank()
-                || !("UNPUBLISHED".equals(task.status()) || "PUBLISHED".equals(task.status())))
+                || !"PUBLISHED".equals(task.status()))
             throw new BusinessException(ErrorCode.ROUTE_002);
         Integer departed = jdbc.queryForObject("SELECT COUNT(*) FROM departure_event WHERE task_id = ?", Integer.class, id);
         Integer participantCount = jdbc.queryForObject("SELECT COUNT(*) FROM transport_participant WHERE task_id = ?", Integer.class, id);

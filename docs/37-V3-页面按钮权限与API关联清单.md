@@ -46,7 +46,7 @@
 | 系统设置 | 操作日志 | `PAGE_AUDIT` | 审计日志 | 无写入按钮 |
 | 小程序 | 司机我的线路 | `PAGE_MINI_ROUTES` | 本人当前参与任务，不含经营和工资字段 | 司机确认发车（`BUTTON_MINI_ROUTES_DEPART`）；司机确认卸货（`BUTTON_MINI_ROUTES_UNLOAD`） |
 | 小程序 | 司机工资单 | `PAGE_MINI_SALARY` | 本人薪资 | 无写入按钮 |
-| 小程序 | 司机费用申请 | `PAGE_MINI_EXPENSE_APPLY` | 本人费用申请 | 司机提交费用申请（`BUTTON_MINI_EXPENSE_APPLY_SUBMIT`） |
+| 小程序 | 费用申请 | `PAGE_MINI_EXPENSE_APPLY` | 本人费用申请 | 发起费用申请（`BUTTON_MINI_EXPENSE_APPLY_SUBMIT`） |
 | 小程序 | 小程序审批中心 | `PAGE_MINI_APPROVALS` | 本人申请及符合节点资格的待办 | 小程序审批通过（`BUTTON_MINI_APPROVALS_APPROVE`）；小程序打回审批（`BUTTON_MINI_APPROVALS_RETURN`）；小程序撤回申请（`BUTTON_MINI_APPROVALS_WITHDRAW`） |
 | 小程序 | 司机换胎申请 | `PAGE_MINI_TIRE_REQUEST` | 本人换胎申请 | 司机发起换胎申请（`BUTTON_MINI_TIRE_REQUEST_SUBMIT`） |
 

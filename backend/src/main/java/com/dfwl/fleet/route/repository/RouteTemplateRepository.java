@@ -30,12 +30,34 @@ public class RouteTemplateRepository {
                 .stream().findFirst();
     }
 
+    public boolean lockEnabledProduct(long id) {
+        return !jdbc.query("SELECT id FROM product WHERE id = ? AND enabled = 1 FOR UPDATE",
+                (rs, rowNum) -> rs.getLong(1), id).isEmpty();
+    }
+
     public boolean productEnabled(long id) {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM product WHERE id = ? AND enabled = 1", Integer.class, id);
         return count != null && count == 1;
     }
 
-    public long create(RouteTemplateRequest request, long actor) {
+    public boolean existsBusinessDuplicate(RouteTemplateRequest request, Long excludedId) {
+        String sql = """
+                SELECT id FROM route_template
+                WHERE customer_name = ? AND product_id = ? AND loading_place = ? AND unloading_place = ?
+                  AND default_unit_price = ? AND default_information_fee = ? AND default_driver_salary = ?
+                """;
+        Object[] values = {request.customerName().trim(), request.productId(), request.loadingPlace().trim(),
+                request.unloadingPlace().trim(), request.defaultUnitPrice(), request.defaultInformationFee(),
+                request.defaultDriverSalary()};
+        if (excludedId != null) {
+            sql += " AND id <> ?";
+            values = java.util.Arrays.copyOf(values, values.length + 1);
+            values[values.length - 1] = excludedId;
+        }
+        return !jdbc.query(sql + " LIMIT 1", (rs, rowNum) -> rs.getLong(1), values).isEmpty();
+    }
+
+    public long create(RouteTemplateRequest request, String stableCode, long actor) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
@@ -44,7 +66,7 @@ public class RouteTemplateRepository {
                         enabled, remark, created_by, updated_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """, new String[]{"id"});
-            ps.setString(1, request.stableCode().trim());
+            ps.setString(1, stableCode);
             ps.setString(2, request.name().trim());
             ps.setString(3, request.customerName().trim());
             ps.setLong(4, request.productId());
@@ -63,12 +85,12 @@ public class RouteTemplateRepository {
 
     public boolean update(long id, RouteTemplateRequest request, long actor) {
         return jdbc.update("""
-                UPDATE route_template SET stable_code = ?, name = ?, customer_name = ?, product_id = ?,
+                UPDATE route_template SET name = ?, customer_name = ?, product_id = ?,
                     loading_place = ?, unloading_place = ?, default_unit_price = ?, default_information_fee = ?,
                     default_driver_salary = ?, remark = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP,
                     version = version + 1
                 WHERE id = ? AND version = ?
-                """, request.stableCode().trim(), request.name().trim(), request.customerName().trim(),
+                """, request.name().trim(), request.customerName().trim(),
                 request.productId(), request.loadingPlace().trim(), request.unloadingPlace().trim(),
                 request.defaultUnitPrice(), request.defaultInformationFee(), request.defaultDriverSalary(),
                 request.remark(), actor, id, request.expectedVersion()) == 1;

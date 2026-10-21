@@ -166,6 +166,30 @@ class V3FinanceFactsTests {
         assertThat(settlement.diffs(v1,1,20).total()).isZero();
     }
 
+    @Test void settlementDetailsSortByFrozenCompletionAndPostingTimeAcrossPages() {
+        jdbc.update("UPDATE expense_entry SET business_date=DATE '2026-10-03',created_at=TIMESTAMP '2026-10-01 17:00:00' WHERE id=2");
+        jdbc.update("UPDATE expense_entry SET business_date=DATE '2026-10-02',created_at=TIMESTAMP '2026-10-01 16:00:00' WHERE id=3");
+        jdbc.update("UPDATE expense_entry SET created_at=TIMESTAMP '2026-10-01 14:00:00' WHERE id=1");
+        long id = ((Number) settlement.generate("2026-10", 1).get("id")).longValue();
+        assertThat(settlement.details(id, 1, 2).records()).extracting(row -> row.get("businessNo"))
+                .containsExactly("E-2", "E-3");
+        assertThat(settlement.details(id, 2, 2).records()).extracting(row -> row.get("businessNo"))
+                .containsExactly("TASK-1", "E-1");
+        jdbc.update("UPDATE transport_task SET completed_at=TIMESTAMP '2026-10-31 12:00:00' WHERE id=1");
+        jdbc.update("UPDATE expense_entry SET created_at=TIMESTAMP '2026-10-31 13:00:00' WHERE id=1");
+        assertThat(settlement.details(id, 2, 2).records()).extracting(row -> row.get("businessNo"))
+                .containsExactly("TASK-1", "E-1");
+    }
+
+    @Test void settlementDifferenceExposesApprovalIdFromFrozenExpenseSnapshot() {
+        settlement.generate("2026-10", 1);
+        jdbc.update("UPDATE expense_entry SET approval_instance_id=42 WHERE id=2");
+        long id = ((Number) settlement.generate("2026-10", 1).get("id")).longValue();
+        assertThat(settlement.diffs(id, 1, 20).records()).filteredOn(row -> "E-2".equals(row.get("businessNo")))
+                .singleElement().satisfies(row ->
+                        assertThat(((Number) row.get("approvalId")).longValue()).isEqualTo(42));
+    }
+
     @Test void sameFactsCreateASecondImmutableVersionWithoutFalseDifferences() {
         settlement.generate("2026-10",1);
         Map<String,Object> second = settlement.generate("2026-10",1);

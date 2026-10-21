@@ -11,27 +11,36 @@
         <view class="scope {{scope==='DAILY'?'active':''}}" data-scope="DAILY" bindtap="onScope">日常费用</view>
         <view class="scope {{scope==='TASK'?'active':''}}" data-scope="TASK" bindtap="onScope">任务费用</view>
       </view>
-      <view class="hint">{{scope==='DAILY'?'审批通过后先计公司费用，可后续归属任务。':'先选择本人正式参与的任务。'}}</view>
+      <view class="hint">{{scope==='DAILY'?'审批通过后先计公司费用，可后续归属任务。':ownDriver?'先选择本人正式参与的任务。':'先选择所选司机正式参与的任务。'}}</view>
       <view class="label">费用大类</view>
-      <picker mode="selector" range="{{templates}}" range-key="name" disabled="{{resubmitId}}" bindchange="onTemplate">
-        <view class="field">{{templateIndex>=0?templates[templateIndex].name:'请选择费用大类'}}</view>
-      </picker>
+      <search-select title="选择费用大类" options="{{templates}}" label-key="name" value-key="id"
+        current-value="{{templateIndex>=0?templates[templateIndex].id:''}}"
+        display-text="{{templateIndex>=0?templates[templateIndex].name:''}}"
+        placeholder="请选择费用大类" disabled="{{!!resubmitId}}" bind:change="onTemplate" />
     </view>
     <view class="expense-card">
       <view class="section-title">2. 填写费用信息</view>
-      <view class="label">司机</view><view class="field readonly">{{driverName || '正在读取本人信息'}}</view>
+      <view class="label">司机</view>
+      <view wx:if="{{ownDriver}}" class="field readonly">{{driverName || '正在读取本人信息'}}</view>
+      <search-select wx:else title="选择司机" options="{{drivers}}" label-key="name" value-key="id"
+        current-value="{{driverId}}" display-text="{{driverIndex>=0?driverName:''}}"
+        placeholder="请选择司机" disabled="{{!!resubmitId}}" bind:change="onDriver" />
       <view wx:if="{{scope==='TASK'}}">
-        <view class="label">本人参与的运输任务</view>
-        <picker mode="selector" range="{{tasks}}" range-key="taskNo" bindchange="onTask">
-          <view class="field">{{taskIndex>=0?tasks[taskIndex].taskNo:'请选择任务'}}</view>
-        </picker>
-        <view wx:if="{{!tasks.length}}" class="hint">暂无可申请费用的参与任务</view>
+        <view class="label">{{ownDriver?'本人参与的运输任务':'所选司机参与的运输任务'}}</view>
+        <search-select title="选择运输任务" options="{{visibleTasks}}" label-key="taskLabel" value-key="taskId" multi-line="{{true}}"
+          current-value="{{taskIndex>=0?tasks[taskIndex].taskId:''}}"
+          display-text="{{taskIndex>=0?tasks[taskIndex].taskLabel:''}}"
+          placeholder="请选择任务" bind:change="onTask" />
+        <view wx:if="{{!visibleTasks.length}}" class="hint">暂无符合当前费用大类的参与任务</view>
       </view>
       <view class="label">公司车牌</view>
-      <picker wx:if="{{scope==='DAILY'}}" mode="selector" range="{{vehicles}}" range-key="plateNo" bindchange="onVehicle">
-        <view class="field">{{vehicleIndex>=0?vehicles[vehicleIndex].plateNo:'请选择公司车辆'}}</view>
-      </picker>
+      <search-select wx:if="{{scope==='DAILY'}}" title="选择公司车辆" options="{{visibleVehicles}}"
+        label-key="plateNo" value-key="id" current-value="{{vehicleIndex>=0?vehicles[vehicleIndex].id:''}}"
+        display-text="{{vehicleIndex>=0?vehicles[vehicleIndex].plateNo:''}}"
+        placeholder="请选择公司车辆" bind:change="onVehicle" />
       <view wx:else class="field readonly">{{vehicleIndex>=0?vehicles[vehicleIndex].plateNo:'先选择参与任务'}}</view>
+      <view wx:if="{{scope==='DAILY' && !visibleVehicles.length}}" class="hint">暂无符合当前费用大类的公司车辆</view>
+      <view wx:if="{{energyHint}}" class="hint">{{energyHint}}</view>
       <view class="label">业务日期</view>
       <picker mode="date" value="{{businessDate}}" bindchange="onDate"><view class="field">{{businessDate}}</view></picker>
       <view class="label">金额（元）</view>
@@ -46,8 +55,16 @@
       <input class="field" value="{{stationName}}" data-field="stationName" bindinput="onField" />
       <view class="label">备注（选填）</view>
       <input class="field" value="{{remark}}" data-field="remark" bindinput="onField" />
+      <view class="section-title">图片凭证（选填）</view>
+      <button class="secondary" disabled="{{uploading || busy}}" bindtap="addImages">{{uploading?'上传中…':'拍照或从相册选择'}}</button>
+      <view class="expense-image-grid">
+        <view wx:for="{{images}}" wx:key="id" class="expense-image-item">
+          <image src="{{item.path}}" mode="aspectFill" data-index="{{index}}" bindtap="previewImage" />
+          <text data-index="{{index}}" bindtap="removeImage">移除</text>
+        </view>
+      </view>
     </view>
-    <button class="primary" bindtap="review">核对申请摘要</button>
+    <button class="primary" disabled="{{uploading}}" bindtap="review">核对申请摘要</button>
   </block>
   <block wx:elif="{{step===2}}">
     <view class="expense-card">
@@ -56,17 +73,18 @@
       <view class="summary-row">费用大类 <text>{{templates[templateIndex].name}}</text></view>
       <view class="summary-row">司机 <text>{{driverName}}</text></view>
       <view class="summary-row">公司车牌 <text>{{vehicles[vehicleIndex].plateNo}}</text></view>
-      <view wx:if="{{scope==='TASK'}}" class="summary-row">运输任务 <text>{{tasks[taskIndex].taskNo}}</text></view>
+      <view wx:if="{{scope==='TASK'}}" class="summary-row">运输任务 <text>{{tasks[taskIndex].taskLabel}}</text></view>
       <view class="summary-row">业务日期 <text>{{businessDate}}</text></view>
       <view class="summary-row amount">金额 <text>¥{{amount}}</text></view>
+      <view class="summary-row">图片凭证 <text>{{images.length}} 张</text></view>
       <view wx:if="{{description}}" class="hint">明细：{{description}}</view>
     </view>
     <button class="secondary" disabled="{{busy}}" bindtap="edit">返回修改</button>
-    <button class="primary" disabled="{{busy}}" bindtap="submit">{{busy?'提交中…':'确认提交审批'}}</button>
+    <button class="primary" disabled="{{busy || uploading}}" bindtap="submit">{{busy?'提交中…':'确认提交审批'}}</button>
   </block>
   <view wx:else class="expense-card">
     <view class="section-title">申请已提交</view>
     <view class="hint">审批编号：{{submittedNo}}</view>
-    <button class="primary" bindtap="openApprovals">查看我的申请</button>
+    <button class="mp-detail-button" bindtap="openApprovals">查看我的申请 ›</button>
   </view>
 </view>

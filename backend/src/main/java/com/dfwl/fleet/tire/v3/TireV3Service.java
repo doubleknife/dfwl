@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.poi.ss.usermodel.Cell;
@@ -76,7 +77,9 @@ public class TireV3Service {
 
     public record TireEdit(String tireNo, String barcode, String materialDescription,
                            LocalDateTime arrivedAt, Integer expectedVersion, String reason) {}
-    public record TireRequestInput(Long templateId, Long ocrRecordId, String confirmedTireNo, String requestKey) {}
+    public record TireRequestItem(Long ocrRecordId, String confirmedTireNo) {}
+    public record TireRequestInput(Long templateId, List<TireRequestItem> items, String requestKey) {}
+    public record TireResubmission(List<TireRequestItem> items, Integer expectedVersion) {}
     public record ImportRow(int rowNo, String arrivedAt, String materialDescription, String barcode, String tireNo) {}
 
     public PageResponse<Map<String, Object>> inventory(int pageNo, int pageSize, String tireNo, String status) {
@@ -93,17 +96,27 @@ public class TireV3Service {
         params.add(pageSize); params.add((pageNo - 1) * pageSize);
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT t.id, t.tire_no tireNo, t.barcode, t.material_description materialDescription,
-                       t.arrived_at arrivedAt, t.status, t.version, t.created_at createdAt
-                FROM tire t %s ORDER BY t.id DESC LIMIT ? OFFSET ?
+                       t.arrived_at arrivedAt, t.status, t.version, t.created_at createdAt,
+                       d.name applicantName, v.plate_no currentVehiclePlate
+                FROM tire t
+                LEFT JOIN tire_request r ON r.tire_id=t.id AND r.status='APPROVED'
+                LEFT JOIN driver d ON d.id=r.applicant_driver_id
+                LEFT JOIN vehicle v ON v.id=r.vehicle_id
+                %s ORDER BY t.id DESC LIMIT ? OFFSET ?
                 """.formatted(where), params.toArray());
         return new PageResponse<>(pageNo, pageSize, count == null ? 0 : count, rows);
     }
 
     public Map<String, Object> detail(long id) {
         Map<String, Object> tire = one("""
-                SELECT id,tire_no tireNo,barcode,material_description materialDescription,
-                       arrived_at arrivedAt,status,version,created_at createdAt
-                FROM tire WHERE id=? AND deleted_at IS NULL
+                SELECT t.id,t.tire_no tireNo,t.barcode,t.material_description materialDescription,
+                       t.arrived_at arrivedAt,t.status,t.version,t.created_at createdAt,
+                       d.name applicantName,v.plate_no currentVehiclePlate
+                FROM tire t
+                LEFT JOIN tire_request r ON r.tire_id=t.id AND r.status='APPROVED'
+                LEFT JOIN driver d ON d.id=r.applicant_driver_id
+                LEFT JOIN vehicle v ON v.id=r.vehicle_id
+                WHERE t.id=? AND t.deleted_at IS NULL
                 """, id);
         if (tire == null) throw new BusinessException(ErrorCode.DATA_001);
         tire.put("history", jdbc.queryForList("""
@@ -112,6 +125,49 @@ public class TireV3Service {
                 FROM tire_history h LEFT JOIN sys_user u ON u.id=h.operator_id
                 WHERE h.tire_id=? ORDER BY h.id DESC
                 """, id));
+        tire.put("approvalChain", jdbc.queryForList("""
+                SELECT chain_entry.approvalNo,chain_entry.versionNo,chain_entry.eventType,chain_entry.nodeName,
+                       chain_entry.operatorPhone,chain_entry.operatorRole,chain_entry.operatedAt,chain_entry.comment,
+                       chain_entry.targetNodeName
+                FROM (
+                  SELECT a.approval_no approvalNo,s.version_no versionNo,
+                         CASE WHEN s.version_no=1 THEN 'SUBMIT' ELSE 'RESUBMIT' END eventType,
+                         NULL nodeName,u.phone operatorPhone,role.role_name operatorRole,
+                         s.submitted_at operatedAt,NULL comment,NULL targetNodeName,
+                         0 eventOrder,s.id eventId
+                  FROM approval_submission_version s
+                  JOIN approval_instance a ON a.id=s.instance_id
+                  JOIN sys_user u ON u.id=s.submitted_by
+                  JOIN sys_role role ON role.id=u.role_id
+                  WHERE EXISTS (SELECT 1 FROM tire_request tr
+                                WHERE tr.tire_id=? AND tr.approval_instance_id=a.id)
+                  UNION ALL
+                  SELECT a.approval_no,sv.version_no,x.action_type,n.node_name,
+                         u.phone,role.role_name,x.operated_at,x.comment,
+                         x.target_step_name_snapshot,1,x.id
+                  FROM approval_action x
+                  JOIN approval_task k ON k.id=x.task_id
+                  JOIN approval_submission_version sv ON sv.id=k.submission_version_id
+                  JOIN approval_instance a ON a.id=k.instance_id
+                  JOIN approval_flow_node n ON n.id=k.node_id
+                  JOIN sys_user u ON u.id=x.operator_id
+                  JOIN sys_role role ON role.id=u.role_id
+                  WHERE x.action_type<>'RESUBMIT'
+                    AND EXISTS (SELECT 1 FROM tire_request tr
+                                WHERE tr.tire_id=? AND tr.approval_instance_id=a.id)
+                  UNION ALL
+                  SELECT a.approval_no,sv.version_no,'PENDING',n.node_name,
+                         NULL,NULL,k.created_at,NULL,NULL,2,k.id
+                  FROM approval_task k
+                  JOIN approval_submission_version sv ON sv.id=k.submission_version_id
+                  JOIN approval_instance a ON a.id=k.instance_id
+                  JOIN approval_flow_node n ON n.id=k.node_id
+                  WHERE k.status='PENDING' AND k.invalidated=0
+                    AND EXISTS (SELECT 1 FROM tire_request tr
+                                WHERE tr.tire_id=? AND tr.approval_instance_id=a.id)
+                ) chain_entry
+                ORDER BY chain_entry.operatedAt,chain_entry.eventOrder,chain_entry.eventId
+                """, id, id, id));
         return tire;
     }
 
@@ -121,7 +177,7 @@ public class TireV3Service {
 
     public Map<String, Object> requestDetail(long id, AuthenticatedUser user) {
         Map<String, Object> request = one("""
-                SELECT r.id,r.confirmed_tire_no tireNo,r.status,r.created_at requestedAt,
+                SELECT r.id,r.batch_key batchKey,r.confirmed_tire_no tireNo,r.status,r.created_at requestedAt,
                        r.ocr_record_id ocrRecordId,r.photo_attachment_id photoAttachmentId,
                        d.name driverName,v.plate_no vehiclePlate,o.recognized_text recognizedText,
                        o.confirmed_text confirmedText,r.applicant_driver_id applicantDriverId
@@ -138,6 +194,12 @@ public class TireV3Service {
             throw new AccessDeniedException("无权查看换胎申请");
         }
         request.remove("applicantDriverId");
+        request.put("items", jdbc.queryForList("""
+                SELECT r.id,r.confirmed_tire_no tireNo,r.status,r.photo_attachment_id photoAttachmentId,
+                       o.recognized_text recognizedText,o.confirmed_text confirmedText
+                FROM tire_request r JOIN ocr_record o ON o.id=r.ocr_record_id
+                WHERE r.batch_key=? ORDER BY r.id
+                """, request.remove("batchKey")));
         return request;
     }
 
@@ -356,10 +418,18 @@ public class TireV3Service {
         Map<String, Object> target = one("""
                 SELECT id,tire_no tireNo,status FROM tire WHERE tire_no=? AND deleted_at IS NULL
                 """, number);
-        if (target == null || !"AVAILABLE".equals(target.get("status"))
-                || activeRequest(((Number) target.get("id")).longValue()))
-            throw invalid("没有匹配的可用轮胎，或该轮胎已进入申领流程");
+        requireRequestable(target);
         return target;
+    }
+
+    private void requireRequestable(Map<String, Object> tire) {
+        if (tire == null) throw invalid("胎号不存在，请核对后重试");
+        if ("CLAIMED".equals(tire.get("status"))) throw invalid("该轮胎已被申领，不能重复申请");
+        if (!"AVAILABLE".equals(tire.get("status"))) throw invalid("该轮胎当前状态不可申领");
+        String requestStatus = activeRequestStatus(((Number) tire.get("id")).longValue());
+        if ("APPROVED".equals(requestStatus)) throw invalid("该轮胎已被申领，不能重复申请");
+        if ("PENDING_APPROVAL".equals(requestStatus))
+            throw invalid("该轮胎已有待审批的申领申请，不能重复申请");
     }
 
     public Map<String, Object> requestTarget(String tireNo, AuthenticatedUser user) {
@@ -382,8 +452,9 @@ public class TireV3Service {
 
     @Transactional
     public Map<String, Object> submitRequest(TireRequestInput input, AuthenticatedUser user) {
-        if (input == null || input.templateId() == null || input.ocrRecordId() == null
-                || blank(input.requestKey())) throw invalid("请完成拍照识别、胎号确认和申请核对");
+        if (input == null || input.templateId() == null || blank(input.requestKey())
+                || input.items() == null || input.items().isEmpty() || input.items().size() > 20)
+            throw invalid("请选择审批流程并确认 1 至 20 张轮胎照片");
         CurrentDriverContext driver = users.requireDriver(user);
         if (driver.outsourced() || driver.currentVehicleId() == null)
             throw new AccessDeniedException("仅有当前公司车辆的自有司机可以申请换胎");
@@ -398,37 +469,117 @@ public class TireV3Service {
                 """, Long.class, input.templateId());
         if (activeTireTemplate == null || activeTireTemplate != 1)
             throw invalid("请选择当前有效的换胎审批流程");
-        Map<String, Object> ocr = one("""
-                SELECT o.id,o.attachment_id,o.confirmed_text,a.uploaded_by,a.purpose
-                FROM ocr_record o JOIN file_attachment a ON a.id=o.attachment_id WHERE o.id=?
-                """, input.ocrRecordId());
-        String tireNo = required(input.confirmedTireNo(), "确认胎号", 128);
-        if (ocr == null || ((Number) ocr.get("uploaded_by")).longValue() != user.id()
-                || !"TIRE_OCR".equals(ocr.get("purpose"))
-                || !tireNo.equals(ocr.get("confirmed_text"))) throw invalid("请先确认本次照片识别的胎号");
-        Map<String, Object> tire = one("SELECT id,status FROM tire WHERE tire_no=? AND deleted_at IS NULL FOR UPDATE", tireNo);
-        if (tire == null || !"AVAILABLE".equals(tire.get("status"))
-                || activeRequest(((Number) tire.get("id")).longValue()))
-            throw invalid("该轮胎已被申领或不在可用库存中");
-        long requestId = insert("""
-                INSERT INTO tire_request(applicant_driver_id,vehicle_id,confirmed_tire_no,
-                    ocr_record_id,photo_attachment_id,tire_id,status) VALUES(?,?,?,?,?,?,'DRAFT')
-                """, driver.driverId(), driver.currentVehicleId(), tireNo, input.ocrRecordId(),
-                ocr.get("attachment_id"), tire.get("id"));
-        audit.write("TIRE", "TIRE_REQUEST", requestId, "CREATE", null,
-                Map.of("tireNo", tireNo, "driverId", driver.driverId()), user.id(), null);
+        List<Map<String, Object>> rows = inspectRequestItems(input.items(), user, true);
+        for (Map<String, Object> row : rows)
+            if (!Boolean.TRUE.equals(row.get("valid"))) throw invalid("第 " + ((Number) row.get("index")).intValue()
+                    + " 条胎号 " + row.get("tireNo") + "：" + row.get("message"));
+        for (Map<String, Object> row : rows) {
+            Long returned = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM tire_request r JOIN approval_instance a ON a.id=r.approval_instance_id
+                    WHERE r.tire_id=? AND r.status='RETURNED_TO_APPLICANT'
+                      AND a.status='RETURNED_TO_APPLICANT' AND a.applicant_user_id=?
+                    """, Long.class, row.get("tireId"), user.id());
+            if (returned != null && returned > 0)
+                throw invalid("胎号 " + row.get("tireNo") + " 已有被打回申请，请在原申请中修改并重新提交");
+        }
+        String batchKey = UUID.randomUUID().toString();
+        long requestId = 0;
+        for (Map<String, Object> row : rows) {
+            long id = insert("""
+                    INSERT INTO tire_request(batch_key,applicant_driver_id,vehicle_id,confirmed_tire_no,
+                        ocr_record_id,photo_attachment_id,tire_id,status) VALUES(?,?,?,?,?,?,?,'DRAFT')
+                    """, batchKey, driver.driverId(), driver.currentVehicleId(), row.get("tireNo"),
+                    row.get("ocrRecordId"), row.get("attachmentId"), row.get("tireId"));
+            if (requestId == 0) requestId = id;
+            jdbc.update("UPDATE ocr_record SET confirmed_text=? WHERE id=?", row.get("tireNo"), row.get("ocrRecordId"));
+            audit.write("TIRE", "TIRE_REQUEST", id, "CREATE", null,
+                    Map.of("tireNo", row.get("tireNo"), "driverId", driver.driverId()), user.id(), null);
+        }
         return approvals.create(new ApprovalWorkflowService.Application(input.templateId(), null,
                 input.requestKey(), null, null, requestId, null), user);
     }
 
-    private boolean activeRequest(long tireId) {
+    public Map<String, Object> validateRequest(TireRequestInput input, AuthenticatedUser user) {
+        CurrentDriverContext driver = users.requireDriver(user);
+        if (driver.outsourced() || driver.currentVehicleId() == null)
+            throw new AccessDeniedException("仅有当前公司车辆的自有司机可以申请换胎");
+        if (input == null || input.items() == null || input.items().isEmpty() || input.items().size() > 20)
+            throw invalid("请上传 1 至 20 张轮胎照片");
+        List<Map<String, Object>> rows = inspectRequestItems(input.items(), user, false);
+        return Map.of("rows", rows, "allValid", rows.stream().allMatch(row -> Boolean.TRUE.equals(row.get("valid"))));
+    }
+
+    @Transactional
+    public Map<String, Object> resubmitRequest(long approvalId, TireResubmission input, AuthenticatedUser user) {
+        CurrentDriverContext driver = users.requireDriver(user);
+        if (driver.outsourced() || driver.currentVehicleId() == null)
+            throw new AccessDeniedException("仅有当前公司车辆的自有司机可以重新提交换胎申请");
+        if (input == null || input.expectedVersion() == null || input.items() == null
+                || input.items().isEmpty() || input.items().size() > 20)
+            throw invalid("请确认 1 至 20 张轮胎照片并刷新审批状态");
+        List<Map<String, Object>> rows = inspectRequestItems(input.items(), user, true);
+        for (Map<String, Object> row : rows)
+            if (!Boolean.TRUE.equals(row.get("valid"))) throw invalid("第 " + row.get("index")
+                    + " 条胎号 " + row.get("tireNo") + "：" + row.get("message"));
+        for (Map<String, Object> row : rows) {
+            Long used = jdbc.queryForObject("SELECT COUNT(*) FROM approval_submission_attachment WHERE attachment_id=?",
+                    Long.class, row.get("attachmentId"));
+            if (used != null && used > 0)
+                throw invalid("第 " + row.get("index") + " 条照片已用于原申请，请重新上传照片后提交");
+        }
+        return approvals.resubmitTire(approvalId, input.expectedVersion(), driver, rows, user);
+    }
+
+    private List<Map<String, Object>> inspectRequestItems(List<TireRequestItem> items,
+            AuthenticatedUser user, boolean lock) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        Set<String> tireNumbers = new HashSet<>();
+        Set<Long> ocrIds = new HashSet<>();
+        for (int i = 0; i < items.size(); i++) {
+            TireRequestItem item = items.get(i);
+            String tireNo = item == null || item.confirmedTireNo() == null ? ""
+                    : item.confirmedTireNo().trim().toUpperCase();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("index", i + 1); row.put("tireNo", tireNo); row.put("valid", false);
+            rows.add(row);
+            if (item == null || item.ocrRecordId() == null || tireNo.isEmpty() || tireNo.length() > 128) {
+                row.put("message", "请上传照片并填写完整胎号"); continue;
+            }
+            if (!ocrIds.add(item.ocrRecordId())) { row.put("message", "同一张照片不能重复使用"); continue; }
+            if (!tireNumbers.add(tireNo)) { row.put("message", "列表中胎号重复"); continue; }
+            Map<String, Object> ocr = one("""
+                    SELECT o.id,o.attachment_id,a.uploaded_by,a.purpose FROM ocr_record o
+                    JOIN file_attachment a ON a.id=o.attachment_id WHERE o.id=?
+                    """, item.ocrRecordId());
+            if (ocr == null || ((Number) ocr.get("uploaded_by")).longValue() != user.id()
+                    || !"TIRE_OCR".equals(ocr.get("purpose"))) {
+                row.put("message", "照片不存在或不属于当前用户"); continue;
+            }
+            Map<String, Object> tire = one("SELECT id,status FROM tire WHERE tire_no=? AND deleted_at IS NULL"
+                    + (lock ? " FOR UPDATE" : ""), tireNo);
+            if (tire == null) { row.put("message", "胎号不存在"); continue; }
+            if ("CLAIMED".equals(tire.get("status"))) { row.put("message", "该轮胎已被申领"); continue; }
+            if (!"AVAILABLE".equals(tire.get("status"))) { row.put("message", "该轮胎当前状态不可申领"); continue; }
+            String status = activeRequestStatus(((Number) tire.get("id")).longValue());
+            if ("APPROVED".equals(status)) { row.put("message", "该轮胎已被申领"); continue; }
+            if ("PENDING_APPROVAL".equals(status)) { row.put("message", "该轮胎已有待审批申请"); continue; }
+            row.put("valid", true); row.put("message", "库存校验通过");
+            row.put("ocrRecordId", item.ocrRecordId()); row.put("attachmentId", ocr.get("attachment_id"));
+            row.put("tireId", tire.get("id"));
+        }
+        return rows;
+    }
+
+    private String activeRequestStatus(long tireId) {
         // Read the current committed request after locking the tire, even when an
         // earlier lookup established this transaction's REPEATABLE READ snapshot.
-        return !jdbc.queryForList("""
-                SELECT id FROM tire_request
+        List<String> statuses = jdbc.queryForList("""
+                SELECT status FROM tire_request
                 WHERE tire_id=? AND status IN ('PENDING_APPROVAL','APPROVED')
+                ORDER BY CASE WHEN status='APPROVED' THEN 0 ELSE 1 END
                 LIMIT 1 FOR UPDATE
-                """, tireId).isEmpty();
+                """, String.class, tireId);
+        return statuses.isEmpty() ? null : statuses.getFirst();
     }
 
     private List<ImportRow> parse(byte[] content) {

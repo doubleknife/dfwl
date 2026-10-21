@@ -7,8 +7,8 @@
     <view wx:for="{{records}}" wx:key="id" class="notice-item" data-id="{{item.id}}" bindtap="open">
       <view class="notice-title"><text wx:if="{{!item.readAt}}" class="notice-dot"></text>{{item.title}}<text class="notice-arrow">›</text></view>
       <view class="notice-summary">{{item.summary}}</view>
-      <view class="notice-time">{{item.createdAt}}</view>
+      <view class="notice-time">{{item.createdLabel}}</view>
     </view>
-    <button wx:if="{{hasMore}}" class="notice-more" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">加载更多</button>
+    <button wx:if="{{hasMore}}" class="notice-more secondary" loading="{{loadingMore}}" disabled="{{loadingMore}}" bindtap="loadMore">加载更多</button>
   </block>
 </view>

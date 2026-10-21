@@ -6,7 +6,9 @@ import com.dfwl.fleet.common.error.BusinessException;
 import com.dfwl.fleet.common.error.ErrorCode;
 import com.dfwl.fleet.security.AuthenticatedUser;
 import com.dfwl.fleet.security.CurrentUserService;
+import com.dfwl.fleet.security.CurrentDriverContext;
 import com.dfwl.fleet.security.TransactionalAuthorizationGuard;
+import com.dfwl.fleet.notification.NotificationService;
 import com.dfwl.fleet.system.service.AuditWriteService;
 import com.dfwl.fleet.tire.v3.TireApprovalEffect;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -43,10 +45,12 @@ public class ApprovalWorkflowService {
     private final AttachmentService attachments;
     private final TireApprovalEffect tireEffect;
     private final TransactionalAuthorizationGuard authorization;
+    private final NotificationService notifications;
 
     public ApprovalWorkflowService(JdbcTemplate jdbc, ObjectMapper mapper, CurrentUserService users,
                                    AuditWriteService audit, AttachmentService attachments,
-                                   TireApprovalEffect tireEffect, TransactionalAuthorizationGuard authorization) {
+                                   TireApprovalEffect tireEffect, TransactionalAuthorizationGuard authorization,
+                                   NotificationService notifications) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.users = users;
@@ -54,6 +58,7 @@ public class ApprovalWorkflowService {
         this.attachments = attachments;
         this.tireEffect = tireEffect;
         this.authorization = authorization;
+        this.notifications = notifications;
     }
 
     public record FlowNodeInput(String name, Long approverRoleId, Long approverUserId, Boolean allowReturn) {}
@@ -61,7 +66,7 @@ public class ApprovalWorkflowService {
                                 List<Long> initiatorRoleIds, List<FlowNodeInput> nodes) {}
     public record ExpenseItem(LocalDate businessDate, Long vehicleId, Long driverId, Long targetTaskId,
                               String description, BigDecimal amount, String receiptNo, String invoiceNo,
-                              String remark, String stationName) {}
+                              String remark, String stationName, String trailerNo) {}
     public record Application(Long templateId, String applicationScope, String requestKey,
                               List<ExpenseItem> items, Map<String, Object> generalSnapshot, Long tireRequestId,
                               List<Long> attachmentIds) {}
@@ -263,13 +268,14 @@ public class ApprovalWorkflowService {
             throw new AccessDeniedException("司机只能选择本人参与的任务");
         return jdbc.queryForList("""
                 SELECT DISTINCT t.id taskId,t.task_no taskNo,t.business_date businessDate,
+                       t.template_name_snapshot templateName,
                        t.loading_place_snapshot loadingPlace,t.unloading_place_snapshot unloadingPlace,
                        p.company_vehicle_id vehicleId,p.vehicle_plate_snapshot plateNo
                 FROM transport_participant p JOIN transport_task t ON t.id=p.task_id
                 WHERE p.driver_id=? AND p.driver_type_snapshot='INTERNAL'
                   AND p.company_vehicle_id IS NOT NULL AND t.deleted_at IS NULL
-                  AND t.status NOT IN ('CANCELLED','UNPUBLISHED')
-                ORDER BY t.business_date DESC,t.id DESC LIMIT 100
+                  AND t.status <> 'CANCELLED'
+                ORDER BY t.business_date DESC,t.id DESC
                 """, driverId);
     }
 
@@ -278,12 +284,32 @@ public class ApprovalWorkflowService {
         if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能申请费用");
         Long ownDriver = users.isDriverUser(user) ? users.requireDriver(user).driverId() : null;
         List<Map<String, Object>> drivers = ownDriver == null
-                ? jdbc.queryForList("SELECT id,name,phone FROM driver WHERE status=1 AND deleted_at IS NULL ORDER BY name LIMIT 500")
+                ? jdbc.queryForList("SELECT id,name,phone FROM driver WHERE status=1 AND deleted_at IS NULL ORDER BY name")
                 : jdbc.queryForList("SELECT id,name,phone FROM driver WHERE id=? AND status=1 AND deleted_at IS NULL", ownDriver);
         return Map.of(
                 "drivers", drivers,
-                "vehicles", jdbc.queryForList("SELECT id,plate_no plateNo FROM vehicle WHERE status=1 AND deleted_at IS NULL ORDER BY plate_no LIMIT 500"),
+                "vehicles", jdbc.queryForList("SELECT id,plate_no plateNo,energy_type energyType FROM vehicle WHERE status=1 AND deleted_at IS NULL ORDER BY plate_no"),
                 "expenseTypes", jdbc.queryForList("SELECT category_code FROM expense_category WHERE enabled=1 ORDER BY display_order,category_code", String.class));
+    }
+
+    public Map<String, Boolean> expenseTrailerChecks(List<String> trailerNos, AuthenticatedUser user) {
+        requireAny(user, "BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
+        if (isOutsourced(user)) throw new AccessDeniedException("外协司机不能申请费用");
+        if (trailerNos == null || trailerNos.size() > 500) throw invalid("单次最多校验 500 个车挂号");
+        List<String> requested = trailerNos.stream().filter(Objects::nonNull).map(String::trim)
+                .filter(value -> !value.isEmpty()).distinct().toList();
+        if (requested.stream().anyMatch(value -> value.length() > 64)) throw invalid("车挂号不能超过 64 字");
+        var existing = existingTrailers(requested);
+        Map<String, Boolean> result = new LinkedHashMap<>();
+        for (String number : requested) result.put(number, existing.contains(number));
+        return result;
+    }
+
+    private java.util.Set<String> existingTrailers(List<String> trailerNos) {
+        if (trailerNos.isEmpty()) return java.util.Set.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(trailerNos.size(), "?"));
+        return new java.util.HashSet<>(jdbc.queryForList("SELECT trailer_no FROM trailer WHERE deleted_at IS NULL"
+                + " AND trailer_no IN (" + placeholders + ")", String.class, trailerNos.toArray()));
     }
 
     public Map<String, Object> flowOptions(AuthenticatedUser user) {
@@ -342,7 +368,7 @@ public class ApprovalWorkflowService {
         List<ExpenseItem> items = input.items();
         if ("EXPENSE".equals(type)) {
             if (!List.of("DAILY", "TASK").contains(scope)) throw invalid("请先选择日常费用或任务费用");
-            validateItems(scope, items, user);
+            validateItems(scope, items, (String) template.get("expense_type"), user);
         } else {
             if (scope != null || items != null && !items.isEmpty()) throw invalid("非费用审批不能提交费用明细");
             if ("TIRE_REPLACEMENT".equals(type)) tireEffect.validateRequest(input.tireRequestId(), user);
@@ -374,49 +400,71 @@ public class ApprovalWorkflowService {
         bindSubmissionAttachments(user.id(), input.attachmentIds(), instanceId, submissionId);
         if ("EXPENSE".equals(type))
             saveItems(instanceId, submissionId, (String) template.get("expense_type"), items);
-        insert("""
+        long taskId = insert("""
                 INSERT INTO approval_task(instance_id,submission_version_id,node_id)
                 VALUES(?,?,?)
                 """, instanceId, submissionId, num(first.get("id")));
+        notifyPendingTask(instanceId, taskId, num(first.get("id")), type);
         if ("TIRE_REPLACEMENT".equals(type)) tireEffect.onCreated(input.tireRequestId(), instanceId);
         audit.write("APPROVAL", "INSTANCE", instanceId, "CREATE", null,
                 Map.of("type", type, "flowId", flowId), user.id(), null);
         return detail(instanceId, user);
     }
 
-    private void validateItems(String scope, List<ExpenseItem> items, AuthenticatedUser actor) {
+    private void validateItems(String scope, List<ExpenseItem> items, String expenseType, AuthenticatedUser actor) {
         if (items == null || items.isEmpty() || ("TASK".equals(scope) && items.size() != 1)
                 || items.size() > 500) throw invalid("日常费用可多笔，任务费用只能单笔");
+        var existingTrailers = existingTrailers(items.stream().filter(Objects::nonNull)
+                .map(ExpenseItem::trailerNo).filter(Objects::nonNull).map(String::trim)
+                .filter(value -> !value.isEmpty() && value.length() <= 64).distinct().toList());
         Long ownDriver = users.isDriverUser(actor) ? users.requireDriver(actor).driverId() : null;
-        for (ExpenseItem item : items) {
+        for (int index = 0; index < items.size(); index++) {
+            ExpenseItem item = items.get(index);
             if (item == null || item.businessDate() == null || item.driverId() == null
                     || item.vehicleId() == null || item.amount() == null
                     || item.amount().scale() > 2 || item.amount().compareTo(BigDecimal.ZERO) <= 0)
                 throw invalid("费用日期、司机、公司车辆必填，金额必须大于 0 且最多两位小数");
+            String trailerNo = item.trailerNo() == null ? "" : item.trailerNo().trim();
+            if (trailerNo.length() > 64)
+                throw invalid("车挂号不能超过 64 字");
+            if (!trailerNo.isEmpty() && !existingTrailers.contains(trailerNo))
+                throw invalid("车挂号不存在");
             if (ownDriver != null && !ownDriver.equals(item.driverId()))
                 throw new AccessDeniedException("司机只能申请本人费用");
             Long driver = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM driver WHERE id=? AND status=1 AND deleted_at IS NULL
                     """, Long.class, item.driverId());
-            Long vehicle = jdbc.queryForObject("""
-                    SELECT COUNT(*) FROM vehicle WHERE id=? AND status=1 AND deleted_at IS NULL
-                    """, Long.class, item.vehicleId());
-            if (driver == null || driver == 0 || vehicle == null || vehicle == 0)
-                throw invalid("司机或公司车辆不存在或已停用");
+            if (driver == null || driver == 0)
+                throw invalid("司机不存在或已停用");
+            List<String> vehicleEnergy;
             if ("DAILY".equals(scope)) {
                 if (item.targetTaskId() != null) throw invalid("日常费用申请时不能指定任务");
+                vehicleEnergy = jdbc.queryForList("""
+                        SELECT energy_type FROM vehicle WHERE id=? AND status=1 AND deleted_at IS NULL
+                        """, String.class, item.vehicleId());
+                if (vehicleEnergy.isEmpty()) throw invalid("公司车辆不存在或已停用");
             } else {
                 if (item.targetTaskId() == null) throw invalid("请选择该司机正式参与的任务");
-                Long matches = jdbc.queryForObject("""
-                        SELECT COUNT(*) FROM transport_participant p
+                vehicleEnergy = jdbc.queryForList("""
+                        SELECT v.energy_type FROM transport_participant p
                         JOIN transport_task t ON t.id=p.task_id
+                        JOIN vehicle v ON v.id=p.company_vehicle_id
                         WHERE p.task_id=? AND p.driver_id=? AND p.company_vehicle_id=?
                           AND p.driver_type_snapshot='INTERNAL'
-                          AND t.deleted_at IS NULL AND t.status NOT IN ('CANCELLED','UNPUBLISHED')
-                        """, Long.class, item.targetTaskId(), item.driverId(), item.vehicleId());
-                if (matches == null || matches == 0)
+                          AND v.status=1 AND v.deleted_at IS NULL
+                          AND t.deleted_at IS NULL AND t.status <> 'CANCELLED'
+                        """, String.class, item.targetTaskId(), item.driverId(), item.vehicleId());
+                if (vehicleEnergy.isEmpty())
                     throw invalid("任务、司机与公司车辆的正式参与事实不匹配");
             }
+            String requiredEnergy = switch (expenseType) {
+                case "ELECTRIC", "TEMP_ELECTRIC" -> "ELECTRIC";
+                case "GAS", "TEMP_GAS" -> "GAS";
+                default -> null;
+            };
+            if (requiredEnergy != null && !requiredEnergy.equals(vehicleEnergy.getFirst()))
+                throw invalid("第 " + (index + 1) + " 条费用："
+                        + ("ELECTRIC".equals(requiredEnergy) ? "电费、临时电费只能选择电车" : "气费、临时气费只能选择气车"));
         }
     }
 
@@ -426,11 +474,12 @@ public class ApprovalWorkflowService {
             jdbc.update("""
                     INSERT INTO approval_expense_item(instance_id,submission_version_id,item_no,expense_type,
                         business_date,vehicle_id,driver_id,description,amount,receipt_no,invoice_no,
-                        remark,station_name,target_task_id)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        remark,station_name,trailer_no,target_task_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """, instanceId, submissionId, ++itemNo, type, item.businessDate(), item.vehicleId(),
                     item.driverId(), item.description(), item.amount(), item.receiptNo(), item.invoiceNo(),
-                    item.remark(), item.stationName(), item.targetTaskId());
+                    item.remark(), item.stationName(), blank(item.trailerNo()) ? null : item.trailerNo().trim(),
+                    item.targetTaskId());
         }
     }
 
@@ -440,9 +489,9 @@ public class ApprovalWorkflowService {
         String where;
         Object[] args;
         if ("TODO".equals(scope)) {
-            requireAny(user, "BUTTON_APPROVALS_TODO_APPROVE", "BUTTON_APPROVALS_TODO_RETURN");
             where = """
-                     AND EXISTS(SELECT 1 FROM approval_task k
+                     AND ((a.status='RETURNED_TO_APPLICANT' AND a.applicant_user_id=?)
+                       OR EXISTS(SELECT 1 FROM approval_task k
                        JOIN approval_flow_node n ON n.id=k.node_id
                        JOIN sys_user u ON u.id=? AND u.status=1 AND u.role_id=n.approver_role_id
                        JOIN sys_role r ON r.id=u.role_id AND r.status=1
@@ -450,19 +499,26 @@ public class ApprovalWorkflowService {
                          AND k.status='PENDING' AND k.invalidated=0
                          AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
                          AND (?=1 OR ?=1)
-                     )
+                     ))
                     """;
-            args = new Object[]{user.id(), has(user, "BUTTON_APPROVALS_TODO_APPROVE") ? 1 : 0,
+            args = new Object[]{user.id(), user.id(), has(user, "BUTTON_APPROVALS_TODO_APPROVE") ? 1 : 0,
                     has(user, "BUTTON_APPROVALS_TODO_RETURN") ? 1 : 0};
         } else if ("MINE".equals(scope)) {
             where = " AND a.applicant_user_id=?";
+            args = new Object[]{user.id()};
+        } else if ("PROCESSED".equals(scope)) {
+            where = """
+                    AND EXISTS(SELECT 1 FROM approval_action x JOIN approval_task k ON k.id=x.task_id
+                      WHERE k.instance_id=a.id AND x.operator_id=?
+                        AND x.action_type IN ('APPROVE','RETURN_STEP','RETURN_APPLICANT','REJECT'))
+                    """;
             args = new Object[]{user.id()};
         } else if ("HISTORY".equals(scope)) {
             require(user, "PAGE_APPROVALS_HISTORY");
             where = "";
             args = new Object[]{};
         } else throw invalid("审批列表范围不合法");
-        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM approval_instance a WHERE 1=1" + where,
+        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM approval_instance a WHERE 1=1 " + where,
                 Long.class, args);
         List<Object> queryArgs = new ArrayList<>(List.of(args));
         queryArgs.add(size);
@@ -470,20 +526,53 @@ public class ApprovalWorkflowService {
         List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT a.id,a.approval_no approvalNo,a.business_type businessType,
                        a.application_scope applicationScope,a.status,a.created_at createdAt,
-                       t.name templateName,u.phone applicantPhone,n.node_name currentStepName
+                       t.name templateName,u.phone applicantPhone,n.node_name currentStepName,
+                       (SELECT MAX(x.operated_at) FROM approval_action x
+                          JOIN approval_task k ON k.id=x.task_id WHERE k.instance_id=a.id) lastHandledAt,
+                       (SELECT MAX(x.operated_at) FROM approval_action x
+                          JOIN approval_task k ON k.id=x.task_id
+                          WHERE k.instance_id=a.id AND x.action_type='RETURN_APPLICANT') lastReturnAt
                 FROM approval_instance a JOIN approval_template t ON t.id=a.template_id
                 JOIN sys_user u ON u.id=a.applicant_user_id
                 LEFT JOIN approval_flow_node n ON n.id=a.current_node_id
                 WHERE 1=1 %s ORDER BY a.id DESC LIMIT ? OFFSET ?
                 """.formatted(where), queryArgs.toArray());
+        List<Long> tireIds = rows.stream().filter(row -> "TIRE_REPLACEMENT".equals(row.get("businessType")))
+                .map(row -> num(row.get("id"))).toList();
+        if (!tireIds.isEmpty()) {
+            String placeholders = String.join(",", java.util.Collections.nCopies(tireIds.size(), "?"));
+            List<Map<String, Object>> tireRows = jdbc.queryForList("""
+                    SELECT r.approval_instance_id approvalId,v.plate_no vehiclePlate,
+                           r.confirmed_tire_no tireNo
+                    FROM tire_request r JOIN vehicle v ON v.id=r.vehicle_id
+                    WHERE r.approval_instance_id IN (%s)
+                      AND r.batch_key=(SELECT b.batch_key FROM tire_request b
+                        WHERE b.approval_instance_id=r.approval_instance_id ORDER BY b.id DESC LIMIT 1)
+                    ORDER BY r.id
+                    """.formatted(placeholders), tireIds.toArray());
+            Map<Long, List<String>> summaries = new LinkedHashMap<>();
+            for (Map<String, Object> tire : tireRows)
+                summaries.computeIfAbsent(num(tire.get("approvalId")), ignored -> new ArrayList<>())
+                        .add((String) tire.get("tireNo"));
+            for (Map<String, Object> row : rows) if (summaries.containsKey(num(row.get("id")))) {
+                String plate = tireRows.stream().filter(tire -> num(tire.get("approvalId")) == num(row.get("id")))
+                        .map(tire -> String.valueOf(tire.get("vehiclePlate"))).findFirst().orElse("");
+                row.put("businessSummary", plate + " · " + String.join("、", summaries.get(num(row.get("id")))));
+            }
+        }
         return new PageResponse<>(page, size, count == null ? 0 : count, rows);
     }
 
     public Map<String, Object> detail(long id, AuthenticatedUser user) {
         Map<String, Object> approval = one("""
-                SELECT a.*,t.name template_name,t.expense_type,f.version_no,n.node_name current_step_name
+                SELECT a.*,t.name template_name,t.expense_type,f.version_no,n.node_name current_step_name,
+                  applicant.phone applicant_phone,driver.name applicant_name,
+                  applicant_role.role_name applicant_role_name
                 FROM approval_instance a JOIN approval_template t ON t.id=a.template_id
                 JOIN approval_flow f ON f.id=a.flow_id
+                JOIN sys_user applicant ON applicant.id=a.applicant_user_id
+                LEFT JOIN driver ON driver.user_id=applicant.id
+                LEFT JOIN sys_role applicant_role ON applicant_role.id=applicant.role_id
                 LEFT JOIN approval_flow_node n ON n.id=a.current_node_id WHERE a.id=?
                 """, id);
         if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
@@ -512,15 +601,37 @@ public class ApprovalWorkflowService {
                 """, id));
         result.put("actions", jdbc.queryForList("""
                 SELECT x.id,x.task_id,x.action_type,x.operator_id,x.comment,x.target_flow_node_id,
-                       x.target_step_name_snapshot,x.operated_at
+                       x.target_step_name_snapshot,x.operated_at,n.node_name node_name,
+                       u.phone operator_phone,r.role_name operator_role
                 FROM approval_action x JOIN approval_task k ON k.id=x.task_id
+                JOIN approval_flow_node n ON n.id=k.node_id
+                JOIN sys_user u ON u.id=x.operator_id JOIN sys_role r ON r.id=u.role_id
                 WHERE k.instance_id=? ORDER BY x.id
                 """, id));
         result.put("canProcess", canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_APPROVE"));
         result.put("canReturn", canHandleCurrent(id, user, "BUTTON_APPROVALS_TODO_RETURN"));
         result.put("expenseItems", jdbc.queryForList("""
-                SELECT * FROM approval_expense_item WHERE instance_id=?
-                ORDER BY submission_version_id,item_no
+                SELECT i.*,d.name driver_name,v.plate_no vehicle_plate,
+                  t.task_no,t.business_date task_business_date,
+                  t.template_name_snapshot task_template_name,
+                  t.customer_name_snapshot task_customer_name,
+                  t.product_name_snapshot task_product_name,
+                  t.loading_place_snapshot task_loading_place,
+                  t.unloading_place_snapshot task_unloading_place,
+                  t.status task_status,t.completed_at task_completed_at,
+                  current_driver.name task_current_driver,
+                  CASE WHEN p.driver_type_snapshot='OUTSOURCED' THEN p.outsourced_plate_no
+                       ELSE p.vehicle_plate_snapshot END task_current_plate,
+                  p.departed_at task_departed_at,
+                  w.net_weight task_net_weight
+                FROM approval_expense_item i
+                LEFT JOIN driver d ON d.id=i.driver_id
+                LEFT JOIN vehicle v ON v.id=i.vehicle_id
+                LEFT JOIN transport_task t ON t.id=i.target_task_id
+                LEFT JOIN transport_participant p ON p.id=t.current_participant_id
+                LEFT JOIN driver current_driver ON current_driver.id=p.driver_id
+                LEFT JOIN task_weight_version w ON w.id=t.effective_weight_version_id
+                WHERE i.instance_id=? ORDER BY i.submission_version_id,i.item_no
                 """, id));
         result.put("attachments", jdbc.queryForList("""
                 SELECT sa.submission_version_id, f.id attachmentId,f.original_filename filename,
@@ -530,14 +641,16 @@ public class ApprovalWorkflowService {
                 WHERE s.instance_id=? ORDER BY s.version_no,f.id
                 """, id));
         if ("TIRE_REPLACEMENT".equals(approval.get("business_type"))) {
-            result.put("tireRequest", one("""
+            result.put("tireRequests", jdbc.queryForList("""
                     SELECT r.confirmed_tire_no tireNo,r.status,d.name driverName,v.plate_no vehiclePlate,
                            r.created_at requestedAt,o.recognized_text recognizedText,
-                           r.photo_attachment_id photoAttachmentId
+                           r.ocr_record_id ocrRecordId,r.photo_attachment_id photoAttachmentId
                     FROM tire_request r JOIN driver d ON d.id=r.applicant_driver_id
                     JOIN vehicle v ON v.id=r.vehicle_id JOIN ocr_record o ON o.id=r.ocr_record_id
-                    WHERE r.approval_instance_id=?
-                    """, id));
+                    WHERE r.approval_instance_id=? AND r.batch_key=(
+                      SELECT b.batch_key FROM tire_request b WHERE b.approval_instance_id=?
+                      ORDER BY b.id DESC LIMIT 1) ORDER BY r.id
+                    """, id, id));
         }
         result.put("actionAttachments", jdbc.queryForList("""
                 SELECT x.id actionId,f.id attachmentId,f.original_filename filename,f.content_type contentType
@@ -591,6 +704,25 @@ public class ApprovalWorkflowService {
                 WHERE n.id=? AND u.id=? AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
                 """, Long.class, nodeId, user.id());
         return count != null && count > 0;
+    }
+
+    private void notifyPendingTask(long approvalId, long taskId, long nodeId, String businessType) {
+        String businessName = "TIRE_REPLACEMENT".equals(businessType) ? "换胎申请" : "费用申请";
+        List<Long> recipients = jdbc.queryForList("""
+                SELECT u.id FROM approval_flow_node n
+                JOIN sys_role r ON r.id=n.approver_role_id AND r.status=1
+                JOIN sys_user u ON u.role_id=r.id AND u.status=1
+                WHERE n.id=? AND (n.approver_user_id IS NULL OR n.approver_user_id=u.id)
+                  AND EXISTS (SELECT 1 FROM sys_role_permission rp
+                              JOIN sys_permission p ON p.id=rp.permission_id AND p.status=1
+                              WHERE rp.role_id=r.id AND p.permission_code IN
+                              ('BUTTON_APPROVALS_TODO_APPROVE','BUTTON_APPROVALS_TODO_RETURN',
+                               'BUTTON_MINI_APPROVALS_APPROVE','BUTTON_MINI_APPROVALS_RETURN'))
+                """, Long.class, nodeId);
+        for (Long recipient : recipients) {
+            notifications.toEligibleApprover(recipient, "approval:task:" + taskId + ":" + recipient,
+                    "收到待审批任务", businessName + "待处理，请查看审批详情", approvalId);
+        }
     }
 
     @Transactional
@@ -678,6 +810,9 @@ public class ApprovalWorkflowService {
                     """, id);
             if ("TIRE_REPLACEMENT".equals(approval.get("business_type")))
                 tireEffect.onReturnedToApplicant(id);
+            notifications.toUser(num(approval.get("applicant_user_id")),
+                    "approval:return:" + actionId, "APPROVAL_RETURN", "审批已打回",
+                    "请查看打回原因并修改后重新提交", "APPROVAL", id);
         } else if ("RETURN_STEP".equals(decision)) {
             jdbc.update("""
                     UPDATE approval_task SET invalidated=1
@@ -697,10 +832,11 @@ public class ApprovalWorkflowService {
                     VALUES(?,?,?,?)
                     """, id, versionNo, submission.get("business_snapshot_json"), user.id());
             if ("EXPENSE".equals(approval.get("business_type"))) copyItems(id, num(submission.get("id")), newSubmission);
-            insert("""
+            long newTaskId = insert("""
                     INSERT INTO approval_task(instance_id,submission_version_id,node_id)
                     VALUES(?,?,?)
                     """, id, newSubmission, target.get("id"));
+            notifyPendingTask(id, newTaskId, num(target.get("id")), (String) approval.get("business_type"));
             jdbc.update("""
                     UPDATE approval_instance SET current_node_id=?,version=version+1 WHERE id=?
                     """, target.get("id"), id);
@@ -710,10 +846,11 @@ public class ApprovalWorkflowService {
                     ORDER BY node_order LIMIT 1
                     """, approval.get("flow_id"), task.get("node_order"));
             if (next != null) {
-                insert("""
+                long nextTaskId = insert("""
                         INSERT INTO approval_task(instance_id,submission_version_id,node_id)
                         VALUES(?,?,?)
                         """, id, task.get("submission_version_id"), next.get("id"));
+                notifyPendingTask(id, nextTaskId, num(next.get("id")), (String) approval.get("business_type"));
                 jdbc.update("""
                         UPDATE approval_instance SET current_node_id=?,version=version+1 WHERE id=?
                         """, next.get("id"), id);
@@ -750,9 +887,9 @@ public class ApprovalWorkflowService {
         snapshot.put("businessType", type);
         if ("EXPENSE".equals(type)) {
             String scope = (String) approval.get("application_scope");
-            validateItems(scope, input.items(), user);
             Map<String, Object> template = one("SELECT expense_type FROM approval_template WHERE id=?",
                     approval.get("template_id"));
+            validateItems(scope, input.items(), (String) template.get("expense_type"), user);
             snapshot.put("applicationScope", scope);
             snapshot.put("expenseType", template.get("expense_type"));
             snapshot.put("items", input.items());
@@ -774,13 +911,78 @@ public class ApprovalWorkflowService {
         Map<String, Object> first = one("""
                 SELECT * FROM approval_flow_node WHERE flow_id=? ORDER BY node_order LIMIT 1
                 """, approval.get("flow_id"));
-        insert("""
+        long taskId = insert("""
                 INSERT INTO approval_task(instance_id,submission_version_id,node_id)
                 VALUES(?,?,?)
                 """, id, submissionId, first.get("id"));
+        notifyPendingTask(id, taskId, num(first.get("id")), type);
         jdbc.update("""
                 UPDATE approval_instance SET status='PENDING',current_node_id=?,version=version+1 WHERE id=?
                 """, first.get("id"), id);
+        audit.write("APPROVAL", "INSTANCE", id, "RESUBMIT", null,
+                Map.of("submissionVersion", versionNo), user.id(), null);
+        return detail(id, user);
+    }
+
+    @Transactional
+    public Map<String, Object> resubmitTire(long id, int expectedVersion, CurrentDriverContext driver,
+                                            List<Map<String, Object>> rows, AuthenticatedUser user) {
+        authorization.require(user.id(), "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
+        require(user, "BUTTON_MINI_TIRE_REQUEST_SUBMIT");
+        Map<String, Object> approval = one("SELECT * FROM approval_instance WHERE id=? FOR UPDATE", id);
+        if (approval == null) throw new BusinessException(ErrorCode.DATA_001);
+        if (!"TIRE_REPLACEMENT".equals(approval.get("business_type"))
+                || !"RETURNED_TO_APPLICANT".equals(approval.get("status"))
+                || num(approval.get("applicant_user_id")) != user.id())
+            throw new AccessDeniedException("只有被打回的原申请人可以重新提交换胎申请");
+        if (((Number) approval.get("version")).intValue() != expectedVersion)
+            throw invalid("审批状态已变化，请刷新后重试");
+        Map<String, Object> previous = one("""
+                SELECT * FROM tire_request WHERE approval_instance_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE
+                """, id);
+        if (previous == null || num(previous.get("applicant_driver_id")) != driver.driverId()
+                || num(previous.get("vehicle_id")) != driver.currentVehicleId())
+            throw new AccessDeniedException("申请司机或当前公司车辆已变化，不能重新提交");
+        Map<String, Object> lastTask = one("""
+                SELECT id FROM approval_task WHERE instance_id=? ORDER BY id DESC LIMIT 1
+                """, id);
+        int versionNo = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(version_no),0)+1 FROM approval_submission_version WHERE instance_id=?
+                """, Integer.class, id);
+        String batchKey = UUID.randomUUID().toString();
+        long firstRequestId = 0;
+        for (Map<String, Object> row : rows) {
+            long requestId = insert("""
+                    INSERT INTO tire_request(batch_key,applicant_driver_id,approval_instance_id,vehicle_id,
+                        confirmed_tire_no,ocr_record_id,photo_attachment_id,tire_id,status)
+                    VALUES(?,?,?,?,?,?,?,?,'PENDING_APPROVAL')
+                    """, batchKey, driver.driverId(), id, driver.currentVehicleId(), row.get("tireNo"),
+                    row.get("ocrRecordId"), row.get("attachmentId"), row.get("tireId"));
+            if (firstRequestId == 0) firstRequestId = requestId;
+            jdbc.update("UPDATE ocr_record SET confirmed_text=? WHERE id=?",
+                    row.get("tireNo"), row.get("ocrRecordId"));
+        }
+        long submissionId = insert("""
+                INSERT INTO approval_submission_version(instance_id,version_no,business_snapshot_json,submitted_by)
+                VALUES(?,?,?,?)
+                """, id, versionNo, json(Map.of("businessType", "TIRE_REPLACEMENT",
+                        "tireRequestId", firstRequestId)), user.id());
+        for (Map<String, Object> row : rows) jdbc.update("""
+                INSERT INTO approval_submission_attachment(submission_version_id,attachment_id) VALUES(?,?)
+                """, submissionId, row.get("attachmentId"));
+        Map<String, Object> firstNode = one("""
+                SELECT id FROM approval_flow_node WHERE flow_id=? ORDER BY node_order LIMIT 1
+                """, approval.get("flow_id"));
+        long taskId = insert("INSERT INTO approval_task(instance_id,submission_version_id,node_id) VALUES(?,?,?)",
+                id, submissionId, firstNode.get("id"));
+        notifyPendingTask(id, taskId, num(firstNode.get("id")), "TIRE_REPLACEMENT");
+        jdbc.update("""
+                UPDATE approval_instance SET status='PENDING',current_node_id=?,version=version+1 WHERE id=?
+                """, firstNode.get("id"), id);
+        insert("""
+                INSERT INTO approval_action(task_id,action_type,operator_id,comment)
+                VALUES(?,'RESUBMIT',?,'修改换胎申请并重新提交')
+                """, lastTask.get("id"), user.id());
         audit.write("APPROVAL", "INSTANCE", id, "RESUBMIT", null,
                 Map.of("submissionVersion", versionNo), user.id(), null);
         return detail(id, user);
@@ -790,9 +992,9 @@ public class ApprovalWorkflowService {
         jdbc.update("""
                 INSERT INTO approval_expense_item(instance_id,submission_version_id,item_no,expense_type,
                     business_date,vehicle_id,driver_id,description,amount,receipt_no,invoice_no,remark,
-                    station_name,target_task_id)
+                    station_name,trailer_no,target_task_id)
                 SELECT instance_id,?,item_no,expense_type,business_date,vehicle_id,driver_id,description,
-                       amount,receipt_no,invoice_no,remark,station_name,target_task_id
+                       amount,receipt_no,invoice_no,remark,station_name,trailer_no,target_task_id
                 FROM approval_expense_item WHERE instance_id=? AND submission_version_id=?
                 """, toSubmission, instanceId, fromSubmission);
     }
@@ -818,15 +1020,16 @@ public class ApprovalWorkflowService {
             jdbc.update("""
                     INSERT INTO expense_entry(expense_no,approval_instance_id,approval_item_no,
                         application_scope,current_task_id,vehicle_id,driver_id,expense_type,business_date,
-                        description,amount,receipt_no,invoice_no,remark,station_name,
+                        description,amount,receipt_no,invoice_no,remark,station_name,trailer_no,
                         source_type,source_record_key,status,created_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'APPROVAL',?,'ACTIVE',?)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'APPROVAL',?,'ACTIVE',?)
                     ON DUPLICATE KEY UPDATE id=id
                     """, "E" + UUID.randomUUID().toString().replace("-", ""), instanceId, itemNo,
                     approval.get("application_scope"), item.get("target_task_id"), item.get("vehicle_id"),
                     item.get("driver_id"), item.get("expense_type"), item.get("business_date"),
                     item.get("description"), item.get("amount"), item.get("receipt_no"),
-                    item.get("invoice_no"), item.get("remark"), item.get("station_name"), key, actor);
+                    item.get("invoice_no"), item.get("remark"), item.get("station_name"),
+                    item.get("trailer_no"), key, actor);
         }
         audit.write("EXPENSE", "APPROVAL", instanceId, "POST_ITEMS", null,
                 Map.of("count", items.size(), "submissionId", submissionId), actor, null);

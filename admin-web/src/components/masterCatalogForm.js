@@ -1,11 +1,6 @@
 export function displayedPercent(fraction) {
   if (fraction == null) return 90;
-  const value = Number(fraction);
-  return Number((value > 1 ? value : value * 100).toFixed(2));
-}
-
-export function invalidStoredPercent(fraction) {
-  return fraction != null && (Number(fraction) <= 0 || Number(fraction) > 1);
+  return Number((Number(fraction) * 100).toFixed(2));
 }
 
 export function submittedFraction(percent) {
@@ -32,7 +27,8 @@ export function thresholdTons(vehicle) {
     const fixed = scaled(vehicle.loadStandardMinLoad, 3);
     return fixed == null ? null : (Number(fixed) / 1000).toFixed(3);
   }
-  if (vehicle.loadStandardType !== 'PERCENT' || invalidStoredPercent(vehicle.loadStandardPercent)) return null;
+  const fraction = Number(vehicle.loadStandardPercent);
+  if (vehicle.loadStandardType !== 'PERCENT' || !Number.isFinite(fraction) || fraction <= 0 || fraction > 1) return null;
   const load = scaled(vehicle.maxLoad, 3);
   const ratio = scaled(vehicle.loadStandardPercent, 4);
   if (load == null || ratio == null) return null;

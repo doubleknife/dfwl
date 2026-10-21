@@ -44,6 +44,9 @@ public class TaskDriverValidationService {
                     rs.getString("trailer_plate"),
                     "OUTSOURCED".equals(type) && outsourcedPlate != null ? outsourcedPlate.trim() : null, valid);
         }, driverId);
+        if (found.size() == 1 && "OUTSOURCED".equals(found.getFirst().driverType())
+                && (outsourcedPlate == null || outsourcedPlate.isBlank()))
+            throw new BusinessException("OUTSOURCED_PLATE_MISSING", "车辆信息未补充");
         if (found.size() != 1 || !found.getFirst().valid()) throw new BusinessException(ErrorCode.ROUTE_003);
         return found.getFirst();
     }

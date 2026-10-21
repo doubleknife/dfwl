@@ -132,6 +132,13 @@ public class ApprovalV3Controller {
     public ApiResponse<Map<String, Object>> expenseOptions(@AuthenticationPrincipal AuthenticatedUser user) {
         return ok(workflows.expenseOptions(user));
     }
+    public record TrailerCheck(List<String> trailerNos) {}
+    @PostMapping("/api/v1/expense-applications/trailer-check")
+    @FunctionAccess(anyOf={"BUTTON_EXPENSE_APPLY_SUBMIT", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT"})
+    public ApiResponse<Map<String, Boolean>> trailerCheck(@RequestBody TrailerCheck input,
+                                                           @AuthenticationPrincipal AuthenticatedUser user) {
+        return ok(workflows.expenseTrailerChecks(input == null ? null : input.trailerNos(), user));
+    }
     @GetMapping("/api/v1/expense-applications/task-candidates")
     @FunctionAccess(anyOf={"PAGE_EXPENSE_APPLY", "PAGE_MINI_EXPENSE_APPLY"})
     public ApiResponse<List<Map<String, Object>>> candidates(@RequestParam long driverId,

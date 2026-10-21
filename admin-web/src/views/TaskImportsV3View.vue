@@ -35,7 +35,7 @@ const completion = computed(() => completed.value
 const filteredRows = computed(() => filterImportRows(resultRows.value, resultFilter.value));
 const visibleRows = computed(() => filteredRows.value.slice((rowPage.value - 1) * 50, rowPage.value * 50));
 const history = ref([]);
-const historyPage = ref(1);
+const historyPage = ref(1); const historyPageSize = ref(20);
 const historyTotal = ref(0);
 const busy = ref(false);
 const previewing = ref(false);
@@ -106,7 +106,7 @@ async function confirmImport() {
 async function loadHistory(next = 1) {
   loading.value = true; error.value = '';
   try {
-    const page = await taskImportApi.history(next, 20);
+    const page = await taskImportApi.history(next, historyPageSize.value);
     history.value = page.records || [];
     historyPage.value = next;
     historyTotal.value = Number(page.total || 0);
@@ -163,31 +163,33 @@ onMounted(() => { if (can('PAGE_TASK_IMPORTS')) loadHistory(); });
           <template #status="{ row }"><StatusTag :value="stateName[row.status] || row.status" /></template>
           <template #taskNo="{ row }">{{ row.taskNo || row.message || '待确认' }}</template>
         </DataTable>
-        <PaginationBar :page-no="rowPage" :page-size="50" :total="filteredRows.length" @change="rowPage = $event" />
+        <PaginationBar :show-size="false" :page-no="rowPage" :page-size="50" :total="filteredRows.length" @change="rowPage = $event" />
       </template>
       <EmptyState v-else-if="!previewing" title="尚未选择任务文件" description="先下载系统模板并填写，选择 Excel 后自动校验。" />
     </section>
     <section v-else class="ui-section-card import-history-card">
       <div class="ui-list-heading"><div><h2>任务导入历史</h2><p class="muted">选择一批查看逐行校验与发布结果。</p></div><button type="button" :disabled="loading" @click="loadHistory(historyPage)">刷新</button></div>
-      <DataTable :columns="historyColumns" :rows="history" :loading="loading" empty-text="暂无任务导入记录">
+      <DataTable class="ui-paged-table" :columns="historyColumns" :rows="history" :loading="loading" empty-text="暂无任务导入记录">
         <template #createdAt="{ row }">{{ formatImportDateTime(row.createdAt) }}</template>
         <template #status="{ row }"><StatusTag :value="stateName[row.status] || row.status" /></template>
         <template #confirmedAt="{ row }">{{ formatImportDateTime(row.confirmedAt, '尚未确认') }}</template>
-        <template #actions="{ row }"><button type="button" @click="showHistory(row)">查看详情</button></template>
+        <template #actions="{ row }"><button type="button" class="ui-detail-button" @click="showHistory(row)">查看详情</button></template>
       </DataTable>
-      <PaginationBar :page-no="historyPage" :page-size="20" :total="historyTotal" @change="loadHistory" />
+      <PaginationBar :page-no="historyPage" :page-size="historyPageSize" :total="historyTotal" @change="loadHistory" @change-size="(size) => { historyPageSize = size; loadHistory(1); }" />
     </section>
-    <DetailDrawer :open="!!historyDetail" title="任务导入批次详情" @close="historyDetail = null">
+    <DetailDrawer :open="!!historyDetail" class="task-import-detail-drawer" title="任务导入批次详情" @close="historyDetail = null">
       <template #subtitle>上传于 {{ formatImportDateTime(historyDetail?.createdAt) }} · <StatusTag :value="stateName[historyDetail?.status] || '处理中'" /></template>
       <template v-if="historyDetail">
         <div class="import-detail-summary"><strong>批次状态：<StatusTag :value="stateName[historyDetail.status] || '处理中'" /></strong><span>原始 {{ historyDetail.rows?.length || 0 }} 行</span><span>成功 {{ (historyDetail.rows || []).filter(row => row.status === 'PUBLISHED').length }} 行</span><span>待确认 {{ (historyDetail.rows || []).filter(row => row.status === 'VALID').length }} 行</span><span>失败 {{ (historyDetail.rows || []).filter(row => row.status === 'FAILED' || row.status === 'INVALID').length }} 行</span></div>
         <p>原始文件：{{ historyFile?.originalFilename || '本批次原始文件记录不存在' }} <button type="button" :disabled="!historyFile" @click="downloadOriginal">下载原始 Excel</button></p>
-        <DataTable :columns="columns" :rows="(historyDetail.rows || []).slice((detailPage - 1) * 50, detailPage * 50)" row-key="rowNo" empty-text="本批次没有明细行">
-          <template #amounts="{ row }">单价 {{ money(row.actualUnitPrice) }}<br />信息费 {{ money(row.actualInformationFee) }}<br />工资 {{ money(row.initialSalary) }}</template>
-          <template #status="{ row }"><StatusTag :value="stateName[row.status] || '待处理'" /></template>
-          <template #taskNo="{ row }">{{ row.taskNo || row.message || '—' }}</template>
-        </DataTable>
-        <PaginationBar :page-no="detailPage" :page-size="50" :total="historyDetail.rows?.length || 0" @change="detailPage = $event" />
+        <div class="task-import-detail-table">
+          <DataTable :columns="columns" :rows="(historyDetail.rows || []).slice((detailPage - 1) * 50, detailPage * 50)" row-key="rowNo" empty-text="本批次没有明细行">
+            <template #amounts="{ row }">单价 {{ money(row.actualUnitPrice) }}<br />信息费 {{ money(row.actualInformationFee) }}<br />工资 {{ money(row.initialSalary) }}</template>
+            <template #status="{ row }"><StatusTag :value="stateName[row.status] || '待处理'" /></template>
+            <template #taskNo="{ row }">{{ row.taskNo || row.message || '—' }}</template>
+          </DataTable>
+        </div>
+        <PaginationBar :show-size="false" :page-no="detailPage" :page-size="50" :total="historyDetail.rows?.length || 0" @change="detailPage = $event" />
       </template>
     </DetailDrawer>
   </main>
@@ -196,4 +198,10 @@ onMounted(() => { if (can('PAGE_TASK_IMPORTS')) loadHistory(); });
 <style scoped>
 .import-error { color: #a3342f; }
 .import-detail-summary { display:flex; flex-wrap:wrap; gap:8px 16px; margin-bottom:12px; }
+.task-import-detail-drawer :deep(.ui-drawer) { width: min(calc(100vw - 24px), 1240px); }
+.task-import-detail-drawer :deep(.ui-drawer-body > p) { overflow-wrap: anywhere; }
+.task-import-detail-table :deep(.ui-data-table) { min-width: 1100px; }
+.task-import-detail-table :deep(.ui-data-table td:last-child) { position: static; }
+.task-import-detail-table :deep(.ui-data-table [data-column="amounts"]) { min-width: 150px; }
+.task-import-detail-table :deep(.ui-data-table [data-column="taskNo"]) { min-width: 240px; }
 </style>

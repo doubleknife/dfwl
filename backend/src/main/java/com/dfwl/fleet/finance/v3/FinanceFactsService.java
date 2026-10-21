@@ -136,8 +136,6 @@ public class FinanceFactsService {
         Map<String, Object> result = new java.util.LinkedHashMap<>(company(month));
         result.put("pendingApprovalCount", jdbc.queryForObject(
                 "SELECT COUNT(*) FROM approval_instance WHERE status='PENDING'", Long.class));
-        result.put("unpublishedTaskCount", jdbc.queryForObject(
-                "SELECT COUNT(*) FROM transport_task WHERE status='UNPUBLISHED' AND deleted_at IS NULL", Long.class));
         result.put("unassignedExpenseCount", jdbc.queryForObject("""
                 SELECT COUNT(*) FROM expense_entry WHERE status='ACTIVE' AND deleted_at IS NULL
                   AND current_task_id IS NULL

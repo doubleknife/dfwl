@@ -1,20 +1,21 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { v3ApprovalApi } from '../api/modules.js';
 import { authStore, can } from '../stores/auth.js';
 import PageHeader from '../components/PageHeader.vue';
 import DataTable from '../components/DataTable.vue';
 import PaginationBar from '../components/PaginationBar.vue';
 import StatusTag from '../components/StatusTag.vue';
-import ApprovalEvidence from '../components/ApprovalEvidence.vue';
+import ApprovalHistoryDetail from '../components/ApprovalHistoryDetail.vue';
+import ApprovalImageUpload from '../components/ApprovalImageUpload.vue';
 import ErrorState from '../components/ErrorState.vue';
 import { missingApprovalPermissions, normalizeFlowOptions } from './approvalFlowOptions.js';
 
-const props = defineProps({ initialScope: { type: String, default: '' }, initialTab: { type: String, default: 'list' }, autoOpenFirst: { type: Boolean, default: false } });
+const props = defineProps({ initialScope: { type: String, default: '' }, initialTab: { type: String, default: 'list' } });
 const scope = ref(props.initialScope || (can('BUTTON_APPROVALS_TODO_APPROVE') ? 'TODO' : 'MINE'));
 const tab = ref(props.initialTab);
 const rows = ref([]);
-const page = ref(1);
+const page = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const loading = ref(false);
 const busy = ref(false);
@@ -35,6 +36,9 @@ const flowDetail = ref(null);
 const form = reactive({ businessType: 'EXPENSE', expenseType: '',
   initiatorRoleIds: [], nodes: [{ name: '', approverRoleId: '', approverUserId: '', allowReturn: true }] });
 const action = reactive({ comment: '', targetFlowNodeId: '' });
+const actionImages = ref([]);
+const submissionImages = ref([]);
+const imagesUploading = ref(false);
 const resubmitRows = ref([]);
 const resubmitOptions = ref({ drivers: [], vehicles: [] });
 const taskChoices = ref({});
@@ -44,40 +48,27 @@ const canProcess = computed(() => !!detail.value?.canProcess || !!detail.value?.
 const canWithdraw = computed(() => ['PENDING', 'RETURNED_TO_APPLICANT'].includes(detail.value?.approval?.status)
   && Number(detail.value?.approval?.applicant_user_id) === Number(authStore.user?.id));
 const returnable = computed(() => detail.value?.returnableSteps || []);
-const expenseItems = computed(() => {
-  const items = detail.value?.expenseItems || [];
-  const latest = Math.max(0, ...items.map((item) => Number(item.submission_version_id)));
-  return items.filter((item) => Number(item.submission_version_id) === latest);
-});
-const snapshot = computed(() => {
-  const latest = detail.value?.submissions?.at(-1)?.business_snapshot_json;
-  try { return typeof latest === 'string' ? JSON.parse(latest) : latest || {}; }
-  catch { return {}; }
-});
 const isOwnReturned = computed(() => detail.value?.approval?.status === 'RETURNED_TO_APPLICANT'
   && Number(detail.value?.approval?.applicant_user_id) === Number(authStore.user?.id));
-const submissionEvidence = computed(() => (detail.value?.attachments || []).filter((file) =>
-  Number(file.submission_version_id) === Number(detail.value?.submissions?.at(-1)?.id))
-  .map((file) => ({ id: file.attachmentId, originalFilename: file.filename, contentType: file.contentType })));
 const typeName = { EXPENSE: '费用申请', GENERAL: '普通审批', TIRE_REPLACEMENT: '换胎申请' };
-const expenseTypeName = { REPAIR: '维修费', PENALTY: '罚款', WATER: '水费', TEMP_ELECTRIC: '临时电费', TEMP_GAS: '临时气费',
-  ELECTRIC: '电费', GAS: '气费', TOLL: '过路费', CARRYING: '搬运费',
-  CAR_WASH: '洗车费' };
-const statusName = { PENDING: '待处理', APPROVED: '已通过', RETURNED_TO_APPLICANT: '已打回申请人', WITHDRAWN: '已撤回' };
-const actionName = { APPROVE: '通过', RETURN_STEP: '打回指定步骤', RETURN_APPLICANT: '打回申请人', WITHDRAW: '申请人撤回' };
-const money = (value) => `¥${Number(value || 0).toFixed(2)}`;
 const formatTime = (value) => value ? String(value).replace('T', ' ').slice(0, 19) : '—';
 const fail = (cause) => { error.value = cause?.message || '请求失败，请重试'; };
 
 async function load(next = 1) {
   loading.value = true; error.value = '';
   try {
-    const response = await v3ApprovalApi.list(scope.value, next);
+    const response = await v3ApprovalApi.list(scope.value, next, pageSize.value);
     rows.value = response.records || []; total.value = Number(response.total || 0); page.value = next;
   } catch (cause) { fail(cause); rows.value = []; }
   finally { loading.value = false; }
 }
 async function openDetail(row) {
+  if (Number(detail.value?.approval?.id) !== Number(row.id)) {
+    actionImages.value = [];
+    submissionImages.value = [];
+    action.comment = '';
+    action.targetFlowNodeId = '';
+  }
   loading.value = true; error.value = '';
   try {
     detail.value = await v3ApprovalApi.detail(row.id);
@@ -86,7 +77,7 @@ async function openDetail(row) {
       .map((entry) => ({ businessDate: String(entry.business_date).slice(0, 10), driverId: entry.driver_id,
         vehicleId: entry.vehicle_id, targetTaskId: entry.target_task_id, amount: entry.amount,
         description: entry.description || '', receiptNo: entry.receipt_no || '', invoiceNo: entry.invoice_no || '',
-        remark: entry.remark || '', stationName: entry.station_name || '' }));
+        remark: entry.remark || '', stationName: entry.station_name || '', trailerNo: entry.trailer_no || '' }));
     try { resubmitDescription.value = JSON.parse(detail.value.submissions.at(-1).business_snapshot_json)?.content?.description || ''; }
     catch { resubmitDescription.value = ''; }
     if (isOwnReturned.value && detail.value.approval.business_type === 'EXPENSE') {
@@ -103,33 +94,54 @@ async function loadTaskChoices(driverId) {
   taskChoices.value = { ...taskChoices.value, [driverId]: await v3ApprovalApi.taskCandidates(driverId) };
 }
 async function submitAgain() {
-  if (!isOwnReturned.value || busy.value) return;
+  if (!isOwnReturned.value || busy.value || imagesUploading.value) return;
   busy.value = true; error.value = '';
   try {
     const general = detail.value.approval.business_type === 'GENERAL';
+    if (!general && detail.value.approval.application_scope === 'DAILY') {
+      const trailerNos = [...new Set(resubmitRows.value.map((row) => String(row.trailerNo || '').trim()).filter(Boolean))];
+      if (trailerNos.length) {
+        const checked = await v3ApprovalApi.trailerChecks(trailerNos);
+        const missing = trailerNos.find((number) => checked[number] !== true);
+        if (missing) throw new Error(`车挂号 ${missing} 不存在`);
+      }
+    }
     await v3ApprovalApi.resubmit(detail.value.approval.id, {
       items: general ? null : resubmitRows.value.map((row) => ({ ...row, driverId: Number(row.driverId),
         vehicleId: Number(row.vehicleId), targetTaskId: row.targetTaskId ? Number(row.targetTaskId) : null })),
       generalSnapshot: general ? { description: resubmitDescription.value.trim() } : null,
-      attachmentIds: []
+      attachmentIds: submissionImages.value.map((file) => file.id)
     });
+    submissionImages.value = [];
     await refreshDetail(); await load(page.value);
   } catch (cause) { fail(cause); }
   finally { busy.value = false; }
 }
 async function refreshDetail() { if (detail.value) await openDetail({ id: detail.value.approval.id }); }
+function backToList() {
+  detail.value = null; tab.value = 'list';
+  actionImages.value = []; submissionImages.value = [];
+}
 async function process(kind) {
-  if (!canProcess.value || busy.value) return;
+  if (!canProcess.value || busy.value || imagesUploading.value) return;
   if (kind === 'RETURN_STEP' && !action.targetFlowNodeId) { error.value = '请选择合法的返回步骤'; return; }
   if (kind !== 'APPROVE' && !action.comment.trim()) { error.value = '请填写打回原因'; return; }
   busy.value = true; error.value = '';
   const body = { comment: action.comment.trim(), expectedVersion: detail.value.approval.version,
-    targetFlowNodeId: kind === 'RETURN_STEP' ? Number(action.targetFlowNodeId) : null };
+    targetFlowNodeId: kind === 'RETURN_STEP' ? Number(action.targetFlowNodeId) : null,
+    attachmentIds: actionImages.value.map((file) => file.id) };
   try {
     if (kind === 'APPROVE') await v3ApprovalApi.approve(detail.value.approval.id, body);
     if (kind === 'RETURN_STEP') await v3ApprovalApi.returnStep(detail.value.approval.id, body);
     if (kind === 'RETURN_APPLICANT') await v3ApprovalApi.returnApplicant(detail.value.approval.id, body);
-    action.comment = ''; action.targetFlowNodeId = ''; await refreshDetail(); await load(page.value);
+    action.comment = ''; action.targetFlowNodeId = ''; actionImages.value = [];
+    if (kind === 'APPROVE') {
+      backToList();
+      await load(1);
+    } else {
+      await refreshDetail();
+      await load(page.value);
+    }
   } catch (cause) { fail(cause); }
   finally { busy.value = false; }
 }
@@ -161,9 +173,11 @@ function resetForm() {
   Object.assign(form, { businessType: 'EXPENSE', expenseType: '',
     initiatorRoleIds: [], nodes: [{ name: '', approverRoleId: '', approverUserId: '', allowReturn: true }] });
 }
-function actionEvidence(actionId) {
-  return (detail.value?.actionAttachments || []).filter((file) => Number(file.actionId) === Number(actionId))
-    .map((file) => ({ id: file.attachmentId, originalFilename: file.filename, contentType: file.contentType }));
+function cancelTemplate() {
+  if (busy.value) return;
+  error.value = '';
+  resetForm();
+  tab.value = 'flows';
 }
 async function saveTemplate() {
   if (form.businessType === 'EXPENSE' && !form.expenseType) {
@@ -200,66 +214,44 @@ function startNextVersion() {
   }));
   tab.value = 'configure';
 }
+async function openNotificationDetail() {
+  const id = Number(sessionStorage.getItem('admin.approvalNotificationId'));
+  if (!id) return false;
+  sessionStorage.removeItem('admin.approvalNotificationId');
+  await openDetail({ id });
+  return true;
+}
 onMounted(async () => {
+  window.addEventListener('approval-notification-open', openNotificationDetail);
   if (tab.value === 'flows') await loadTemplates();
   else {
     await load();
-    if (props.autoOpenFirst && rows.value.length) await openDetail(rows.value[0]);
+    await openNotificationDetail();
   }
 });
+onBeforeUnmount(() => window.removeEventListener('approval-notification-open', openNotificationDetail));
 </script>
 
 <template>
   <div class="ui-page-container">
     <PageHeader :title="tab === 'flows' || tab === 'configure' ? '流程与模板配置' : scope === 'MINE' ? '申请记录' : scope === 'HISTORY' ? '审批记录' : '待我处理'" description="按正式流程版本处理审批；申请事实与操作历史分别保存。">
+      <template #actions><button v-if="tab === 'detail'" type="button" class="ui-return-button" @click="backToList">← 返回审批列表</button></template>
     </PageHeader>
     <ErrorState v-if="error" :message="error" @retry="tab === 'detail' ? refreshDetail() : ['flows', 'configure'].includes(tab) ? loadTemplates() : load(page)" />
     <section v-if="tab === 'list'" class="ui-section-card approval-list-card">
       <div class="ui-list-heading"><div><h2>{{ scope === 'MINE' ? '本人申请' : scope === 'HISTORY' ? '审批处理记录' : '当前待办' }}</h2><p class="muted">{{ scope === 'TODO' ? '处理操作集中在审批详情，列表仅显示当前可处理事项。' : '点击记录查看申请内容、冻结流程版本和处理时间线。' }}</p></div><button type="button" :disabled="loading" @click="load(page)">刷新</button></div>
-      <DataTable :rows="rows" :loading="loading" empty-text="当前没有审批记录"
+      <DataTable class="ui-paged-table" :rows="rows" :loading="loading" empty-text="当前没有审批记录"
         :columns="[{key:'approvalNo',label:'审批编号'},{key:'templateName',label:'业务'},{key:'status',label:'状态'},
           {key:'applicantPhone',label:'申请人'},{key:'currentStepName',label:'当前步骤'},
           {key:'createdAt',label:'发起时间'},{key:'actions',label:'操作'}]">
         <template #status="{value}"><StatusTag :value="value" /></template>
         <template #createdAt="{value}">{{ formatTime(value) }}</template>
-        <template #actions="{row}"><button type="button" @click="openDetail(row)">查看详情</button></template>
+        <template #actions="{row}"><button type="button" class="ui-detail-button" @click="openDetail(row)">查看详情</button></template>
       </DataTable>
-      <PaginationBar :page-no="page" :page-size="20" :total="total" @change="load" />
+      <PaginationBar :page-no="page" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
     </section>
     <section v-else-if="tab === 'detail' && detail" class="ui-workflow">
-      <button type="button" @click="tab='list';detail=null">← 返回审批列表</button>
-      <div class="ui-section-card">
-        <h2>{{ detail.approval.template_name }} <small>{{ detail.approval.approval_no }}</small></h2>
-        <dl class="approval-facts">
-          <div><dt>业务类型</dt><dd>{{ typeName[detail.approval.business_type] }}</dd></div>
-          <div><dt>当前状态</dt><dd><StatusTag :value="detail.approval.status" /></dd></div>
-          <div><dt>冻结流程</dt><dd>第 {{ detail.approval.version_no }} 版</dd></div>
-          <div v-if="detail.approval.application_scope"><dt>申请属性</dt><dd>{{ detail.approval.application_scope === 'DAILY' ? '日常费用' : '任务费用' }}</dd></div>
-          <div v-if="detail.approval.current_step_name"><dt>当前步骤</dt><dd>{{ detail.approval.current_step_name }}</dd></div>
-        </dl>
-      </div>
-      <div class="ui-section-card">
-        <h2>本次申请 · 第 {{ detail.submissions.at(-1)?.version_no }} 次提交</h2>
-        <DataTable v-if="expenseItems.length" :rows="expenseItems"
-          :columns="[{key:'business_date',label:'业务日期'},{key:'description',label:'明细'},
-            {key:'amount',label:'金额',numeric:true},{key:'receipt_no',label:'票据号'},
-            {key:'invoice_no',label:'发票号'},{key:'station_name',label:'站点'}]">
-          <template #amount="{value}">{{ money(value) }}</template>
-        </DataTable>
-        <p v-else-if="detail.approval.business_type === 'GENERAL'">{{ snapshot.content?.description || snapshot.content?.reason || '普通审批内容已提交' }}</p>
-        <div v-else-if="detail.approval.business_type === 'TIRE_REPLACEMENT'" class="ui-section-card">
-          <h3>换胎申请事实</h3>
-          <dl v-if="detail.tireRequest" class="ui-detail-grid">
-            <dt>确认胎号</dt><dd>{{ detail.tireRequest.tireNo }}</dd>
-            <dt>申请司机</dt><dd>{{ detail.tireRequest.driverName }}</dd>
-            <dt>公司车辆</dt><dd>{{ detail.tireRequest.vehiclePlate }}</dd>
-            <dt>申请时间</dt><dd>{{ formatTime(detail.tireRequest.requestedAt) }}</dd>
-            <dt>照片识别文字</dt><dd>{{ detail.tireRequest.recognizedText || '未识别出文字，已由司机人工确认胎号' }}</dd>
-          </dl>
-          <p class="muted">审批通过后才正式申领库存轮胎；不生成普通费用。</p>
-        </div>
-        <ApprovalEvidence v-if="submissionEvidence.length" title="申请附件" :attachments="submissionEvidence" />
-      </div>
+      <ApprovalHistoryDetail :detail="detail" section="summary" />
       <div v-if="isOwnReturned && detail.approval.business_type !== 'TIRE_REPLACEMENT'" class="ui-section-card">
         <h2>修改后重新提交</h2>
         <p>本次修改会形成新的提交版本，原审批和处理记录保留。</p>
@@ -278,28 +270,21 @@ onMounted(async () => {
           <label class="ui-form-field">明细<input v-model="row.description" /></label>
           <label class="ui-form-field">票据号<input v-model="row.receiptNo" /></label>
           <label class="ui-form-field">发票号<input v-model="row.invoiceNo" /></label>
+          <label v-if="detail.approval.application_scope === 'DAILY'" class="ui-form-field">车挂号（选填）<input v-model.trim="row.trailerNo" maxlength="64" /></label>
           <label class="ui-form-field">站点名称<input v-model="row.stationName" /></label>
           <label class="ui-form-field">备注<input v-model="row.remark" /></label>
         </div>
-        <div class="ui-dialog-actions"><button class="primary" type="button" :disabled="busy" @click="submitAgain">重新提交</button></div>
+        <ApprovalImageUpload v-model="submissionImages" purpose="APPROVAL_APPLICATION"
+          :disabled="busy" @uploading="imagesUploading = $event" />
+        <div class="ui-dialog-actions"><button class="primary" type="button" :disabled="busy || imagesUploading" @click="submitAgain">重新提交</button></div>
       </div>
-      <div class="ui-section-card">
-        <h2>处理时间线</h2>
-        <ol class="approval-timeline"><li v-for="entry in detail.actions" :key="entry.id">
-          <strong>{{ actionName[entry.action_type] || entry.action_type }}</strong>
-          <span v-if="entry.target_step_name_snapshot"> → {{ entry.target_step_name_snapshot }}</span>
-          <span> · {{ formatTime(entry.operated_at) }}</span>
-          <p v-if="entry.comment">{{ entry.comment }}</p>
-          <ApprovalEvidence v-if="actionEvidence(entry.id).length" title="处理附件" :attachments="actionEvidence(entry.id)" />
-        </li></ol>
-        <p v-if="!detail.actions.length" class="ui-empty">尚无处理记录</p>
-      </div>
-      <div v-if="canWithdraw" class="ui-section-card"><h2>撤回申请</h2><p>仅能撤回尚未生效的申请；已生效费用须按正式冲销流程处理。</p>
-        <button type="button" :disabled="busy" @click="withdraw">撤回本次申请</button></div>
-      <div v-if="canProcess" class="ui-section-card">
-        <h2>处理当前步骤</h2>
-        <label class="ui-form-field">处理意见 <textarea v-model.trim="action.comment" rows="3" placeholder="打回时须说明原因"></textarea></label>
-        <label v-if="returnable.length && detail.canReturn" class="ui-form-field">指定返回步骤
+      <ApprovalHistoryDetail :detail="detail" section="timeline" />
+      <div v-if="canProcess || canWithdraw" class="ui-section-card">
+        <h2>申请与审批操作</h2>
+        <label v-if="canProcess" class="ui-form-field">处理意见 <textarea v-model.trim="action.comment" rows="3" placeholder="打回时须说明原因"></textarea></label>
+        <ApprovalImageUpload v-if="canProcess" v-model="actionImages" purpose="APPROVAL_ACTION"
+          :disabled="busy" @uploading="imagesUploading = $event" />
+        <label v-if="canProcess && returnable.length && detail.canReturn" class="ui-form-field">指定返回步骤
           <select v-model="action.targetFlowNodeId"><option value="">请选择步骤</option>
             <option v-for="step in returnable" :key="step.flowNodeId" :value="step.flowNodeId">
               {{ step.stepName }}<span v-if="step.approverPhone"> · 指定审批人 {{ step.approverPhone }}</span>
@@ -307,10 +292,12 @@ onMounted(async () => {
           </select>
         </label>
         <div class="ui-dialog-actions">
-          <button v-if="detail.canReturn" type="button" :disabled="busy" @click="process('RETURN_APPLICANT')">打回申请人</button>
-          <button v-if="returnable.length && detail.canReturn" type="button" :disabled="busy || !action.targetFlowNodeId" @click="process('RETURN_STEP')">打回指定步骤</button>
-          <button v-if="detail.canProcess" type="button" class="primary" :disabled="busy" @click="process('APPROVE')">通过当前步骤</button>
+          <button v-if="canWithdraw" type="button" class="ui-danger-link" :disabled="busy" @click="withdraw">撤回本次申请</button>
+          <button v-if="detail.canReturn" type="button" :disabled="busy || imagesUploading" @click="process('RETURN_APPLICANT')">打回申请人</button>
+          <button v-if="returnable.length && detail.canReturn" type="button" :disabled="busy || imagesUploading || !action.targetFlowNodeId" @click="process('RETURN_STEP')">打回指定步骤</button>
+          <button v-if="detail.canProcess" type="button" class="primary" :disabled="busy || imagesUploading" @click="process('APPROVE')">同意</button>
         </div>
+        <p v-if="canWithdraw" class="muted">仅能撤回尚未生效的申请；已生效费用须按正式冲销流程处理。</p>
       </div>
     </section>
     <section v-else-if="tab === 'flows'">
@@ -322,7 +309,7 @@ onMounted(async () => {
         <template #business_type="{value}">{{ typeName[value] || value }}</template>
         <template #version_no="{value}">第 {{ value }} 版</template>
         <template #flow_status="{value}"><StatusTag :value="value === 'ACTIVE' ? '已发布' : value === 'DRAFT' ? '草稿' : '已归档'" /></template>
-        <template #actions="{row}"><button type="button" :class="{ primary: flowDetail?.id === row.flow_id }" @click="viewFlow(row)">{{ flowDetail?.id === row.flow_id ? '当前查看' : '查看步骤' }}</button></template>
+        <template #actions="{row}"><button type="button" class="ui-detail-button" :class="{ 'is-active': flowDetail?.id === row.flow_id }" @click="viewFlow(row)">{{ flowDetail?.id === row.flow_id ? '当前查看' : '查看步骤' }}</button></template>
       </DataTable></div>
       <div v-if="flowDetail" class="ui-section-card approval-flow-detail">
         <h2>{{ flowDetail.name }} · 第 {{ flowDetail.version_no }} 版</h2>
@@ -365,6 +352,7 @@ onMounted(async () => {
           </div>
         </div>
         <div class="ui-dialog-actions"><button type="button" @click="form.nodes.push({name:'',approverRoleId:'',approverUserId:'',allowReturn:true})">添加步骤</button>
+          <button type="button" :disabled="busy" @click="cancelTemplate">取消</button>
           <button class="primary" type="button" :disabled="busy || (form.businessType === 'EXPENSE' && !options.expenseTypes.length)" @click="saveTemplate">保存草稿</button></div>
       </div>
     </section>
@@ -382,9 +370,11 @@ onMounted(async () => {
 .approval-flow-steps li { display:flex; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--ui-border); border-radius:8px; }
 .approval-flow-steps li div { display:grid; gap:3px; }
 .approval-flow-steps small { color:var(--ui-text-secondary); }
-.approval-flow-layout { display:grid; grid-template-columns:minmax(0, 1.05fr) minmax(360px, .95fr); gap:14px; align-items:start; }
+.approval-flow-layout { display:grid; grid-template-columns:minmax(560px, 1.05fr) minmax(400px, .95fr); gap:14px; align-items:start; }
 .approval-flow-list { min-width:0; overflow-x:auto; border:1px solid var(--ui-border); border-radius:10px; background:#fff; }
+.approval-flow-list .ui-table-wrap { max-height:calc(100dvh - 250px); overflow:auto; }
 .approval-flow-list .ui-data-table { min-width:580px; }
+.approval-flow-list .ui-data-table thead th { position:sticky; top:0; z-index:2; background:#e8f2ec; }
 .approval-flow-detail { min-height:190px; max-height:calc(100vh - 210px); overflow-y:auto; margin:0; }
 .approval-flow-detail h2 { margin-top:0; }
 .approval-flow-detail .approval-flow-steps { margin-bottom:12px; }
@@ -392,7 +382,21 @@ onMounted(async () => {
 .approval-step-number { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:#e5f4ed; color:#135d4d; font-weight:700; }
 .approval-timeline { padding-left: 1.4rem; }
 .approval-timeline li { padding: .7rem 0; border-bottom: 1px solid var(--border, #e5ece9); }
-.approval-timeline p { margin: .3rem 0 0; }
+.approval-timeline-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; margin-top: 6px; }
+.approval-timeline-fields.with-target { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.approval-timeline-fields p { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .approval-timeline-fields.with-target { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.approval-tire-fact { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--ui-border); border-radius: 8px; }
+.approval-tire-fact h4 { margin: 0 0 12px; }
+.approval-tire-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin: 0 0 16px; }
+.approval-tire-fields-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.approval-tire-fields > div { min-width: 0; }
+.approval-tire-fields dt, .approval-ocr-label { color: var(--ui-text-secondary); }
+.approval-tire-fields dd { min-width: 0; margin: 5px 0 0; overflow-wrap: anywhere; }
+.approval-tire-number { font-size: 1.15rem; color: #087462; }
+.approval-ocr-block { min-width: 0; margin-bottom: 16px; }
+.approval-ocr-text { margin-top: 5px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+@media (max-width: 700px) { .approval-tire-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .approval-config-card { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:11px 16px; align-items:end; max-width:1100px; }
 .approval-config-card > h2, .approval-config-card > fieldset, .approval-config-card > h3, .approval-config-card > .approval-step, .approval-config-card > .ui-dialog-actions { grid-column:1 / -1; margin:0; }
 .approval-config-card > .ui-form-field { min-width:0; }

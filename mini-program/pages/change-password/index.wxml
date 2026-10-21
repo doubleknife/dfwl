@@ -27,6 +27,6 @@
       <text wx:if="{{confirmError}}" class="password-error">{{confirmError}}</text>
     </view>
     <view wx:if="{{apiError}}" class="password-api-error" role="alert">{{apiError}}</view>
-    <button class="password-submit" loading="{{loading}}" disabled="{{loading}}" bindtap="changePassword">确认修改</button>
+    <button class="password-submit primary" loading="{{loading}}" disabled="{{loading}}" bindtap="changePassword">确认修改</button>
   </view>
 </view>

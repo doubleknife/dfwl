@@ -126,6 +126,42 @@ class AttachmentApiTests {
     }
 
     @Test
+    void miniApprovalImagesRequireUploaderAndMatchingApplicationOrActionPermission() throws Exception {
+        String applicant = token(501, "13911111111", "DRIVER", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT");
+        var application = mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "receipt.png", "image/png", new byte[]{1, 2}))
+                        .param("ownerType", "APPROVAL_UPLOAD").param("ownerId", "501")
+                        .param("purpose", "APPROVAL_APPLICATION")
+                        .header("Authorization", "Bearer " + applicant))
+                .andExpect(status().isOk()).andReturn();
+        long applicationId = json.readTree(application.getResponse().getContentAsByteArray()).path("data").path("id").asLong();
+        mvc.perform(get("/api/v1/attachments/{id}", applicationId)
+                        .header("Authorization", "Bearer " + applicant)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/attachments/{id}", applicationId)
+                        .header("Authorization", "Bearer " + token(502, "13922222222", "DRIVER", "BUTTON_MINI_EXPENSE_APPLY_SUBMIT")))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "wrong-owner.png", "image/png", new byte[]{1}))
+                        .param("ownerType", "APPROVAL_UPLOAD").param("ownerId", "502")
+                        .param("purpose", "APPROVAL_APPLICATION")
+                        .header("Authorization", "Bearer " + applicant))
+                .andExpect(status().isConflict());
+        String approver = token(1, "13900000001", "ADMIN", "BUTTON_MINI_APPROVALS_APPROVE");
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "action.png", "image/png", new byte[]{3}))
+                        .param("ownerType", "APPROVAL_UPLOAD").param("ownerId", "1")
+                        .param("purpose", "APPROVAL_ACTION")
+                        .header("Authorization", "Bearer " + approver))
+                .andExpect(status().isOk());
+        mvc.perform(multipart("/api/v1/attachments")
+                        .file(new MockMultipartFile("file", "action-denied.png", "image/png", new byte[]{4}))
+                        .param("ownerType", "APPROVAL_UPLOAD").param("ownerId", "501")
+                        .param("purpose", "APPROVAL_ACTION")
+                        .header("Authorization", "Bearer " + applicant))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void tireRequestPermissionDoesNotLetOutsourcedDriverUploadAnOcrPhoto() throws Exception {
         jdbc.update("INSERT INTO driver_vehicle_current(driver_id,vehicle_id,bound_at,bound_by) "
                 + "VALUES(1,1,CURRENT_TIMESTAMP,1)");

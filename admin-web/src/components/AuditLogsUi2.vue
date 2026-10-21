@@ -10,7 +10,7 @@ import ErrorState from './ErrorState.vue';
 
 const filters = reactive({ module: '', businessType: '', startTime: '', endTime: '' });
 const rows = ref([]);
-const page = ref(1);
+const page = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const loading = ref(false);
 const error = ref('');
@@ -66,7 +66,7 @@ function short(value) {
 async function load(next = 1) {
   loading.value = true; error.value = '';
   try {
-    const result = await systemApi.auditLogs({ ...filters, pageNo: next, pageSize: 20 });
+    const result = await systemApi.auditLogs({ ...filters, pageNo: next, pageSize: pageSize.value });
     rows.value = result.records || []; total.value = Number(result.total || 0); page.value = next;
   } catch (cause) { error.value = cause.message || '日志加载失败'; }
   finally { loading.value = false; }
@@ -79,9 +79,9 @@ onMounted(() => load());
     <ErrorState v-if="error" :message="error" @retry="load(page)" />
     <div class="ui-list-heading"><h2>日志记录</h2><span class="muted">只读 · 保留完整操作记录</span></div>
     <FilterBar><label>模块<select v-model="filters.module"><option value="">全部模块</option><option v-for="(name, code) in modules" :key="code" :value="code">{{ name }}</option></select></label><label>业务类型<select v-model="filters.businessType"><option value="">全部业务</option><option v-for="(name, code) in businessNames" :key="code" :value="code">{{ name }}</option></select></label><label>开始时间<input v-model="filters.startTime" type="datetime-local" /></label><label>结束时间<input v-model="filters.endTime" type="datetime-local" /></label><button class="primary" type="button" @click="load(1)">查询</button></FilterBar>
-    <DataTable v-if="!error" :columns="[{key:'operationTime',label:'时间'},{key:'module',label:'模块'},{key:'businessType',label:'业务对象'},{key:'operationType',label:'操作'},{key:'operatorPhone',label:'操作人'},{key:'reason',label:'原因'},{key:'actions',label:'操作'}]" :rows="rows" :loading="loading" empty-text="没有符合条件的操作日志">
-      <template #operationTime="{value}">{{ displayTime(value) }}</template><template #module="{value}">{{ moduleName(value) }}</template><template #businessType="{value}">{{ businessName(value) }}</template><template #operationType="{value}">{{ operationName(value) }}</template><template #operatorPhone="{value}">{{ value || '账号已移除' }}</template><template #reason="{value}">{{ value || '—' }}</template><template #actions="{row}"><button type="button" @click="selected=row">查看变化</button></template>
-    </DataTable><PaginationBar v-if="!error" :page-no="page" :page-size="20" :total="total" @change="load" />
-    <DetailDrawer :open="!!selected" title="操作记录" @close="selected=null"><template v-if="selected"><dl class="ui-detail-grid"><dt>业务</dt><dd>{{ businessName(selected.businessType) }} · {{ moduleName(selected.module) }}</dd><dt>操作</dt><dd>{{ operationName(selected.operationType) }}</dd><dt>操作时间</dt><dd>{{ selected.operationTime }}</dd><dt>操作人</dt><dd>{{ selected.operatorPhone || '账号已移除' }}</dd><dt>原因</dt><dd>{{ selected.reason || '未填写' }}</dd><dt>原始动作代码</dt><dd><code>{{ selected.operationType || '—' }}</code></dd><dt>原始业务类型</dt><dd><code>{{ selected.businessType || '—' }}</code></dd></dl><h3>前后变化</h3><div v-if="!changedFields(selected).length" class="ui-empty">无可展示的字段变化</div><div v-else class="ui-audit-changes"><div v-for="item in changedFields(selected)" :key="item.key"><strong>{{ fieldName(item.key) }}</strong><p>{{ short(item.before) }} → {{ short(item.after) }}</p></div></div></template></DetailDrawer>
+    <DataTable v-if="!error" class="ui-paged-table" :columns="[{key:'operationTime',label:'时间'},{key:'module',label:'模块'},{key:'businessType',label:'业务对象'},{key:'operationType',label:'操作'},{key:'operatorPhone',label:'操作人'},{key:'reason',label:'原因'},{key:'actions',label:'操作'}]" :rows="rows" :loading="loading" empty-text="没有符合条件的操作日志">
+      <template #operationTime="{value}">{{ displayTime(value) }}</template><template #module="{value}">{{ moduleName(value) }}</template><template #businessType="{value}">{{ businessName(value) }}</template><template #operationType="{value}">{{ operationName(value) }}</template><template #operatorPhone="{value}">{{ value || '账号已移除' }}</template><template #reason="{value}">{{ value || '—' }}</template><template #actions="{row}"><button type="button" class="ui-detail-button" @click="selected=row">查看变化</button></template>
+    </DataTable><PaginationBar v-if="!error" :page-no="page" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
+    <DetailDrawer :open="!!selected" title="操作记录" @close="selected=null"><template v-if="selected"><dl class="ui-detail-grid"><dt>业务</dt><dd>{{ businessName(selected.businessType) }} · {{ moduleName(selected.module) }}</dd><dt>操作</dt><dd>{{ operationName(selected.operationType) }}</dd><dt>操作时间</dt><dd>{{ displayTime(selected.operationTime) }}</dd><dt>操作人</dt><dd>{{ selected.operatorPhone || '账号已移除' }}</dd><dt>原因</dt><dd>{{ selected.reason || '未填写' }}</dd><dt>原始动作代码</dt><dd><code>{{ selected.operationType || '—' }}</code></dd><dt>原始业务类型</dt><dd><code>{{ selected.businessType || '—' }}</code></dd></dl><h3>前后变化</h3><div v-if="!changedFields(selected).length" class="ui-empty">无可展示的字段变化</div><div v-else class="ui-audit-changes"><div v-for="item in changedFields(selected)" :key="item.key"><strong>{{ fieldName(item.key) }}</strong><p>{{ short(item.before) }} → {{ short(item.after) }}</p></div></div></template></DetailDrawer>
   </section>
 </template>

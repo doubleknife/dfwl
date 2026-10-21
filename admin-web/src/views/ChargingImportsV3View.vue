@@ -29,7 +29,7 @@ const completion = computed(() => result.value?.batch ? {
   total: Number(result.value.batch.confirmed_count || 0),
   success: Number(result.value.batch.imported_count || 0), failed: 0, failures: []
 } : confirmFailure.value);
-const historyPage = ref(1), historyTotal = ref(0);
+const historyPage = ref(1), historyPageSize = ref(20), historyTotal = ref(0);
 const busy = ref(false), loading = ref(false), error = ref(''), notice = ref('');
 const selectedCompanyId = ref(''), importFile = ref(null), importBook = ref(null), preview = ref(null);
 const resultFilter = ref('ALL');
@@ -75,7 +75,7 @@ async function load() {
 }
 
 async function loadHistory() {
-  const response = await chargingApi.imports(historyPage.value);
+  const response = await chargingApi.imports(historyPage.value, historyPageSize.value);
   history.value = response.items;
   historyTotal.value = response.total;
 }
@@ -340,16 +340,13 @@ onMounted(load);
 
     <section v-else class="ui-section-card import-history-card">
       <div class="ui-list-heading"><div><h2>充电订单导入历史</h2><p class="muted">按批次核对有效订单、零元订单、重复订单和原始文件。</p></div><button type="button" @click="load">刷新</button></div>
-      <DataTable :columns="[{key:'company_name',label:'公司'},{key:'original_filename',label:'原始文件'},{key:'created_at',label:'导入时间'},{key:'confirmed_count',label:'有效订单'},{key:'imported_count',label:'入账'},{key:'zero_count',label:'零元不入账'},{key:'duplicate_count',label:'重复'},{key:'imported_amount',label:'入账金额'},{key:'actions',label:'操作'}]"
+      <DataTable class="ui-paged-table" :columns="[{key:'company_name',label:'公司'},{key:'original_filename',label:'原始文件'},{key:'created_at',label:'导入时间'},{key:'confirmed_count',label:'有效订单'},{key:'imported_count',label:'入账'},{key:'zero_count',label:'零元不入账'},{key:'duplicate_count',label:'重复'},{key:'imported_amount',label:'入账金额'},{key:'actions',label:'操作'}]"
         :rows="history" :loading="loading" empty-text="暂无充电订单导入记录">
         <template #created_at="{value}">{{ formatImportDateTime(value) }}</template>
         <template #imported_amount="{value}">{{ formatMoney(value) }}</template>
-        <template #actions="{row}"><div class="import-row-actions"><button type="button" @click="showBatch(row)">查看详情</button><button type="button" @click="downloadOriginal(row)">打开原始 Excel</button></div></template>
+        <template #actions="{row}"><div class="import-row-actions"><button type="button" class="ui-detail-button" @click="showBatch(row)">查看详情</button><button type="button" @click="downloadOriginal(row)">打开原始 Excel</button></div></template>
       </DataTable>
-      <div class="ui-dialog-actions"><span>共 {{ historyTotal }} 批 · 第 {{ historyPage }} 页</span>
-        <button type="button" :disabled="historyPage <= 1" @click="changeHistoryPage(historyPage - 1)">上一页</button>
-        <button type="button" :disabled="historyPage * 20 >= historyTotal" @click="changeHistoryPage(historyPage + 1)">下一页</button>
-      </div>
+      <PaginationBar :page-no="historyPage" :page-size="historyPageSize" :total="historyTotal" @change="changeHistoryPage" @change-size="(size) => { historyPageSize = size; changeHistoryPage(1); }" />
     </section>
     <DetailDrawer :open="!!selectedBatch" title="充电订单导入批次详情" @close="selectedBatch=null">
       <template #subtitle>{{ selectedBatch?.batch?.company_name }} · {{ selectedBatch?.batch?.original_filename }}</template>
@@ -358,7 +355,7 @@ onMounted(load);
         <p v-if="!selectedBatch.orders?.length && selectedBatch.batch.duplicate_count" class="muted">本批次订单均已存在，没有新增来源订单；重复数量按本次正式结果记录。</p>
         <button type="button" @click="downloadOriginal(selectedBatch.batch)">下载本批次原始 Excel</button>
         <div class="charging-table"><DataTable :columns="[{key:'row_no',label:'原始行号'},{key:'original_order_no',label:'订单号'},{key:'plate_no',label:'车牌'},{key:'charged_at',label:'充电时间'},{key:'amount',label:'金额',numeric:true},{key:'processing_status',label:'处理方式'},{key:'task_no',label:'匹配任务'}]" :rows="(selectedBatch.orders || []).slice((sourcePage - 1) * 50, sourcePage * 50)" empty-text="本批次没有新增来源订单"><template #charged_at="{value}">{{ formatImportDateTime(value) }}</template><template #amount="{value}">{{ formatMoney(value) }}</template><template #task_no="{value}">{{ value || '未归属' }}</template></DataTable></div>
-        <PaginationBar :page-no="sourcePage" :page-size="50" :total="selectedBatch.orders?.length || 0" @change="sourcePage = $event" />
+        <PaginationBar :show-size="false" :page-no="sourcePage" :page-size="50" :total="selectedBatch.orders?.length || 0" @change="sourcePage = $event" />
       </template>
     </DetailDrawer>
     <ConfirmDialog :open="cancelPending" title="放弃未保存修改？" message="取消后将丢弃当前修改，恢复已保存的字段配置。" @cancel="cancelPending=false" @confirm="discardEditor" />

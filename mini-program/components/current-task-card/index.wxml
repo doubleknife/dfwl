@@ -1,6 +1,6 @@
 <view class="task">
   <view class="eyebrow">当前运输</view>
   <view wx:if="{{loading}}" class="muted">正在获取线路…</view>
-  <block wx:elif="{{task && task.id}}"><view class="places">{{task.loadingPlace || '装货地'}} <text class="arrow">→</text> {{task.unloadingPlace || '卸货地'}}</view><view class="number">{{task.routeNo}} <status-tag label="{{task.statusLabel}}" tone="{{task.tone}}" /></view><view class="next">下一步：{{task.nextAction}}</view><button class="task-action" bindtap="open">查看当前线路</button></block>
+  <block wx:elif="{{task && task.id}}"><view class="places">{{task.loadingPlace || '装货地'}} <text class="arrow">→</text> {{task.unloadingPlace || '卸货地'}}</view><view class="number">{{task.routeNo}} <status-tag label="{{task.statusLabel}}" tone="{{task.tone}}" /></view><view class="next">下一步：{{task.nextAction}}</view><button class="task-action mp-detail-button" bindtap="open">查看当前线路 ›</button></block>
   <view wx:else class="empty">当前暂无运输任务，新的线路分配后会显示在这里。</view>
 </view>

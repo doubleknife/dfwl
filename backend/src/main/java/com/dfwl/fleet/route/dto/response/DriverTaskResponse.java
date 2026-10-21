@@ -7,6 +7,6 @@ import java.time.LocalDate;
 public record DriverTaskResponse(
         long id, String taskNo, String customerName, String productName,
         String loadingPlace, String unloadingPlace, LocalDate businessDate,
-        String status, String vehiclePlate, BigDecimal grossWeight,
+        String status, String currentDriverName, String vehiclePlate, BigDecimal grossWeight,
         BigDecimal tareWeight, BigDecimal netWeight, boolean currentParticipant, int version
 ) {}

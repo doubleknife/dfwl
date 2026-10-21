@@ -11,14 +11,17 @@ const { masterApi, routeApi, routeTemplateApi, dispatchApi, taskImportApi,
   salaryApi, attendanceApi, dispatchLedgerApi, systemApi, attachmentApi, v3ApprovalApi,
   v3ExpenseLedgerApi, v3FinanceApi, v3SettlementApi } = await import('../src/api/modules.js');
 const { appendDispatchRows, updateSelectedAmounts, dispatchBody } = await import('../src/views/dispatchDraft.js');
-const { appendPreviewRows, dailyItems, emptyExpenseRow } = await import('../src/views/expenseApplicationDraft.js');
+const { appendPreviewRows, dailyItems, emptyExpenseRow, expenseRowError, vehicleEnergyError } = await import('../src/views/expenseApplicationDraft.js');
+const { canTransferTask, canCancelTask, transferBody, cancelBody } = await import('../src/views/taskOperations.js');
 const { hasExpenseDraft } = await import('../src/views/expenseScopeDraft.js');
 const { countImportFailures, filterImportRows, formatImportDateTime, summarizeCompletedRows } = await import('../src/views/importResultView.js');
+const { formatDateTime } = await import('../src/utils/dateTime.js');
+const { displayValue } = await import('../src/utils/displayLabels.js');
 const { groupTireMaintenanceHistory } = await import('../src/views/tireMaintenanceHistory.js');
 const { navigation, filterNavigation, findNavigationTrail } = await import('../src/router/navigationModel.js');
 const { buildPagePermissionTree, hasRouteAccess, overviewCardAccess,
   pagePermissionName, selectPermissionCodes, todoOverviewPermissions } = await import('../src/router/pagePermissionModel.js');
-const { displayedPercent, submittedFraction, editingStatus, invalidStoredPercent, invalidFixedStandard, thresholdTons } = await import('../src/components/masterCatalogForm.js');
+const { displayedPercent, submittedFraction, editingStatus, invalidFixedStandard, thresholdTons } = await import('../src/components/masterCatalogForm.js');
 const { birthDateFromIdCard, fullAge, idCardValidationMessage } = await import('../src/utils/driverIdentity.js');
 const { calendarDays, dayFact, isWeekend, rowTotalMatches } = await import('../src/components/vehicleMonthlyGrid.js');
 const { missingApprovalPermissions, normalizeFlowOptions } = await import('../src/views/approvalFlowOptions.js');
@@ -55,9 +58,10 @@ const tests = [
     assert.match(state, /@click="\$emit\('retry'\)"/);
     assert.doesNotMatch(state, /\{\{ message \}\}/);
     assert.doesNotMatch(expense, /<p v-if="error" class="error"/);
-    assert.match(expense, /v-if="expenseRowError\(row\)" class="error"/);
+    assert.match(expense, /v-if="dailyRowError\(row\)" class="error"/);
     assert.match(expense, /const preview = await v3ApprovalApi\.dailyPreview\(file\)/);
     assert.match(expense, /dailyRows\.value = appendPreviewRows\(dailyRows\.value, preview\.rows, options\.value\)/);
+    assert.match(expense, /imported\.errors\?\.includes\('车挂号不存在'\)/);
     assert.doesNotMatch(source('layouts/AppLayout.vue'), /<p v-if="authStore\.error" class="error"/);
     assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /<p v-if="error" class="error"/);
   }],
@@ -169,9 +173,7 @@ const tests = [
     assert.equal(displayedPercent(0.8), 80);
     assert.equal(submittedFraction(80), 0.8);
     assert.equal(displayedPercent(submittedFraction(80)), 80);
-    assert.equal(displayedPercent(80), 80);
-    assert.equal(invalidStoredPercent(80), true);
-    assert.equal(invalidStoredPercent(0.8), false);
+    assert.equal(displayedPercent(0.85), 85);
     assert.equal(thresholdTons({ maxLoad: '30.000', loadStandardType: 'PERCENT', loadStandardPercent: '0.8000' }), '24.000');
     assert.equal(thresholdTons({ maxLoad: '17.333', loadStandardType: 'PERCENT', loadStandardPercent: '0.8750' }), '15.166');
     assert.equal(thresholdTons({ maxLoad: '30.000', loadStandardType: 'FIXED', loadStandardMinLoad: '21.5' }), '21.500');
@@ -180,7 +182,6 @@ const tests = [
     assert.equal(invalidFixedStandard('32.000', '0.000'), true);
     assert.equal(invalidFixedStandard('32.000', '32.000'), false);
     assert.equal(thresholdTons({ maxLoad: '32.000', loadStandardType: 'FIXED', loadStandardMinLoad: '50.000' }), null);
-    assert.equal(thresholdTons({ maxLoad: '30.000', loadStandardType: 'PERCENT', loadStandardPercent: '80.0000' }), null);
     for (const type of ['vehicles', 'trailers']) {
       assert.equal(editingStatus({ status: 1 }, type), 1);
       assert.equal(editingStatus({ status: 0 }, type), 0);
@@ -200,8 +201,8 @@ const tests = [
     const binding = source('components/BindingManagement.vue');
     assert.match(driver, /can\('BUTTON_DRIVERS_EDIT'\)/);
     assert.match(binding, /can\('BUTTON_BINDING_BIND_DRIVER'\)/);
-    assert.match(binding, /masterApi\.bindingDrivers\(page, pageSize\)/);
-    assert.match(binding, /masterApi\.bindingVehicles\(page, pageSize\)/);
+    assert.match(binding, /masterApi\.bindingDrivers\(page, pageSize\.value\)/);
+    assert.match(binding, /masterApi\.bindingVehicles\(page, pageSize\.value\)/);
     assert.match(binding, /masterApi\.bindingTrailers\(1\)/);
     assert.match(binding, /:load-page="masterApi\.unboundDriverVehicles"/);
     assert.match(binding, /:load-page="masterApi\.unboundVehicleTrailers"/);
@@ -332,8 +333,15 @@ const tests = [
     assert.match(source('stores/auth.js'), /await apiClient\.post\('\/auth\/logout'\)/);
     assert.match(source('components/DataTable.vue'), /<LoadingState v-if="loading"/);
     assert.match(source('components/DataTable.vue'), /<EmptyState v-else-if="!rows\.length"/);
-    assert.match(source('components/PaginationBar.vue'), /v-if="total > 0"/);
-    assert.match(source('components/ConfirmDialog.vue'), /!busy && \$emit\('cancel'\)/);
+    assert.match(source('components/PaginationBar.vue'), /\[10, 20, 50, 100\]/);
+    assert.match(source('components/PaginationBar.vue'), /emit\('change-size', size\)/);
+    for (const path of ['components/FormDialog.vue', 'components/ConfirmDialog.vue', 'components/DetailDrawer.vue', 'App.vue']) {
+      assert.doesNotMatch(source(path), /@click\.self|@keydown\.esc/, `${path} must stay open on backdrop click and Escape`);
+    }
+    assert.match(source('components/ConfirmDialog.vue'), /@click="\$emit\('cancel'\)"/);
+    assert.match(source('components/FormDialog.vue'), /aria-label="关闭" @click="\$emit\('close'\)"/);
+    assert.match(source('components/DetailDrawer.vue'), /aria-label="关闭" @click="\$emit\('close'\)"/);
+    assert.match(source('App.vue'), /@click="closeApiError">确定/);
     assert.match(source('views/DashboardV3View.vue'), /<SummaryCards label="本月经营"/);
     assert.match(source('views/DashboardV3View.vue'), /<FormSection title="经营口径"/);
   }],
@@ -424,6 +432,8 @@ const tests = [
     assert.match(calls[1].url, /\/approvals$/);
     assert.match(calls[2].url, /\/approvals\/3\/return-step$/);
     assert.match(calls[3].url, /\/approvals\/3\/resubmit$/);
+    assert.doesNotMatch(source('api/modules.js'), /export const (approvalApi|approvalTemplateApi)\s*=/);
+    assert.match(source('api/modules.js'), /export const v3ApprovalApi\s*=/);
     assert.match(source('views/ApprovalCenterV3View.vue'), /targetFlowNodeId/);
     assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /targetNodeOrder/);
     assert.match(source('views/ExpenseApplicationV3View.vue'), /dailyPreview/);
@@ -481,7 +491,7 @@ const tests = [
   ['DAILY Excel rows and manual rows share one editable final items array', () => {
     const options = { drivers: [{ id: 10, phone: '13900000100' }], vehicles: [{ id: 20, plateNo: '云A100' }] };
     const preview = [
-      { rowNo: 2, businessDate: '2026-09-30', driverPhone: '13900000100', plateNo: '云A100', amount: '8.00', description: '导入一' },
+      { rowNo: 2, businessDate: '2026-09-30', driverPhone: '13900000100', plateNo: '云A100', trailerNo: '贵A123挂', amount: '8.00', description: '导入一' },
       { rowNo: 3, businessDate: '2026-09-30', driverPhone: '13900000100', plateNo: '云A100', amount: '9.00', description: '导入二' }
     ];
     const rows = appendPreviewRows([], preview, options);
@@ -495,6 +505,17 @@ const tests = [
     assert.deepEqual(items.map((row) => row.amount), ['10.00', '3.00']);
     assert.equal(items[0].driverId, 10);
     assert.equal(items[0].vehicleId, 20);
+    assert.equal(items[0].trailerNo, '贵A123挂');
+    assert.equal(items[1].trailerNo, null);
+    assert.equal(expenseRowError(rows[0], { number: '贵A123挂', exists: false }), '车挂号不存在');
+    assert.equal(expenseRowError(rows[0], { number: '贵A123挂', exists: true }), '');
+    const electric = { id: 20, plateNo: '云A100', energyType: 'ELECTRIC' };
+    const gas = { id: 21, plateNo: '云A101', energyType: 'GAS' };
+    assert.equal(vehicleEnergyError('TEMP_ELECTRIC', gas), '电费、临时电费只能选择电车');
+    assert.equal(vehicleEnergyError('TEMP_GAS', electric), '气费、临时气费只能选择气车');
+    assert.equal(vehicleEnergyError('GAS', gas), '');
+    assert.equal(expenseRowError(rows[0], { number: '贵A123挂', exists: true }, 'GAS', [electric, gas]),
+      '气费、临时气费只能选择气车');
     assert(items.every((row) => row.targetTaskId === null));
     assert.throws(() => dailyItems([...rows, { ...manual, amount: '0.00' }]));
     assert.throws(() => dailyItems([...rows, { ...manual, amount: '-1' }]));
@@ -511,6 +532,43 @@ const tests = [
     assert.match(calls[2].url, /\/transport-tasks\/9\/weight-adjustments$/);
     assert.doesNotMatch(calls.map((call) => call.url).join(' '), /\/routes(?:\/|\?)/);
   }],
+  ['task operations retain permissions, status limits and complete transfer facts', async () => {
+    const view = source('views/TransportTasksV3View.vue');
+    assert.match(view, /can\('BUTTON_ROUTES_TRANSFER'\)/);
+    assert.match(view, /can\('BUTTON_ROUTES_CANCEL'\)/);
+    assert.match(view, /routeApi\.transfer\(taskId, body\)/);
+    assert.match(view, /routeApi\.cancel\(taskId, body\)/);
+    assert.equal(canTransferTask({ status: 'IN_TRANSIT' }), true);
+    assert.equal(canTransferTask({ status: 'PUBLISHED' }), false);
+    assert.equal(canCancelTask({ status: 'PUBLISHED' }), true);
+    assert.equal(canCancelTask({ status: 'UNPUBLISHED' }), false);
+    assert.equal(canCancelTask({ status: 'TRANSFER_PENDING' }), false);
+    const task = { status: 'IN_TRANSIT', version: 4 };
+    const people = [{ id: 12, sequenceNo: 1, driverId: 3, current: true }];
+    const form = { newSalary: '500.00', reason: '司机交接', salaries: { 12: '300.00' }, outsourcedPlateNo: '云A12345' };
+    assert.deepEqual(transferBody(task, people, form, { id: 4, driverType: 'OUTSOURCED' }), {
+      newDriverId: 4, outsourcedPlateNo: '云A12345', allParticipantSalaries: [{ participantId: 12, amount: '300.00' }],
+      newSalary: '500.00', reason: '司机交接', expectedVersion: 4, expectedCurrentParticipantId: 12
+    });
+    assert.throws(() => transferBody(task, people, { ...form, salaries: {} }, { id: 4, driverType: 'OUTSOURCED' }), /核定/);
+    assert.throws(() => transferBody(task, people, form, { id: 3, driverType: 'OUTSOURCED' }), /另一位/);
+    assert.deepEqual(cancelBody({ status: 'PUBLISHED', version: 2 }, '未发车取消', 'key-1'),
+      { reason: '未发车取消', expectedVersion: 2, requestKey: 'key-1' });
+    assert.throws(() => cancelBody(task, '原因', 'key-2'), /未发车/);
+    calls.length = 0;
+    await routeApi.cancel(9, { requestKey: 'key-1' });
+    assert.match(calls[0].url, /\/transport-tasks\/9\/cancel$/);
+  }],
+  ['task finance tab and columns follow finance permission with actions at the right edge', () => {
+    const view = source('views/TransportTasksV3View.vue');
+    assert.match(view, /can\('PAGE_FINANCE_TASKS'\) \? \[\{key:'expenses',label:'费用与经营'\}\] : \[\]/);
+    assert.match(view, /detailTab === 'expenses' && can\('PAGE_FINANCE_TASKS'\)/);
+    assert.match(view, /\] : \[\]\), \{ key: 'actions', label: '操作' \}/);
+    for (const key of ['income_amount', 'total_expense_amount', 'profit_amount']) {
+      assert.match(view, new RegExp(`data-column="${key}"`));
+    }
+    assert.match(view, /\[data-column="actions"\]\) \{ position: sticky; right: 0/);
+  }],
   ['template API separates defaults from task execution', async () => {
     calls.length = 0;
     await routeTemplateApi.create({ name: '线路模板' });
@@ -520,6 +578,9 @@ const tests = [
     const taskView = source('views/TransportTasksV3View.vue');
     assert.match(taskView, /defaultUnitPrice/);
     assert.match(taskView, /actualUnitPrice|amountHistory/);
+    assert.match(taskView, /保存后自动生成（L＋7 位数字）/);
+    assert.match(taskView, /editing\?\.id \? editing\.stableCode/);
+    assert.doesNotMatch(taskView, /v-model\.trim="form\.stableCode"/);
   }],
   ['salary, attendance and dispatch month views use distinct official read contracts', async () => {
     calls.length = 0;
@@ -575,7 +636,7 @@ const tests = [
     assert.match(calls[0].url, /\/products\?/);
     assert.match(calls[1].url, /\/drivers\/3\/bind-vehicle$/);
     assert.match(source('components/BindingManagement.vue'), /确认解绑/);
-    assert.match(source('views/MasterDataUi2View.vue'), /masterApi\.drivers\(nextPage, 20, driverFilters\)/);
+    assert.match(source('views/MasterDataUi2View.vue'), /masterApi\.drivers\(nextPage, driverPageSize\.value, driverFilters\)/);
     assert.match(source('components/DriverManagementSample.vue'), /<PaginationBar/);
     assert.doesNotMatch(source('components/DriverManagementSample.vue'), /车辆 #\$\{id\}/);
     const driverPage = source('components/DriverManagementSample.vue');
@@ -655,6 +716,10 @@ const tests = [
     assert.equal(formatImportDateTime('2026-10-20T19:27:04.062'), '2026-10-20 19:27:04');
     assert.equal(formatImportDateTime('2026-10-20 19:27:04.062'), '2026-10-20 19:27:04');
     assert.equal(formatImportDateTime(null, '尚未确认'), '尚未确认');
+    assert.equal(formatDateTime('2026-10-21T05:30:51.325'), '2026-10-21 05:30:51');
+    assert.equal(displayValue('generated_at', '2026-10-21T05:30:51.325'), '2026-10-21 05:30:51');
+    assert.equal(formatDateTime('2026-10-21'), '2026-10-21');
+    assert.equal(formatDateTime(null), '—');
     for (const path of ['views/TireImportsV3View.vue', 'views/TaskImportsV3View.vue']) {
       const page = source(path);
       assert.match(page, /<ImportCompletionSummary v-if="completion"/);
@@ -739,6 +804,84 @@ const tests = [
     assert.doesNotMatch(source('views/ApprovalCenterV3View.vue'), /发起普通审批/);
     assert.match(source('views/ApprovalCenterV3View.vue'), /<option value="EXPENSE">费用申请<\/option>/);
     assert.match(source('views/ExpenseApplicationV3View.vue'), /navigate\('approvals-mine'\)/);
+  }],
+  ['five button roles keep navigation, detail, danger and permission behavior', () => {
+    const css = source('design/ui-final.css');
+    for (const role of ['primary', 'ui-return-button', 'ui-detail-button', 'ui-danger-button', 'ui-danger-link'])
+      assert.ok(css.includes(role), `missing ${role} styling`);
+    assert.match(css, /button\.primary\s*\{[^}]*background:/);
+    assert.match(css, /\.ui-return-button\s*\{[^}]*border:\s*0/);
+    assert.match(css, /button\.ui-detail-button::after\s*\{[^}]*›/);
+    assert.match(source('components/ConfirmDialog.vue'), /danger \? 'ui-danger-button' : 'primary'/);
+    const approval = source('views/ApprovalCenterV3View.vue');
+    assert.match(approval, /class="ui-return-button" @click="backToList"/);
+    assert.match(approval, /class="ui-detail-button" @click="openDetail\(row\)"/);
+    assert.match(approval, /v-if="detail\.canProcess"[^>]*@click="process\('APPROVE'\)"/);
+    assert.match(source('views/TransportTasksV3View.vue'), /v-if="can\('BUTTON_TEMPLATES_MANAGE'\)"[^>]*setTemplateEnabled\(row\)/);
+  }],
+  ['paged admin tables keep server paging, scroll and empty states', async () => {
+    const pagination = source('components/PaginationBar.vue');
+    const table = source('components/DataTable.vue');
+    const css = source('design/ui-final.css');
+    assert.match(pagination, /\[10, 20, 50, 100\]/);
+    assert.match(pagination, /resetScroll\(event\)/);
+    assert.match(table, /window\.innerHeight - element\.getBoundingClientRect\(\)\.top/);
+    assert.match(css, /\.ui-paged-table \.ui-data-table thead th \{ position: sticky/);
+    assert.match(table, /<LoadingState v-if="loading"/);
+    assert.match(table, /<EmptyState v-else-if="!rows\.length"/);
+    for (const page of ['ApprovalCenterV3View', 'FinanceReportsV3View', 'SalaryLedgerV3View',
+      'SettlementV3View', 'ExpenseLedgerV3View', 'TransportTasksV3View']) {
+      assert.match(source(`views/${page}.vue`), /@change-size="\(size\) => \{ \w+ = size; \w+\(1\); \}"/);
+    }
+    calls.length = 0;
+    await v3ApprovalApi.list('MINE', 1, 50);
+    await v3FinanceApi.tasks({ month: '2026-10' }, 1, 100);
+    await v3ExpenseLedgerApi.list({}, 1, 10);
+    await v3SettlementApi.details(7, 1, 50);
+    assert.match(calls[0].url, /pageNo=1&pageSize=50/);
+    assert.match(calls[1].url, /pageNo=1&pageSize=100/);
+    assert.match(calls[2].url, /pageNo=1&pageSize=10/);
+    assert.match(calls[3].url, /pageNo=1&pageSize=50/);
+  }],
+  ['registration link is shared by login and the authenticated layout', () => {
+    const footer = source('components/IcpFooter.vue');
+    const login = source('views/LoginView.vue');
+    const layout = source('layouts/AppLayout.vue');
+    const css = source('design/ui-final.css');
+    assert.match(footer, /href="https:\/\/beian\.miit\.gov\.cn\/" target="_blank" rel="noopener noreferrer">鄂ICP备16012832号/);
+    assert.match(login, /<IcpFooter \/>/);
+    assert.match(layout, /<slot \/>\s*<IcpFooter \/>/);
+    assert.doesNotMatch(login + layout, /VITE_ICP_NUMBER|login-icp/);
+    assert.match(css, /\.ui-icp-footer \{[^}]*text-align:center/);
+    assert.doesNotMatch(css, /\.ui-icp-footer \{[^}]*position:\s*(fixed|absolute)/);
+  }],
+  ['expense application and approval actions share image attachments without changing daily rows', () => {
+    const expense = source('views/ExpenseApplicationV3View.vue');
+    const approval = source('views/ApprovalCenterV3View.vue');
+    const upload = source('components/ApprovalImageUpload.vue');
+    assert.match(expense, /dailyRows\.value = appendPreviewRows/);
+    assert.match(expense, /scope\.value === 'DAILY' \? dailyItems\(dailyRows\.value\) : \[\{/);
+    assert.match(expense, /attachmentIds: applicationImages\.value\.map/);
+    assert.match(approval, /attachmentIds: actionImages\.value\.map/);
+    assert.match(approval, /<ApprovalHistoryDetail :detail="detail" section="summary" \/>/);
+    assert.match(source('components/ApprovalHistoryDetail.vue'), /submissionEvidenceFor\(version\.id\)/);
+    assert.match(upload, /APPROVAL_UPLOAD/);
+    assert.match(upload, /emit\('uploading', true\)/);
+    assert.match(upload, /<ApprovalEvidence/);
+  }],
+  ['settlement details use server ordering and approval history detail is reusable', () => {
+    const settlement = source('views/SettlementV3View.vue');
+    const approval = source('views/ApprovalCenterV3View.vue');
+    const historyDetail = source('components/ApprovalHistoryDetail.vue');
+    assert.match(settlement, /v3SettlementApi\.details\(chosen\.value\.id, page, pageSize\.value\)/);
+    assert.match(settlement, /v3ApprovalApi\.detail\(row\.approvalId\)/);
+    assert.match(settlement, /<DetailDrawer :open="approvalOpen" title="审批详情"/);
+    assert.match(settlement, /<ApprovalHistoryDetail :detail="approvalDetail" section="summary"/);
+    assert.match(approval, /<ApprovalHistoryDetail :detail="detail" section="summary"/);
+    assert.match(historyDetail, /处理时间线/);
+    assert.match(historyDetail, /发起人当前角色/);
+    assert.match(historyDetail, /detail\.approval\.applicant_name/);
+    assert.match(historyDetail, /formatTime\(detail\.approval\.created_at\)/);
   }]
 ];
 

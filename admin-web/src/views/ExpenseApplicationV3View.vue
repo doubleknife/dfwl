@@ -4,7 +4,9 @@ import { v3ApprovalApi } from '../api/modules.js';
 import { navigate } from '../router/routes.js';
 import PageHeader from '../components/PageHeader.vue';
 import FormDialog from '../components/FormDialog.vue';
-import { appendPreviewRows, dailyItems, emptyExpenseRow, expenseRowError } from './expenseApplicationDraft.js';
+import EntityPicker from '../components/EntityPicker.vue';
+import ApprovalImageUpload from '../components/ApprovalImageUpload.vue';
+import { appendPreviewRows, dailyItems, emptyExpenseRow, expenseRowError, vehicleEnergyError } from './expenseApplicationDraft.js';
 import { hasExpenseDraft } from './expenseScopeDraft.js';
 import { apiErrorDialog, showErrorDialog } from '../stores/apiErrorDialog.js';
 
@@ -16,7 +18,10 @@ const templates = ref([]);
 const options = ref({ drivers: [], vehicles: [] });
 const candidates = ref([]);
 const dailyRows = ref([]);
+const trailerChecks = reactive({});
 const busy = ref(false);
+const imagesUploading = ref(false);
+const applicationImages = ref([]);
 const error = ref('');
 watch(error, (message) => {
   if (message && !apiErrorDialog.open) showErrorDialog('操作失败', message);
@@ -35,13 +40,29 @@ const importedCount = computed(() => dailyRows.value.filter((row) => row.source.
 const money = (value) => `¥${Number(value || 0).toFixed(2)}`;
 const chosenDriver = computed(() => options.value.drivers.find((row) => String(row.id) === String(item.driverId)));
 const chosenVehicle = computed(() => options.value.vehicles.find((row) => String(row.id) === String(item.vehicleId)));
+const taskVehicleEnergyError = computed(() => vehicleEnergyError(selectedTemplate.value?.expense_type, chosenVehicle.value));
 const chosenTask = computed(() => candidates.value.find((row) => String(row.taskId) === String(item.targetTaskId)));
+const eligibleVehicles = computed(() => options.value.vehicles.filter((vehicle) =>
+  !vehicleEnergyError(selectedTemplate.value?.expense_type, vehicle)));
+const eligibleCandidates = computed(() => {
+  if (!['ELECTRIC', 'TEMP_ELECTRIC', 'GAS', 'TEMP_GAS'].includes(selectedTemplate.value?.expense_type))
+    return candidates.value;
+  const vehicleIds = new Set(eligibleVehicles.value.map((vehicle) => String(vehicle.id)));
+  return candidates.value.filter((task) => vehicleIds.has(String(task.vehicleId)));
+});
+function loadExpenseDrivers(page = 1, search = '') {
+  const keyword = String(search || '').trim().toLowerCase();
+  const matching = options.value.drivers.filter((driver) =>
+    `${driver.name || ''} ${driver.phone || ''}`.toLowerCase().includes(keyword));
+  const pageSize = 100;
+  return { records: matching.slice((page - 1) * pageSize, page * pageSize), total: matching.length };
+}
 const canAdvance = computed(() => {
   if (!templateId.value) return false;
   if (scope.value === 'DAILY') return dailyRows.value.length > 0 && dailyRows.value.length <= 500
-    && dailyRows.value.every((row) => !expenseRowError(row));
+    && dailyRows.value.every((row) => !dailyRowError(row));
   return item.businessDate && item.driverId && item.vehicleId && Number(item.amount) > 0
-    && (scope.value === 'DAILY' || item.targetTaskId);
+    && item.targetTaskId && !taskVehicleEnergyError.value;
 });
 function resetIdempotency() { requestKey.value = crypto.randomUUID(); }
 function changeScope(event) {
@@ -56,6 +77,12 @@ function confirmScopeChange() {
   pendingScope.value = '';
 }
 watch([scope, templateId], () => { stage.value = 1; resetIdempotency(); });
+watch(templateId, (next, previous) => {
+  if (next === previous
+    || !['ELECTRIC', 'TEMP_ELECTRIC', 'GAS', 'TEMP_GAS'].includes(selectedTemplate.value?.expense_type)) return;
+  if (scope.value === 'DAILY') dailyRows.value.forEach((row) => { row.vehicleId = ''; });
+  else { item.targetTaskId = ''; item.vehicleId = ''; }
+});
 watch(dailyRows, resetIdempotency, { deep: true });
 watch(() => item.driverId, async (id) => {
   item.targetTaskId = ''; candidates.value = [];
@@ -89,16 +116,68 @@ async function chooseFile(event) {
   try {
     const preview = await v3ApprovalApi.dailyPreview(file);
     if (dailyRows.value.length + preview.rows.length > 500) throw new Error('一个申请最多 500 条费用明细');
+    const priorCount = dailyRows.value.length;
     dailyRows.value = appendPreviewRows(dailyRows.value, preview.rows, options.value);
+    preview.rows.forEach((imported, index) => {
+      const row = dailyRows.value[priorCount + index];
+      const vehicle = options.value.vehicles.find((entry) => String(entry.id) === String(row.vehicleId));
+      if (vehicleEnergyError(selectedTemplate.value?.expense_type, vehicle)) row.vehicleId = '';
+      if (imported.trailerNo && imported.errors?.includes('车挂号不存在')) {
+        trailerChecks[row.localKey] = { number: imported.trailerNo, exists: false };
+      }
+    });
     if (preview.errorCount) error.value = `已导入 ${preview.rows.length} 条，其中 ${preview.errorCount} 条需要在下表修正后才能提交。`;
   }
   catch (cause) { error.value = cause.message || '预览失败，请检查文件格式'; }
   finally { busy.value = false; event.target.value = ''; }
 }
 function addDailyRow() { dailyRows.value.push(emptyExpenseRow()); }
-function removeDailyRow(index) { dailyRows.value.splice(index, 1); }
-function next() {
+function removeDailyRow(index) {
+  delete trailerChecks[dailyRows.value[index].localKey];
+  dailyRows.value.splice(index, 1);
+}
+function dailyRowError(row) {
+  return expenseRowError(row, trailerChecks[row.localKey], selectedTemplate.value?.expense_type, options.value.vehicles);
+}
+async function checkTrailer(row) {
+  const trailerNo = String(row.trailerNo || '').trim();
+  delete trailerChecks[row.localKey];
+  if (!trailerNo || trailerNo.length > 64) return;
+  try {
+    const result = await v3ApprovalApi.trailerChecks([trailerNo]);
+    if (String(row.trailerNo || '').trim() === trailerNo) {
+      trailerChecks[row.localKey] = { number: trailerNo, exists: result[trailerNo] === true };
+    }
+  } catch (cause) { error.value = cause.message || '车挂号校验失败'; }
+}
+async function next() {
+  if (busy.value || imagesUploading.value) return;
   error.value = '';
+  if (scope.value === 'DAILY') {
+    const mismatchIndex = dailyRows.value.findIndex((row) =>
+      vehicleEnergyError(selectedTemplate.value?.expense_type,
+        options.value.vehicles.find((vehicle) => String(vehicle.id) === String(row.vehicleId))));
+    if (mismatchIndex >= 0) {
+      const vehicle = options.value.vehicles.find((entry) =>
+        String(entry.id) === String(dailyRows.value[mismatchIndex].vehicleId));
+      error.value = `第 ${mismatchIndex + 1} 条：${vehicleEnergyError(selectedTemplate.value?.expense_type, vehicle)}`;
+      return;
+    }
+  }
+  if (scope.value === 'DAILY') {
+    const trailerNos = [...new Set(dailyRows.value.map((row) => String(row.trailerNo || '').trim()).filter(Boolean))];
+    if (trailerNos.length) {
+      busy.value = true;
+      try {
+        const result = await v3ApprovalApi.trailerChecks(trailerNos);
+        for (const row of dailyRows.value) {
+          const number = String(row.trailerNo || '').trim();
+          trailerChecks[row.localKey] = { number, exists: result[number] === true };
+        }
+      } catch (cause) { error.value = cause.message || '车挂号校验失败'; return; }
+      finally { busy.value = false; }
+    }
+  }
   if (!canAdvance.value) { error.value = '请先补齐必填信息并修正所有错误行'; return; }
   if (scope.value === 'TASK' && (!Number.isFinite(Number(item.amount))
     || Number(item.amount) <= 0 || !/^\d+(\.\d{1,2})?$/.test(String(item.amount)))) {
@@ -110,7 +189,7 @@ function next() {
   stage.value = 2;
 }
 async function submit() {
-  if (busy.value) return;
+  if (busy.value || imagesUploading.value) return;
   busy.value = true; error.value = '';
   try {
     const items = scope.value === 'DAILY' ? dailyItems(dailyRows.value) : [{
@@ -121,7 +200,7 @@ async function submit() {
     }];
     const result = await v3ApprovalApi.create({
       templateId: Number(templateId.value), applicationScope: scope.value, requestKey: requestKey.value,
-      items
+      items, attachmentIds: applicationImages.value.map((file) => file.id)
     });
     success.value = result.approval; stage.value = 3;
   } catch (cause) { error.value = cause.message || '提交失败，已保留填写信息，请重试'; }
@@ -130,7 +209,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="ui-page-container">
+  <div class="ui-page-container ui-form-page">
     <PageHeader title="发起费用申请" description="选择费用大类并核对明细后提交；日常费用可手工填写，也可用固定 Excel 辅助填表。" />
     <div v-if="busy && stage === 1" class="ui-loading" role="status">正在处理，请稍候…</div>
     <div v-if="stage === 1" class="expense-workflow">
@@ -154,14 +233,15 @@ async function submit() {
         <div class="expense-section-heading"><div><span class="expense-step">02</span><h2>费用明细</h2></div><p>任务费用仅填写一条。</p></div>
         <div class="expense-form-grid">
           <label class="ui-form-field">业务日期 <input v-model="item.businessDate" type="date" required /></label>
-          <label class="ui-form-field">司机 <select v-model="item.driverId" required><option value="">请选择司机</option>
-            <option v-for="driver in options.drivers" :key="driver.id" :value="driver.id">{{ driver.name }} · {{ driver.phone }}</option></select></label>
+          <label class="ui-form-field">司机 <EntityPicker :key="options.drivers.length" v-model="item.driverId"
+            :load-page="loadExpenseDrivers" :label-of="(driver) => `${driver.name} · ${driver.phone}`"
+            remote-search required placeholder="请选择司机" /></label>
           <label v-if="scope === 'TASK'" class="ui-form-field">参与的运输任务 <select v-model="item.targetTaskId" required>
-            <option value="">请选择任务</option><option v-for="task in candidates" :key="task.taskId" :value="task.taskId">
+            <option value="">请选择任务</option><option v-for="task in eligibleCandidates" :key="task.taskId" :value="task.taskId">
               {{ task.taskNo }} · {{ task.loadingPlace }} → {{ task.unloadingPlace }}
             </option></select></label>
           <label class="ui-form-field">公司车辆 <select v-model="item.vehicleId" :disabled="scope==='TASK'" required><option value="">请选择车牌</option>
-            <option v-for="vehicle in options.vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.plateNo }}</option></select></label>
+            <option v-for="vehicle in eligibleVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.plateNo }}</option></select></label>
           <label class="ui-form-field">金额（元） <input v-model="item.amount" type="number" min="0.01" step="0.01" required /></label>
           <label class="ui-form-field">明细 <input v-model.trim="item.description" placeholder="可填写费用用途" /></label>
           <label class="ui-form-field">票据号 <input v-model.trim="item.receiptNo" /></label>
@@ -177,19 +257,25 @@ async function submit() {
         <p v-if="dailyRows.length">共 {{ dailyRows.length }} 条 · Excel 已导入 {{ importedCount }} 条 · 当前金额合计 {{ money(total) }}</p>
         <p v-else class="ui-empty">暂无明细。请手工新增，或下载固定模板填写后导入。</p>
         <div v-if="dailyRows.length" class="expense-table-scroll"><table class="expense-table"><thead><tr>
-          <th>来源</th><th>业务日期</th><th>司机</th><th>公司车辆</th><th>金额（元）</th><th>明细</th><th>票据号</th><th>发票号</th><th>站点名称</th><th>备注</th><th>操作</th>
+          <th>来源</th><th>业务日期</th><th>司机</th><th>公司车辆</th><th>车挂号（选填）</th><th>金额（元）</th><th>明细</th><th>票据号</th><th>发票号</th><th>站点名称</th><th>备注</th><th>操作</th>
         </tr></thead><tbody><tr v-for="(row,index) in dailyRows" :key="row.localKey">
           <td>{{ row.source }}</td><td><input v-model="row.businessDate" type="date" :aria-label="`第 ${index + 1} 条业务日期`" /></td>
           <td><select v-model="row.driverId" :aria-label="`第 ${index + 1} 条司机`"><option value="">请选择司机</option><option v-for="driver in options.drivers" :key="driver.id" :value="driver.id">{{ driver.name }} · {{ driver.phone }}</option></select></td>
-          <td><select v-model="row.vehicleId" :aria-label="`第 ${index + 1} 条公司车辆`"><option value="">请选择车牌</option><option v-for="vehicle in options.vehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.plateNo }}</option></select></td>
+          <td><select v-model="row.vehicleId" :aria-label="`第 ${index + 1} 条公司车辆`"><option value="">请选择车牌</option><option v-for="vehicle in eligibleVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.plateNo }}</option></select></td>
+          <td><input v-model.trim="row.trailerNo" maxlength="64" :aria-label="`第 ${index + 1} 条车挂号`" @blur="checkTrailer(row)" /></td>
           <td><input v-model="row.amount" type="number" min="0.01" step="0.01" :aria-label="`第 ${index + 1} 条金额`" /></td>
           <td><input v-model.trim="row.description" :aria-label="`第 ${index + 1} 条明细`" /></td>
           <td><input v-model.trim="row.receiptNo" :aria-label="`第 ${index + 1} 条票据号`" /></td>
           <td><input v-model.trim="row.invoiceNo" :aria-label="`第 ${index + 1} 条发票号`" /></td>
           <td><input v-model.trim="row.stationName" :aria-label="`第 ${index + 1} 条站点名称`" /></td>
           <td><input v-model.trim="row.remark" :aria-label="`第 ${index + 1} 条备注`" /></td>
-          <td><button type="button" @click="removeDailyRow(index)">删除</button><span v-if="expenseRowError(row)" class="error">{{ expenseRowError(row) }}</span></td>
+          <td><button type="button" class="ui-danger-link" @click="removeDailyRow(index)">删除</button><span v-if="dailyRowError(row)" class="error">{{ dailyRowError(row) }}</span></td>
         </tr></tbody></table></div>
+      </section>
+      <section class="ui-section-card">
+        <h2>申请图片凭证</h2>
+        <ApprovalImageUpload v-model="applicationImages" purpose="APPROVAL_APPLICATION"
+          :disabled="busy" @uploading="imagesUploading = $event" />
       </section>
       <section class="ui-section-card expense-total-card" aria-label="申请汇总">
         <div class="expense-section-heading"><div><span class="expense-step">03</span><h2>申请汇总</h2></div></div>
@@ -197,28 +283,30 @@ async function submit() {
         <p v-if="scope === 'DAILY'" class="muted">其中 Excel 加入 {{ importedCount }} 条；当前表格全部明细共同提交一次审批。</p>
         <p v-else class="muted">任务费用仅单笔审批，不提供 Excel 导入。</p>
       </section>
-      <div class="expense-submit-bar"><p>提交前请核对申请类型、费用大类和全部明细。此处不保存草稿。</p><button class="primary" type="button" :disabled="busy || !canAdvance" @click="next">核对申请摘要</button></div>
+      <div class="expense-submit-bar"><p>提交前请核对申请类型、费用大类和全部明细。此处不保存草稿。</p><button class="primary" type="button" :disabled="busy || imagesUploading || !canAdvance" @click="next">核对申请摘要</button></div>
     </div>
     <section v-else-if="stage === 2" class="ui-workflow">
       <div class="ui-section-card"><h2>3. 提交前核对</h2>
         <p>申请来源：{{ scope === 'DAILY' ? '日常费用 · 审批后暂不归任务' : '任务费用' }}</p>
         <p>费用大类：{{ selectedTemplate?.name }}</p>
+        <p>图片凭证：{{ applicationImages.length }} 张</p>
         <template v-if="scope === 'DAILY'"><p>明细：{{ dailyRows.length }} 条，合计 {{ money(total) }}。所有明细共用一次审批，通过后逐条形成正式费用。</p>
-          <div class="expense-summary-scroll"><table class="expense-table"><thead><tr><th>序号</th><th>日期</th><th>司机</th><th>车辆</th><th>金额</th><th>明细</th></tr></thead><tbody>
+          <div class="expense-summary-scroll"><table class="expense-table"><thead><tr><th>序号</th><th>日期</th><th>司机</th><th>车辆</th><th>车挂号</th><th>金额</th><th>明细</th></tr></thead><tbody>
             <tr v-for="(row,index) in dailyRows" :key="row.localKey"><td>{{ index + 1 }}</td><td>{{ row.businessDate }}</td>
               <td>{{ options.drivers.find((driver) => String(driver.id) === String(row.driverId))?.name }}</td>
               <td>{{ options.vehicles.find((vehicle) => String(vehicle.id) === String(row.vehicleId))?.plateNo }}</td>
+              <td>{{ row.trailerNo || '—' }}</td>
               <td>{{ money(row.amount) }}</td><td>{{ row.description || '—' }}</td></tr>
           </tbody></table></div></template>
         <template v-else><p>司机：{{ chosenDriver?.name }} · 车辆：{{ chosenVehicle?.plateNo }}</p>
           <p>任务：{{ chosenTask?.taskNo }}</p><p>日期：{{ item.businessDate }} · 金额：{{ money(total) }}</p>
           <p v-if="item.description">明细：{{ item.description }}</p></template>
         <div class="ui-dialog-actions"><button type="button" :disabled="busy" @click="stage=1">返回修改</button>
-          <button class="primary" type="button" :disabled="busy" @click="submit">{{ busy ? '提交中…' : '确认提交审批' }}</button></div>
+          <button class="primary" type="button" :disabled="busy || imagesUploading" @click="submit">{{ busy ? '提交中…' : '确认提交审批' }}</button></div>
       </div>
     </section>
     <section v-else class="ui-section-card"><h2>申请已提交</h2><p>审批编号：{{ success?.approval_no }}</p>
-      <button class="primary" type="button" @click="navigate('approvals-mine')">查看我的申请</button></section>
+      <div class="ui-dialog-actions"><button class="ui-detail-button" type="button" @click="navigate('approvals-mine')">查看我的申请</button></div></section>
     <FormDialog :open="!!pendingScope" title="切换申请类型" @close="pendingScope = ''">
       <p>当前类型有未提交的明细。切换后内容会保留，返回原类型可继续编辑；切换不会提交申请。</p>
       <div class="ui-dialog-actions"><button type="button" @click="pendingScope = ''">继续编辑</button>

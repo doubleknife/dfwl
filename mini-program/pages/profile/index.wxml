@@ -12,8 +12,8 @@
     </view>
     <view class="profile-card">
       <view class="profile-security-heading">账户与安全</view>
-      <view class="profile-security-link" role="button" tabindex="0" bindtap="openChangePassword">修改密码 <text>›</text></view>
+      <view class="profile-security-link mp-detail-link" role="button" tabindex="0" bindtap="openChangePassword">修改密码 <text>›</text></view>
     </view>
-    <button class="profile-logout" bindtap="logout">退出登录</button>
+    <button class="profile-logout mp-danger" bindtap="logout">退出登录</button>
   </block>
 </view>

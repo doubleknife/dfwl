@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue';
-import { v3ExpenseLedgerApi, chargingApi } from '../api/modules.js';
+import { v3ApprovalApi, v3ExpenseLedgerApi, chargingApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import PageHeader from '../components/PageHeader.vue';
 import FilterBar from '../components/FilterBar.vue';
@@ -12,21 +12,26 @@ import PaginationBar from '../components/PaginationBar.vue';
 import ErrorState from '../components/ErrorState.vue';
 import SummaryCards from '../components/SummaryCards.vue';
 import StatusTag from '../components/StatusTag.vue';
+import ApprovalHistoryDetail from '../components/ApprovalHistoryDetail.vue';
+import { formatDateTime } from '../utils/dateTime.js';
 
 const props = defineProps({ focus: { type: String, default: 'LEDGER' } });
 const today = new Date();
 const filters = reactive({ month: props.focus === 'UNASSIGNED' ? '' : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, expenseType: props.focus === 'ENERGY' ? 'TEMP_ELECTRIC' : '', applicationScope: '', driverId: '', vehicleId: '', bound: '', taskId: '', sourceType: '', status: '' });
-const rows = ref([]); const summary = ref(null); const pageNo = ref(1); const total = ref(0);
+const rows = ref([]); const summary = ref(null); const pageNo = ref(1); const pageSize = ref(20); const total = ref(0);
 const attributedSummary = ref(null); const reversalSummary = ref(null);
 const loading = ref(false); const saving = ref(false); const exporting = ref(false); const error = ref('');
 const moreFilters = ref(['VEHICLE', 'DRIVER'].includes(props.focus));
 const detail = ref(null); const dialog = ref(''); const targetTaskId = ref(''); const reason = ref('');
 const chargingSource = ref(null);
+const approvalOpen = ref(false); const approvalDetail = ref(null);
+const approvalLoading = ref(false); const approvalError = ref('');
 const categories = ref([]);
 const cols = [
   { key: 'business_date', label: '业务日期' }, { key: 'expense_no', label: '费用编号' },
   { key: 'expense_type', label: '费用类型' }, { key: 'amount', label: '金额', numeric: true },
-  { key: 'vehicle_plate', label: '公司车牌' }, { key: 'driver_name', label: '司机' },
+  { key: 'vehicle_plate', label: '公司车牌' }, { key: 'trailer_no', label: '车挂号' },
+  { key: 'driver_name', label: '司机' },
   { key: 'task_no', label: '当前归属任务' }, { key: 'display_status', label: '状态' },
   { key: 'source_type', label: '来源' }, { key: 'application_scope', label: '申请属性' },
   { key: 'actions', label: '操作' }
@@ -52,7 +57,7 @@ async function load(page = 1) {
   try {
     if (props.focus === 'UNASSIGNED') {
       const [result, totals] = await Promise.all([
-        v3ExpenseLedgerApi.pendingAttribution(pendingParams(), page),
+        v3ExpenseLedgerApi.pendingAttribution(pendingParams(), page, pageSize.value),
         v3ExpenseLedgerApi.pendingAttributionSummary(pendingParams())
       ]);
       rows.value = result.records || []; total.value = Number(result.total || 0);
@@ -61,7 +66,7 @@ async function load(page = 1) {
     }
     const current = params();
     const [result, totals, attributed, reversals] = await Promise.all([
-      v3ExpenseLedgerApi.list(current, page), v3ExpenseLedgerApi.summary(current),
+      v3ExpenseLedgerApi.list(current, page, pageSize.value), v3ExpenseLedgerApi.summary(current),
       v3ExpenseLedgerApi.summary({ ...current, bound: 'true' }),
       v3ExpenseLedgerApi.summary({ ...current, sourceType: 'REVERSAL' })
     ]);
@@ -88,6 +93,14 @@ async function openChargingFile() {
     link.href = url; link.download = chargingSource.value.original_filename; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (cause) { error.value = cause.message || '原始 Excel 打开失败'; }
+}
+async function openApproval() {
+  const id = detail.value?.entry?.approval_instance_id;
+  if (!id) return;
+  approvalOpen.value = true; approvalDetail.value = null; approvalError.value = ''; approvalLoading.value = true;
+  try { approvalDetail.value = await v3ApprovalApi.detail(id); }
+  catch (cause) { approvalError.value = cause.message || '审批详情加载失败'; }
+  finally { approvalLoading.value = false; }
 }
 function begin(kind) { dialog.value = kind; reason.value = ''; targetTaskId.value = ''; }
 async function save() {
@@ -136,7 +149,7 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
       <label v-if="focus !== 'UNASSIGNED'">申请属性<select v-model="filters.applicationScope"><option value="">全部</option><option value="DAILY">日常费用</option><option value="TASK">任务费用</option></select></label>
       <label v-if="focus !== 'UNASSIGNED'">当前归属<select v-model="filters.bound"><option value="">全部</option><option value="true">已归属任务</option><option value="false">未归属任务</option></select></label>
       <button type="button" :aria-expanded="moreFilters" @click="moreFilters = !moreFilters">{{ moreFilters ? '收起更多筛选' : '更多筛选' }}</button>
-      <button class="primary" type="button" @click="load(1)">查询</button>
+      <button type="button" @click="load(1)">查询</button>
     </FilterBar>
     <FilterBar v-if="moreFilters" class="ledger-more-filter">
       <label>司机<EntityPicker v-model="filters.driverId" remote-search :load-page="optionPage('DRIVER')" :label-of="(item) => `${item.label} · ${mask(item.detail)}`" placeholder="全部司机" /></label>
@@ -156,13 +169,13 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
       { label: '冲销记录净额', value: money(reversalSummary?.amount_total), description: '负数冲销事实' }
     ]" />
     <p v-if="summary" class="ledger-count">当前筛选共 {{ summary.entry_count }} 条费用记录；数量和金额均采用服务端筛选口径。<template v-if="focus === 'ENERGY'">当前显示所选能源费用类型，可切换电费或气费类别查看。</template></p>
-    <DataTable :columns="cols" :rows="rows" :loading="loading" :empty-text="focus === 'DRIVER' && !filters.driverId ? '请先选择司机，再查看对应正式费用' : '当前条件下没有正式费用记录'">
+    <DataTable class="ui-paged-table" :columns="cols" :rows="rows" :loading="loading" :empty-text="focus === 'DRIVER' && !filters.driverId ? '请先选择司机，再查看对应正式费用' : '当前条件下没有正式费用记录'">
       <template #expense_no="{ row }"><span class="ui-business-id">{{ row.expense_no }}</span></template>
       <template #expense_type="{ row }">{{ label(row.expense_type) }}</template><template #application_scope="{ row }">{{ label(row.application_scope) }}</template>
       <template #amount="{ row }">{{ money(row.amount) }}</template><template #task_no="{ row }">{{ row.task_no || '尚未归属任务' }}</template>
-      <template #source_type="{ row }">{{ label(row.source_type) }}</template><template #actions="{ row }"><button type="button" @click="openDetail(row.id)">详情与归属</button></template>
+      <template #source_type="{ row }">{{ label(row.source_type) }}</template><template #actions="{ row }"><button type="button" class="ui-detail-button" @click="openDetail(row.id)">详情与归属</button></template>
     </DataTable>
-    <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="load" />
+    <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
     <DetailDrawer :open="!!detail" title="费用详情" @close="detail = null">
       <template #subtitle>{{ detail?.entry?.expense_no }}</template>
       <template v-if="detail">
@@ -172,24 +185,33 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
           <div><dt>申请属性</dt><dd>{{ label(detail.entry.application_scope) }}</dd></div><div><dt>当前经营归属</dt><dd>{{ detail.entry.task_no || '未归属任务，计入公司总费用' }}</dd></div>
           <div><dt>归属方式</dt><dd>{{ detail.entry.attribution_method }}</dd></div><div><dt>公司车牌</dt><dd>{{ detail.entry.vehicle_plate }}</dd></div>
           <div><dt>司机</dt><dd>{{ detail.entry.driver_name || '—' }}</dd></div><div><dt>费用来源</dt><dd>{{ label(detail.entry.source_type) }}</dd></div>
+          <div><dt>车挂号</dt><dd>{{ detail.entry.trailer_no || '—' }}</dd></div>
           <div><dt>明细</dt><dd>{{ detail.entry.description || '—' }}</dd></div><div><dt>票据号 / 发票号</dt><dd>{{ detail.entry.receipt_no || '—' }} / {{ detail.entry.invoice_no || '—' }}</dd></div>
           <div><dt>站点 / 备注</dt><dd>{{ detail.entry.station_name || '—' }} / {{ detail.entry.remark || '—' }}</dd></div>
-          <div><dt>审批来源</dt><dd>{{ detail.entry.approval_no ? `${detail.entry.approval_name || '费用审批'} · ${detail.entry.approval_no}` : '非审批来源' }}</dd></div>
-          <div><dt>申请时间 / 批次明细</dt><dd>{{ detail.entry.approval_started_at || '—' }}{{ detail.entry.approval_item_no ? ` · 第 ${detail.entry.approval_item_no} 条明细` : '' }}</dd></div>
+          <div><dt>审批来源</dt><dd><template v-if="detail.entry.approval_instance_id">{{ detail.entry.approval_name || '费用审批' }} <button type="button" class="ui-detail-button" @click="openApproval">查看审批详情</button></template><template v-else>非审批来源</template></dd></div>
+          <div><dt>申请时间 / 批次明细</dt><dd>{{ formatDateTime(detail.entry.approval_started_at) }}{{ detail.entry.approval_item_no ? ` · 第 ${detail.entry.approval_item_no} 条明细` : '' }}</dd></div>
         </dl></section>
         <section v-if="chargingSource" class="ui-section"><h2>充电原始订单</h2><dl class="ui-detail-list">
           <div><dt>充电公司</dt><dd>{{ chargingSource.company_name }}</dd></div>
           <div><dt>原始订单号</dt><dd>{{ chargingSource.original_order_no }}</dd></div>
           <div><dt>原始位置</dt><dd>{{ chargingSource.sheet_name }} · 第 {{ chargingSource.row_no }} 行</dd></div>
-          <div><dt>充电时间</dt><dd>{{ chargingSource.charged_at }}</dd></div>
+          <div><dt>充电时间</dt><dd>{{ formatDateTime(chargingSource.charged_at) }}</dd></div>
           <div><dt>原始文件</dt><dd>{{ chargingSource.original_filename }} <button v-if="can('PAGE_CHARGING_IMPORTS')" type="button" @click="openChargingFile">打开原始 Excel</button></dd></div>
         </dl></section>
-        <section class="ui-section"><h2>归属历史</h2><p v-if="!detail.attributionHistory.length" class="muted">尚无归属调整</p><ol v-else><li v-for="(item, index) in detail.attributionHistory" :key="index">{{ item.previous_task_no || '未归属' }} → {{ item.new_task_no || '未归属' }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ item.operated_at }}</li></ol></section>
-        <section class="ui-section"><h2>冲销记录</h2><p v-if="!detail.reversal.length" class="muted">没有冲销</p><p v-for="(item, index) in detail.reversal" :key="index">{{ item.original_expense_no }} → {{ item.reversal_expense_no }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ item.created_at }}</p></section>
+        <section class="ui-section"><h2>归属历史</h2><p v-if="!detail.attributionHistory.length" class="muted">尚无归属调整</p><ol v-else><li v-for="(item, index) in detail.attributionHistory" :key="index">{{ item.previous_task_no || '未归属' }} → {{ item.new_task_no || '未归属' }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ formatDateTime(item.operated_at) }}</li></ol></section>
+        <section class="ui-section"><h2>冲销记录</h2><p v-if="!detail.reversal.length" class="muted">没有冲销</p><p v-for="(item, index) in detail.reversal" :key="index">{{ item.original_expense_no }} → {{ item.reversal_expense_no }} · {{ item.reason }} · {{ mask(item.operator_phone) }} · {{ formatDateTime(item.created_at) }}</p></section>
       </template>
       <template v-if="detail && detail.entry.display_status === '有效' && detail.entry.source_type !== 'REVERSAL'" #footer>
         <button v-if="can('BUTTON_EXPENSE_UNASSIGNED_ATTRIBUTE')" type="button" @click="begin('attribute')">调整任务归属</button>
-        <button v-if="can('BUTTON_EXPENSE_LEDGER_REVERSE')" type="button" @click="begin('reverse')">冲销费用</button>
+        <button v-if="can('BUTTON_EXPENSE_LEDGER_REVERSE')" type="button" class="ui-danger-link" @click="begin('reverse')">冲销费用</button>
+      </template>
+    </DetailDrawer>
+    <DetailDrawer :open="approvalOpen" title="审批详情" class="ledger-approval-drawer" @close="approvalOpen = false">
+      <p v-if="approvalLoading">正在加载审批详情…</p>
+      <ErrorState v-else-if="approvalError" :message="approvalError" />
+      <template v-else-if="approvalDetail">
+        <ApprovalHistoryDetail :detail="approvalDetail" section="summary" />
+        <ApprovalHistoryDetail :detail="approvalDetail" section="timeline" />
       </template>
     </DetailDrawer>
     <FormDialog :open="!!dialog" :title="dialog === 'attribute' ? '调整费用归属' : '确认冲销费用'" :busy="saving" @close="dialog = ''">
@@ -213,4 +235,5 @@ watch(() => props.focus, (focus) => { filters.month = focus === 'UNASSIGNED' ? '
 .ledger-count { margin: -3px 0 12px; color: var(--ui-text-secondary); font-size: 13px; }
 .attribution-context { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--ui-border); border-radius: 8px; background: #f7faf8; }
 .attribution-context strong { color: #135d4d; }
+.ledger-approval-drawer :deep(.ui-drawer) { width: min(calc(100vw - 24px), 960px); }
 </style>

@@ -25,9 +25,9 @@ const tab = ref(props.initialTab);
 const users = ref([]);
 const roles = ref([]);
 const permissions = ref([]);
-const userPage = ref(1);
+const userPage = ref(1); const userPageSize = ref(20);
 const userTotal = ref(0);
-const rolePage = ref(1);
+const rolePage = ref(1); const rolePageSize = ref(20);
 const roleTotal = ref(0);
 const directoryPage = ref(1);
 const loading = ref(false);
@@ -75,7 +75,7 @@ const directoryRows = computed(() => permissions.value.map((item) => ({
 })).filter((item) =>
   (!filters.module || moduleOf(item.permissionCode) === filters.module)
   && (!filters.permission || `${item.permissionName} ${item.permissionCode}`.toLowerCase().includes(filters.permission.toLowerCase()))));
-const visibleDirectory = computed(() => directoryRows.value.slice((directoryPage.value - 1) * 15, directoryPage.value * 15));
+const visibleDirectory = computed(() => directoryRows.value);
 const addedCodes = computed(() => selectedCodes.value.filter((code) => !originalCodes.value.includes(code)));
 const removedCodes = computed(() => originalCodes.value.filter((code) => !selectedCodes.value.includes(code)));
 const previewPageGroups = computed(() => {
@@ -98,14 +98,14 @@ const previewPageGroups = computed(() => {
 
 async function loadUsers(page = 1) {
   loading.value = true; error.value = '';
-  try { const result = await systemApi.users(page, 20); users.value = result.records || []; userTotal.value = Number(result.total || 0); userPage.value = page; }
+  try { const result = await systemApi.users(page, userPageSize.value); users.value = result.records || []; userTotal.value = Number(result.total || 0); userPage.value = page; }
   catch (cause) { error.value = cause.message || '用户加载失败'; }
   finally { loading.value = false; }
 }
 async function loadRoles(page = 1) {
   loading.value = true; error.value = '';
   try {
-    const result = await systemApi.roles(page, 20);
+    const result = await systemApi.roles(page, rolePageSize.value);
     roles.value = result.records || []; roleTotal.value = Number(result.total || 0); rolePage.value = page;
     if (tab.value === 'roles' && roles.value.length && !roles.value.some((row) => row.id === previewRole.value?.id)) {
       await viewRole(roles.value[0]);
@@ -231,19 +231,19 @@ onMounted(async () => {
     <section v-if="tab === 'users' && can('PAGE_USERS')">
       <div class="ui-list-heading"><h2>用户列表</h2><button class="primary" type="button" @click="openUser()">＋ 新增用户</button></div>
       <FilterBar><label class="ui-search">手机号<input v-model.trim="filters.user" type="search" placeholder="搜索手机号" /></label><label>角色<select v-model="filters.userRole"><option value="">全部角色</option><option v-for="role in roles" :key="role.id" :value="String(role.id)">{{ role.roleName }}</option></select></label><label>状态<select v-model="filters.userStatus"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label></FilterBar>
-      <DataTable v-if="!error" :columns="[{key:'phone',label:'登录账号'},{key:'roleName',label:'角色'},{key:'status',label:'状态'},{key:'lastLoginAt',label:'最近登录'},{key:'actions',label:'操作'}]" :rows="userRows" :loading="loading" :empty-text="filters.user || filters.userRole || filters.userStatus ? '当前页没有匹配用户' : '暂无用户'">
+      <DataTable v-if="!error" class="ui-paged-table" :columns="[{key:'phone',label:'登录账号'},{key:'roleName',label:'角色'},{key:'status',label:'状态'},{key:'lastLoginAt',label:'最近登录'},{key:'actions',label:'操作'}]" :rows="userRows" :loading="loading" :empty-text="filters.user || filters.userRole || filters.userStatus ? '当前页没有匹配用户' : '暂无用户'">
         <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template><template #lastLoginAt="{value}">{{ displayTime(value) }}</template>
-        <template #actions="{row}"><div class="ui-inline-actions"><button type="button" @click="userDetail = row">详情</button><button type="button" @click="openUser(row)">编辑</button><button type="button" @click="userMore = row">更多</button></div></template>
-      </DataTable><PaginationBar :page-no="userPage" :page-size="20" :total="userTotal" @change="loadUsers" />
+        <template #actions="{row}"><div class="ui-inline-actions"><button type="button" class="ui-detail-button" @click="userDetail = row">查看详情</button><button type="button" @click="openUser(row)">编辑</button><button type="button" @click="userMore = row">更多</button></div></template>
+      </DataTable><PaginationBar :page-no="userPage" :page-size="userPageSize" :total="userTotal" @change="loadUsers" @change-size="(size) => { userPageSize = size; loadUsers(1); }" />
     </section>
     <section v-if="tab === 'roles' && can('PAGE_ROLES')">
       <div class="ui-list-heading"><h2>角色列表</h2><button class="primary" type="button" @click="openRole()">＋ 新增角色</button></div><FilterBar><label class="ui-search">角色名称或编码<input v-model.trim="filters.role" type="search" placeholder="搜索角色" /></label><label>状态<select v-model="filters.roleStatus"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label></FilterBar>
-      <div class="ui-role-workspace"><div class="ui-role-list"><p v-if="loading" class="ui-role-message">正在加载角色…</p><p v-else-if="!roleRows.length" class="ui-role-message">{{ filters.role || filters.roleStatus ? '当前页没有匹配角色' : '暂无角色' }}</p>
+      <div class="ui-role-workspace"><div class="ui-role-list"><div class="ui-role-scroll"><p v-if="loading" class="ui-role-message">正在加载角色…</p><p v-else-if="!roleRows.length" class="ui-role-message">{{ filters.role || filters.roleStatus ? '当前页没有匹配角色' : '暂无角色' }}</p>
         <div v-for="row in roleRows" :key="row.id" class="ui-role-row" :class="{ selected: previewRole?.id === row.id }">
           <button type="button" class="ui-role-select" @click="viewRole(row)"><strong>{{ row.roleName }}</strong><small>{{ row.roleCode }}</small></button>
           <span class="ui-role-state"><span>{{ row.systemFixed ? '系统固定' : '自定义' }}</span><StatusTag :value="row.status === 1 ? '启用' : '停用'" :tone="row.status === 1 ? 'success' : 'danger'" /></span>
           <button v-if="!row.systemFixed" type="button" class="ui-role-more" @click="roleMore = row">更多</button>
-        </div><PaginationBar :page-no="rolePage" :page-size="20" :total="roleTotal" @change="loadRoles" /></div>
+        </div></div><PaginationBar :page-no="rolePage" :page-size="rolePageSize" :total="roleTotal" @change="loadRoles" @change-size="(size) => { rolePageSize = size; loadRoles(1); }" /></div>
       <aside class="ui-role-preview" aria-label="角色权限概览"><div class="ui-role-preview-head"><div><h2>{{ previewRole?.roleName || '角色权限' }}</h2><p class="muted">{{ previewRole ? `${previewRole.roleCode} · 当前已授权 ${previewRole.permissions?.length || 0} 项` : '选择左侧角色查看权限' }}</p></div><button v-if="previewRole" type="button" class="primary" :disabled="previewLoading" @click="openRolePermissions(previewRole)">配置权限</button></div>
         <p v-if="previewLoading" class="muted">正在加载权限…</p><p v-else-if="!previewRole" class="muted">暂无可查看的角色。</p><p v-else-if="!previewRole.permissions?.length" class="muted">该角色暂未授权。</p>
         <div v-else class="ui-role-preview-groups"><section v-for="(labels, domain) in previewPageGroups" :key="domain"><h3>{{ domain }} <small>{{ labels.length }} 项</small></h3><ul><li v-for="label in labels" :key="label">{{ label }}</li></ul></section></div>
@@ -251,9 +251,9 @@ onMounted(async () => {
     </section>
     <section v-if="tab === 'permissions' && can('PAGE_ROLES')">
       <div class="ui-list-heading"><h2>权限目录</h2><span class="muted">只读 · 共 {{ permissions.length }} 项</span></div><FilterBar><label class="ui-search">权限名称或编码<input v-model.trim="filters.permission" type="search" placeholder="搜索权限" @input="directoryPage = 1" /></label><label>业务模块<select v-model="filters.module" @change="directoryPage = 1"><option value="">全部模块</option><option v-for="module in modules" :key="module" :value="module">{{ businessModules[module] || '其他' }}</option></select></label></FilterBar>
-      <DataTable v-if="!error" :columns="[{key:'module',label:'模块'},{key:'permissionName',label:'权限名称'},{key:'permissionCode',label:'权限编码'},{key:'description',label:'说明'}]" :rows="visibleDirectory" :loading="loading" :empty-text="filters.permission || filters.module ? '没有匹配权限' : '暂无权限'">
+      <DataTable v-if="!error" class="ui-directory-table" :columns="[{key:'module',label:'模块'},{key:'permissionName',label:'权限名称'},{key:'permissionCode',label:'权限编码'},{key:'description',label:'说明'}]" :rows="visibleDirectory" :loading="loading" :empty-text="filters.permission || filters.module ? '没有匹配权限' : '暂无权限'">
         <template #module="{row}">{{ moduleName(row.permissionCode) }}</template><template #permissionCode="{value}"><small class="muted">{{ value }}</small></template><template #description="{row}">{{ displayValue('permissionType', row.permissionType) }}权限</template>
-      </DataTable><PaginationBar :page-no="directoryPage" :page-size="15" :total="directoryRows.length" @change="directoryPage = $event" />
+      </DataTable>
     </section>
     <AuditLogsUi2 v-if="tab === 'audits' && can('PAGE_AUDIT')" />
     <DetailDrawer :open="!!userDetail" title="用户详情" @close="userDetail = null"><dl v-if="userDetail" class="ui-detail-grid"><dt>登录账号</dt><dd>{{ userDetail.phone }}</dd><dt>角色</dt><dd>{{ userDetail.roleName || '未配置' }}</dd><dt>状态</dt><dd><StatusTag :value="userDetail.status" /></dd><dt>最近登录</dt><dd>{{ displayTime(userDetail.lastLoginAt) }}</dd></dl></DetailDrawer>

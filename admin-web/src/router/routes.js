@@ -38,7 +38,7 @@ export const routes = [
   { key: 'salaries', label: '工资台账', permission: 'PAGE_SALARIES', component: Salaries },
   { key: 'salary-transfers', label: '转派工资核对', permission: 'PAGE_SALARY_TRANSFERS', component: Salaries, props: { initialSituation: 'TRANSFER' } },
   { key: 'attendance', label: '司机出勤', permission: 'PAGE_ATTENDANCE', component: Monthly, props: { scope: 'ATTENDANCE' } },
-  { key: 'approvals-todo', label: '我的待办', permission: 'PAGE_APPROVALS_TODO', component: Approvals, props: { initialScope: 'TODO', autoOpenFirst: true } },
+  { key: 'approvals-todo', label: '我的待办', permission: 'PAGE_APPROVALS_TODO', component: Approvals, props: { initialScope: 'TODO' } },
   { key: 'approvals-mine', label: '我的申请', permission: 'PAGE_APPROVALS_MINE', component: Approvals, props: { initialScope: 'MINE' } },
   { key: 'approvals-history', label: '审批记录', permission: 'PAGE_APPROVALS_HISTORY', component: Approvals, props: { initialScope: 'HISTORY' } },
   { key: 'approvals-flows', label: '流程与模板配置', permission: 'PAGE_APPROVALS_FLOWS', component: Approvals, props: { initialTab: 'flows' } },

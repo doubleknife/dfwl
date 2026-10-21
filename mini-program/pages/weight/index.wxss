@@ -18,4 +18,4 @@
 .mp-weight-image image { width: 180rpx; height: 180rpx; border-radius: var(--mp-radius-control); }
 .mp-weight-image button { margin-top: 8rpx; font-size: 26rpx; }
 .mp-weight-bottom { position: fixed; left: 0; right: 0; bottom: 0; padding: 16rpx 28rpx calc(16rpx + env(safe-area-inset-bottom)); border-top: 1rpx solid var(--mp-border); background: var(--mp-surface); }
-.mp-weight-primary { display: flex; min-height: 96rpx; align-items: center; justify-content: center; border-radius: var(--mp-radius-control); color: #fff; background: var(--mp-primary); font-size: 32rpx; font-weight: 700; }
+.mp-weight-primary { display: flex; min-height: var(--mp-button-height); align-items: center; justify-content: center; border-radius: var(--mp-button-radius); font-size: 30rpx; font-weight: 700; }

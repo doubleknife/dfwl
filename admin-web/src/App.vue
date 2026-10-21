@@ -33,7 +33,7 @@ onMounted(async () => {
     </section>
   </AppLayout>
   <Teleport to="body">
-    <div v-if="apiErrorDialog.open" class="ui-api-error-overlay" @click.self="closeApiError" @keydown.esc="closeApiError">
+    <div v-if="apiErrorDialog.open" class="ui-api-error-overlay">
       <section class="ui-api-error-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ui-api-error-title" aria-describedby="ui-api-error-message">
         <div class="ui-api-error-heading">
           <span class="ui-api-error-icon" aria-hidden="true">!</span>

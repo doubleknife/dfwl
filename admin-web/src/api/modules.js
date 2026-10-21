@@ -1,5 +1,11 @@
 import { apiClient } from './client.js';
 
+export const notificationApi = {
+  unreadCount: () => apiClient.get('/notifications/unread-count'),
+  list: () => apiClient.get('/notifications?pageNo=1&pageSize=20'),
+  read: (id) => apiClient.post(`/notifications/${id}/read`, {})
+};
+
 export const masterApi = {
   drivers: (pageNo = 1, pageSize = 100, filters = {}) => apiClient.get(`/drivers?${query(filters, pageNo, pageSize)}`),
   bindingDrivers: (pageNo = 1, pageSize = 100) => apiClient.get(`/drivers/binding-candidates?pageNo=${pageNo}&pageSize=${pageSize}`),
@@ -85,36 +91,8 @@ export const taskImportApi = {
   detail: (id) => apiClient.get(`/task-imports/${id}`)
 };
 
-export const approvalApi = {
-  list: (scope = 'ALL', pageNo = 1, pageSize = 20, filters = {}) => {
-    const query = new URLSearchParams({ scope, pageNo: String(pageNo), pageSize: String(pageSize) });
-    if (filters.approvalType) query.set('approvalType', filters.approvalType);
-    if (filters.status) query.set('status', filters.status);
-    return apiClient.get(`/approvals?${query}`);
-  },
-  detail: (id) => apiClient.get(`/approvals/${id}`),
-  create: (body) => apiClient.post('/approvals', body),
-  approve: (id, body) => apiClient.post(`/approvals/${id}/approve`, body),
-  returnApplicant: (id, body) => apiClient.post(`/approvals/${id}/return-applicant`, body),
-  returnNode: (id, body) => apiClient.post(`/approvals/${id}/return-node`, body),
-  resubmit: (id, body) => apiClient.post(`/approvals/${id}/resubmit`, body)
-};
-
-export const approvalTemplateApi = {
-  available: () => apiClient.get('/approval-templates/available'),
-  list: () => apiClient.get('/approval-templates'),
-  detail: (templateId) => apiClient.get(`/approval-templates/${templateId}`),
-  versions: (templateId) => apiClient.get(`/approval-templates/${templateId}/versions`),
-  active: (templateId) => apiClient.get(`/approval-templates/${templateId}/active`),
-  version: (templateId, flowId) => apiClient.get(`/approval-templates/${templateId}/versions/${flowId}`),
-  create: (body) => apiClient.post('/approval-templates', body),
-  maintenance: (flowId) => apiClient.post(`/approval-flows/${flowId}/maintenance`, {}),
-  createNextVersion: (flowId, body) => apiClient.put(`/approval-flows/${flowId}`, body),
-  publish: (flowId) => apiClient.post(`/approval-flows/${flowId}/publish`, {})
-};
-
 export const v3ApprovalApi = {
-  list: (scope, pageNo = 1) => apiClient.get(`/approvals?scope=${scope}&pageNo=${pageNo}&pageSize=20`),
+  list: (scope, pageNo = 1, pageSize = 20) => apiClient.get(`/approvals?scope=${scope}&pageNo=${pageNo}&pageSize=${pageSize}`),
   detail: (id) => apiClient.get(`/approvals/${id}`),
   available: () => apiClient.get('/approval-templates/available'),
   templates: () => apiClient.get('/approval-templates'),
@@ -130,6 +108,7 @@ export const v3ApprovalApi = {
   returnStep: (id, body) => apiClient.post(`/approvals/${id}/return-step`, body),
   returnApplicant: (id, body) => apiClient.post(`/approvals/${id}/return-applicant`, body),
   expenseOptions: () => apiClient.get('/expense-applications/options'),
+  trailerChecks: (trailerNos) => apiClient.post('/expense-applications/trailer-check', { trailerNos }),
   taskCandidates: (driverId) => apiClient.get(`/expense-applications/task-candidates?driverId=${driverId}`),
   dailyTemplate: () => apiClient.download('/expense-applications/daily-template'),
   dailyPreview: (file) => {
@@ -164,7 +143,7 @@ export const tireApi = {
     form.append('requestKey', requestKey);
     return apiClient.upload('/tire-imports/confirm', form);
   },
-  imports: (pageNo = 1) => apiClient.get(`/tire-imports?pageNo=${pageNo}&pageSize=20`),
+  imports: (pageNo = 1, pageSize = 20) => apiClient.get(`/tire-imports?pageNo=${pageNo}&pageSize=${pageSize}`),
   importDetail: (id) => apiClient.get(`/tire-imports/${id}`)
 };
 
@@ -197,9 +176,9 @@ export const dispatchLedgerApi = {
 };
 
 export const v3ExpenseLedgerApi = {
-  list: (filters, pageNo = 1) => apiClient.get(`/expense-ledger?${query(filters, pageNo, 20)}`),
+  list: (filters, pageNo = 1, pageSize = 20) => apiClient.get(`/expense-ledger?${query(filters, pageNo, pageSize)}`),
   summary: (filters) => apiClient.get(`/expense-ledger/summary?${query(filters)}`),
-  pendingAttribution: (filters = {}, pageNo = 1) => apiClient.get(`/expense-ledger/pending-attribution?${query(filters, pageNo, 20)}`),
+  pendingAttribution: (filters = {}, pageNo = 1, pageSize = 20) => apiClient.get(`/expense-ledger/pending-attribution?${query(filters, pageNo, pageSize)}`),
   pendingAttributionSummary: (filters = {}) => apiClient.get(`/expense-ledger/pending-attribution/summary?${query(filters)}`),
   options: (kind, search = '', pageNo = 1, vehicleId = '') => apiClient.get(`/expense-ledger/filter-options?${query({ kind, search, vehicleId, pageNo })}`),
   detail: (id) => apiClient.get(`/expense-ledger/${id}`),
@@ -212,7 +191,7 @@ export const chargingApi = {
   companies: () => apiClient.get('/charging/companies'),
   createCompany: (body) => apiClient.post('/charging/companies', body),
   updateCompany: (id, body) => apiClient.put(`/charging/companies/${id}`, body),
-  imports: (page = 1) => apiClient.get(`/charging/imports?page=${page}&size=20`),
+  imports: (page = 1, pageSize = 20) => apiClient.get(`/charging/imports?page=${page}&size=${pageSize}`),
   importDetail: (id) => apiClient.get(`/charging/imports/${id}`),
   sourceOrder: (expenseId) => apiClient.get(`/charging/source-orders/by-expense/${expenseId}`),
   originalFile: (batchId) => apiClient.download(`/charging/imports/${batchId}/original-file`),
@@ -226,9 +205,9 @@ export const chargingApi = {
 
 export const v3FinanceApi = {
   taskSummaries: (taskIds) => apiClient.get(`/finance/task-summaries?${new URLSearchParams(taskIds.map((id) => ['taskIds', String(id)]))}`),
-  tasks: (filters, pageNo = 1) => apiClient.get(`/finance/tasks?${query(filters, pageNo, 20)}`),
+  tasks: (filters, pageNo = 1, pageSize = 20) => apiClient.get(`/finance/tasks?${query(filters, pageNo, pageSize)}`),
   task: (id) => apiClient.get(`/finance/tasks/${id}`),
-  templates: (filters, pageNo = 1) => apiClient.get(`/finance/templates?${query(filters, pageNo, 20)}`),
+  templates: (filters, pageNo = 1, pageSize = 20) => apiClient.get(`/finance/templates?${query(filters, pageNo, pageSize)}`),
   company: (month) => apiClient.get(`/finance/company?month=${encodeURIComponent(month)}`),
   dashboard: (month) => apiClient.get(`/finance/dashboard?month=${encodeURIComponent(month)}`)
 };
@@ -237,8 +216,8 @@ export const v3SettlementApi = {
   versions: (month) => apiClient.get(`/settlements/${encodeURIComponent(month)}/versions`),
   generate: (month) => apiClient.post(`/settlements/${encodeURIComponent(month)}/versions`, {}),
   version: (id) => apiClient.get(`/settlements/versions/${id}`),
-  details: (id, pageNo = 1) => apiClient.get(`/settlements/versions/${id}/details?${query({}, pageNo, 20)}`),
-  diff: (id, pageNo = 1) => apiClient.get(`/settlements/versions/${id}/diff?${query({}, pageNo, 20)}`)
+  details: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/details?${query({}, pageNo, pageSize)}`),
+  diff: (id, pageNo = 1, pageSize = 20) => apiClient.get(`/settlements/versions/${id}/diff?${query({}, pageNo, pageSize)}`)
 };
 
 export const systemApi = {

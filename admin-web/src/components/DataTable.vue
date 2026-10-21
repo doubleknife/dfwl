@@ -1,4 +1,5 @@
 <script setup>
+import { onMounted, onUpdated, onUnmounted, ref } from 'vue';
 import { displayValue } from '../utils/displayLabels.js';
 import LoadingState from './LoadingState.vue';
 import EmptyState from './EmptyState.vue';
@@ -10,10 +11,20 @@ defineProps({
   emptyText: { type: String, default: '暂无数据' },
   loading: { type: Boolean, default: false }
 });
+const root = ref(null);
+function fitViewport() {
+  const element = root.value;
+  if (!element?.classList.contains('ui-paged-table')) return;
+  const available = window.innerHeight - element.getBoundingClientRect().top - 78;
+  element.style.height = `${Math.max(220, available)}px`;
+}
+onMounted(() => { fitViewport(); window.addEventListener('resize', fitViewport); });
+onUpdated(fitViewport);
+onUnmounted(() => window.removeEventListener('resize', fitViewport));
 </script>
 
 <template>
-  <div class="table-panel ui-table-wrap" :aria-busy="loading">
+  <div ref="root" class="table-panel ui-table-wrap" :aria-busy="loading">
     <table v-if="!loading" class="ui-data-table">
       <thead><tr><th v-for="column in columns" :key="column.key" :data-column="column.key" :class="{ 'ui-number': column.numeric || /amount|price|salary|profit|count|total/i.test(column.key), 'ui-action-column': column.key === 'actions' }" scope="col">{{ column.label }}</th></tr></thead>
       <tbody>

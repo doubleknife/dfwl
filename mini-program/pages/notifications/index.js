@@ -1,8 +1,12 @@
 const { request } = require('../../utils/request');
+const { formatDateTime } = require('../../utils/dateTime');
+
+const presentRecord = (item) => ({ ...item, createdLabel: formatDateTime(item.createdAt) });
 
 function targetUrl(item) {
   if (item.businessType === 'TASK') return `/pages/route-detail/index?id=${item.businessId}`;
   if (item.businessType === 'SALARY') return '/pages/salary/index';
+  if (item.businessType === 'APPROVAL') return `/pages/approvals/index?id=${item.businessId}`;
   return '';
 }
 
@@ -17,7 +21,7 @@ Page({
         request({ url: '/notifications?pageNo=1&pageSize=20' }),
         request({ url: '/notifications/unread-count' })
       ]);
-      this.setData({ records: page.records || [], pageNo: 1, hasMore: (page.records || []).length < Number(page.total || 0),
+      this.setData({ records: (page.records || []).map(presentRecord), pageNo: 1, hasMore: (page.records || []).length < Number(page.total || 0),
         unreadCount: Number(count.unreadCount || 0) });
     } catch (error) {
       this.setData({ error: error.message || '通知加载失败，请重试' });
@@ -31,7 +35,7 @@ Page({
     try {
       const next = this.data.pageNo + 1;
       const page = await request({ url: `/notifications?pageNo=${next}&pageSize=20` });
-      const records = this.data.records.concat(page.records || []);
+      const records = this.data.records.concat((page.records || []).map(presentRecord));
       this.setData({ records, pageNo: next, hasMore: records.length < Number(page.total || 0) });
     } catch (error) {
       this.setData({ error: error.message || '后续通知加载失败，请重试' });

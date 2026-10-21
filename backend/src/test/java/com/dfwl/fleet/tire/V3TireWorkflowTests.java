@@ -200,19 +200,26 @@ class V3TireWorkflowTests {
         var driver = new AuthenticatedUser(191L, "13900000191", 1L, "DRIVER", "司机",
                 grants("BUTTON_MINI_TIRE_REQUEST_SUBMIT"));
         assertThatThrownBy(() -> tires.submitRequest(
-                new TireV3Service.TireRequestInput(999L, 1L, "T-701", "invalid-flow"), driver))
+                new TireV3Service.TireRequestInput(999L,
+                        List.of(new TireV3Service.TireRequestItem(1L, "T-701")), "invalid-flow"), driver))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("当前有效的换胎审批流程");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tire_request", Long.class)).isZero();
+        assertThatThrownBy(() -> tires.requestTarget("T-NOT-FOUND", driver))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("胎号不存在");
         assertThat(tires.requestTarget("T-701", driver).get("status")).isEqualTo("AVAILABLE");
-        jdbc.update("INSERT INTO tire_request(id,applicant_driver_id,vehicle_id,confirmed_tire_no,"
+        jdbc.update("INSERT INTO tire_request(id,batch_key,applicant_driver_id,vehicle_id,confirmed_tire_no,"
                 + "ocr_record_id,photo_attachment_id,tire_id,status) "
-                + "VALUES(701,191,191,'T-701',1,1,701,'PENDING_APPROVAL')");
+                + "VALUES(701,'test-701',191,191,'T-701',1,1,701,'PENDING_APPROVAL')");
         assertThatThrownBy(() -> tires.requestTarget("T-701", driver))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class).hasMessageContaining("待审批的申领申请");
         jdbc.update("UPDATE tire_request SET status='RETURNED_TO_APPLICANT' WHERE id=701");
         assertThat(tires.requestTarget("T-701", driver).get("status")).isEqualTo("AVAILABLE");
         jdbc.update("UPDATE tire_request SET status='APPROVED' WHERE id=701");
         assertThatThrownBy(() -> tires.requestTarget("T-701", driver))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class).hasMessageContaining("已被申领");
+        jdbc.update("UPDATE tire_request SET status='WITHDRAWN' WHERE id=701");
+        jdbc.update("UPDATE tire SET status='CLAIMED' WHERE id=701");
+        assertThatThrownBy(() -> tires.requestTarget("T-701", driver))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("已被申领");
     }
 }

@@ -11,8 +11,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -97,16 +100,29 @@ public class SettlementV3Service {
     public PageResponse<Map<String, Object>> details(long id, int pageNo, int pageSize) {
         version(id);
         validatePage(pageNo, pageSize);
-        long count = jdbc.queryForObject("SELECT COUNT(*) FROM settlement_detail WHERE version_id=?", Long.class, id);
         List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT fact_type,fact_id,fact_snapshot_json,business_date,income_amount,expense_amount,
+                SELECT id,fact_type,fact_id,fact_snapshot_json,business_date,income_amount,expense_amount,
                   salary_amount,information_fee_amount,profit_amount
-                FROM settlement_detail WHERE version_id=? ORDER BY fact_type,fact_id LIMIT ? OFFSET ?
-                """, id, pageSize, (pageNo - 1) * pageSize);
-        List<Map<String, Object>> business = new ArrayList<>();
+                FROM settlement_detail WHERE version_id=?
+                """, id);
+        List<TimedDetail> sorted = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
-            Map<String, Object> item = new LinkedHashMap<>();
             Map<String, Object> snapshot = parse(row.get("fact_snapshot_json"));
+            Object time = "TASK".equals(row.get("fact_type"))
+                    ? snapshot.get("completed_at") : snapshot.get("created_at");
+            sorted.add(new TimedDetail(row, snapshot, eventTime(time, row.get("business_date")), num(row.get("id"))));
+        }
+        sorted.sort((left, right) -> {
+            int byTime = Long.compare(right.eventTime(), left.eventTime());
+            return byTime != 0 ? byTime : Long.compare(right.id(), left.id());
+        });
+        int from = (int) Math.min((long) (pageNo - 1) * pageSize, sorted.size());
+        int to = Math.min(from + pageSize, sorted.size());
+        List<Map<String, Object>> business = new ArrayList<>();
+        for (TimedDetail detail : sorted.subList(from, to)) {
+            Map<String, Object> row = detail.row();
+            Map<String, Object> item = new LinkedHashMap<>();
+            Map<String, Object> snapshot = detail.snapshot();
             item.put("factType", "TASK".equals(row.get("fact_type")) ? "运输任务" : "正式费用");
             item.put("businessNo", "TASK".equals(row.get("fact_type"))
                     ? snapshot.get("task_no") : snapshot.get("expense_no"));
@@ -117,8 +133,24 @@ public class SettlementV3Service {
             item.put("profit", row.get("profit_amount"));
             business.add(item);
         }
-        return new PageResponse<>(pageNo, pageSize, count, business);
+        return new PageResponse<>(pageNo, pageSize, sorted.size(), business);
     }
+
+    private long eventTime(Object value, Object businessDate) {
+        if (value instanceof Number number) return number.longValue();
+        if (value instanceof java.util.Date date) return date.getTime();
+        if (value != null) {
+            String timestamp = value.toString().trim();
+            try { return Instant.parse(timestamp).toEpochMilli(); }
+            catch (RuntimeException ignored) {
+                return LocalDateTime.parse(timestamp.replace(' ', 'T'))
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            }
+        }
+        return date(businessDate).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    private record TimedDetail(Map<String, Object> row, Map<String, Object> snapshot, long eventTime, long id) {}
 
     @SuppressWarnings("unchecked")
     public PageResponse<Map<String, Object>> diffs(long id, int pageNo, int pageSize) {
@@ -152,6 +184,7 @@ public class SettlementV3Service {
             item.put("operator", action.getOrDefault("operator", source.get("changeOperator")));
             item.put("operatedAt", action.getOrDefault("time", source.get("changeTime")));
             item.put("approval", source.get("approval"));
+            item.put("approvalId", source.get("approval_instance_id"));
             business.add(item);
         }
         return new PageResponse<>(pageNo, pageSize, count, business);

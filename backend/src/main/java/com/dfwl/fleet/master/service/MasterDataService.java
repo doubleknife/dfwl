@@ -350,12 +350,17 @@ public class MasterDataService {
 
     @Transactional
     public void unbindDriverVehicle(long driverId, long operatorId, String reason) {
+        repository.lockDriver(driverId);
         DriverResponse driver = findDriver(driverId);
         if (!"INTERNAL".equals(driver.driverType())) {
             throw new BusinessException(ErrorCode.AUTH_003);
         }
         if (driver.currentVehicleId() == null) {
             throw new BusinessException(ErrorCode.BIND_002);
+        }
+        repository.lockVehicle(driver.currentVehicleId());
+        if (repository.unfinishedCurrentTasks(driverId) > 0) {
+            throw new BusinessException("BIND_003", "该司机有待发车或在途任务，请先联系调度处理任务后再解绑车辆");
         }
         if (repository.hasInTransitDriverOrVehicle(driverId, driver.currentVehicleId())) {
             throw new BusinessException(ErrorCode.BIND_003);

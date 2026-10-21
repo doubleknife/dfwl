@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { masterApi } from '../api/modules.js';
 import { can } from '../stores/auth.js';
 import { displayValue } from '../utils/displayLabels.js';
+import { formatDateTime } from '../utils/dateTime.js';
 import FilterBar from './FilterBar.vue';
 import DataTable from './DataTable.vue';
 import PaginationBar from './PaginationBar.vue';
@@ -11,7 +12,7 @@ import FormDialog from './FormDialog.vue';
 import DetailDrawer from './DetailDrawer.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import ErrorState from './ErrorState.vue';
-import { displayedPercent, submittedFraction, editingStatus, invalidStoredPercent, invalidFixedStandard, thresholdTons } from './masterCatalogForm.js';
+import { displayedPercent, submittedFraction, editingStatus, invalidFixedStandard, thresholdTons } from './masterCatalogForm.js';
 
 const props = defineProps({ type: { type: String, required: true } });
 const names = { vehicles: '车辆', trailers: '车挂', products: '货物' };
@@ -26,7 +27,7 @@ const columns = {
   products: [{ key: 'name', label: '货物名称' }, { key: 'enabled', label: '状态' }, { key: 'actions', label: '操作' }]
 };
 const records = ref([]);
-const page = ref(1);
+const page = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const search = ref('');
 const statusFilter = ref('');
@@ -35,7 +36,6 @@ const busy = ref(false);
 const error = ref('');
 const saveError = ref('');
 const editor = ref(false);
-const confirmedLegacyPercent = ref(false);
 const detail = ref(null);
 const history = ref([]);
 const toggleTarget = ref(null);
@@ -52,7 +52,7 @@ const filtered = computed(() => records.value.filter((row) => {
 async function load(nextPage = 1) {
   loading.value = true; error.value = '';
   try {
-    const result = await listApi.value(nextPage, 20);
+    const result = await listApi.value(nextPage, pageSize.value);
     records.value = result.records || [];
     total.value = Number(result.total || 0);
     page.value = nextPage;
@@ -60,7 +60,6 @@ async function load(nextPage = 1) {
   finally { loading.value = false; }
 }
 function openEditor(row = null) {
-  confirmedLegacyPercent.value = false;
   saveError.value = '';
   Object.assign(form, { id: row?.id || null, plateNo: row?.plateNo || '', vehicleLicenseNo: row?.vehicleLicenseNo || '', trailerNo: row?.trailerNo || '', energyType: row?.energyType || 'ELECTRIC', maxLoad: row?.maxLoad || '', insuranceComplete: row?.insuranceComplete ?? true, loadStandardType: row?.loadStandardType || 'PERCENT', loadStandardPercent: displayedPercent(row?.loadStandardPercent), loadStandardMinLoad: row?.loadStandardMinLoad || '', productName: row?.name || '', status: editingStatus(row, props.type), version: row?.version ?? null });
   editor.value = true;
@@ -73,10 +72,6 @@ function payload() {
 async function save() {
   if (props.type === 'vehicles' && fixedStandardInvalid.value) {
     saveError.value = '达标吨数必须介于 0 和车辆限载吨数之间。';
-    return;
-  }
-  if (props.type === 'vehicles' && form.id && invalidStoredPercent(records.value.find((row) => row.id === form.id)?.loadStandardPercent) && !confirmedLegacyPercent.value) {
-    saveError.value = '请先核对并确认原记录的达标比例，再保存车辆资料。';
     return;
   }
   busy.value = true; saveError.value = '';
@@ -120,11 +115,11 @@ onMounted(() => load());
     <div class="ui-list-heading"><h2>{{ names[type] }}列表</h2><button v-if="can(permissions[type].add)" class="primary" type="button" @click="openEditor()">＋ 新增{{ names[type] }}</button></div>
     <FilterBar><label class="ui-search">{{ names[type] }}名称或编号<input v-model.trim="search" type="search" placeholder="筛选当前页" /></label><label>状态<select v-model="statusFilter"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label><button type="button" @click="load(page)">刷新</button></FilterBar>
     <p class="muted">当前页筛选；使用下方分页查看全部记录。</p>
-    <DataTable v-if="!error" :columns="columns[type]" :rows="filtered" :loading="loading" :empty-text="search || statusFilter ? '当前页没有匹配结果' : `暂无${names[type]}`">
+    <DataTable v-if="!error" class="ui-paged-table" :columns="columns[type]" :rows="filtered" :loading="loading" :empty-text="search || statusFilter ? '当前页没有匹配结果' : `暂无${names[type]}`">
       <template #energyType="{value}">{{ displayValue('energyType', value) }}</template>
       <template #loadStandardType="{value}">{{ value === 'PERCENT' ? '按比例' : value === 'FIXED' ? '固定吨数' : '待核对' }}</template>
       <template #maxLoad="{value}">{{ value == null ? '—' : `${value} 吨` }}</template>
-      <template #standardPercent="{row}">{{ row.loadStandardType === 'PERCENT' ? `${displayedPercent(row.loadStandardPercent)}%` : '—' }}<small v-if="row.loadStandardType === 'PERCENT' && invalidStoredPercent(row.loadStandardPercent)" class="ui-warning">存储比例待核对</small></template>
+      <template #standardPercent="{row}">{{ row.loadStandardType === 'PERCENT' ? `${displayedPercent(row.loadStandardPercent)}%` : '—' }}</template>
       <template #standardTons="{row}">{{ thresholdTons(row) == null ? '待核对' : `${thresholdTons(row)} 吨` }}<small v-if="row.loadStandardType === 'FIXED' && invalidFixedStandard(row.maxLoad, row.loadStandardMinLoad)" class="ui-warning">原值超出限载</small></template>
       <template #insuranceComplete="{value}"><StatusTag :value="value ? '保险完整' : '保险不完整'" :tone="value ? 'success' : 'warning'" /></template>
       <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template>
@@ -132,9 +127,9 @@ onMounted(() => load());
       <template #currentDriverName="{value}">{{ value || '未绑定' }}</template>
       <template #currentTrailerPlateNo="{value}">{{ value || '未绑定' }}</template>
       <template #currentVehiclePlateNo="{value}">{{ value || '未绑定' }}</template>
-      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="type === 'vehicles' || type === 'trailers'" type="button" @click="show(row)">详情</button><button v-if="can(permissions[type].edit)" type="button" @click="openEditor(row)">编辑</button><button v-if="type === 'products' && can(permissions[type].edit)" type="button" @click="toggleTarget = row">{{ row.enabled ? '停用' : '启用' }}</button></div></template>
+      <template #actions="{row}"><div class="ui-inline-actions"><button v-if="type === 'vehicles' || type === 'trailers'" class="ui-detail-button" type="button" @click="show(row)">查看详情</button><button v-if="can(permissions[type].edit)" type="button" @click="openEditor(row)">编辑</button><button v-if="type === 'products' && can(permissions[type].edit)" type="button" :class="{ 'ui-danger-link': row.enabled }" @click="toggleTarget = row">{{ row.enabled ? '停用' : '启用' }}</button></div></template>
     </DataTable>
-    <PaginationBar v-if="!error" :page-no="page" :page-size="20" :total="total" @change="load" />
+    <PaginationBar v-if="!error" :page-no="page" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
 
     <FormDialog :open="editor" :title="`${form.id ? '编辑' : '新增'}${names[type]}`" :busy="busy" @close="editor = false">
       <form @submit.prevent="save"><div class="ui-form-grid">
@@ -142,11 +137,11 @@ onMounted(() => load());
         <template v-else-if="type === 'trailers'"><label class="ui-form-field">车挂号<input v-model.trim="form.trailerNo" required /></label><label class="ui-form-field">车挂车牌<input v-model.trim="form.plateNo" /></label><label class="ui-form-field">保险<select v-model="form.insuranceComplete"><option :value="true">完整</option><option :value="false">不完整</option></select></label></template>
         <template v-else><label class="ui-form-field">货物名称<input v-model.trim="form.productName" required /></label></template>
         <label class="ui-form-field">状态<select v-model.number="form.status"><option :value="1">启用</option><option :value="0">停用</option></select></label>
-      </div><p v-if="type === 'vehicles'" class="ui-threshold-preview">当前输入的达标吨数：<strong>{{ draftThreshold == null ? '请填写有效限载与标准' : `${draftThreshold} 吨` }}</strong></p><label v-if="type === 'vehicles' && form.id && invalidStoredPercent(records.find((row) => row.id === form.id)?.loadStandardPercent)" class="ui-warning"><input v-model="confirmedLegacyPercent" type="checkbox" />我已核对该车实际达标比例；保存时按当前输入的百分数修正存储单位。取消不会修改数据。</label><p v-if="saveError" class="ui-warning" role="alert">{{ saveError }}</p><div class="ui-dialog-actions"><button type="button" @click="editor = false">取消</button><button class="primary" :disabled="busy || (type === 'vehicles' && fixedStandardInvalid)">{{ busy ? '正在保存…' : '保存' }}</button></div></form>
+      </div><p v-if="type === 'vehicles'" class="ui-threshold-preview">当前输入的达标吨数：<strong>{{ draftThreshold == null ? '请填写有效限载与标准' : `${draftThreshold} 吨` }}</strong></p><p v-if="saveError" class="ui-warning" role="alert">{{ saveError }}</p><div class="ui-dialog-actions"><button type="button" @click="editor = false">取消</button><button class="primary" :disabled="busy || (type === 'vehicles' && fixedStandardInvalid)">{{ busy ? '正在保存…' : '保存' }}</button></div></form>
     </FormDialog>
     <DetailDrawer :open="!!detail" :title="type === 'vehicles' ? '车辆详情' : '车挂详情'" @close="detail = null">
-      <template v-if="detail"><p class="ui-detail-lead">{{ detail.plateNo || detail.trailerNo }}</p><p v-if="type === 'vehicles' && detail.loadStandardType === 'PERCENT' && invalidStoredPercent(detail.loadStandardPercent)" class="ui-warning">存储比例待核对；在确认前不要据此判断达标结果。</p><p v-if="type === 'vehicles' && detail.loadStandardType === 'FIXED' && invalidFixedStandard(detail.maxLoad, detail.loadStandardMinLoad)" class="ui-warning">原达标吨数超出限载，请核对；在确认前不要据此判断达标结果。</p><h3>车辆资料与当前关系</h3><dl class="ui-detail-grid"><dt>状态</dt><dd><StatusTag :value="detail.status" /></dd><dt>保险</dt><dd><StatusTag :value="detail.insuranceComplete ? '保险完整' : '保险不完整'" /></dd><template v-if="type === 'vehicles'"><dt>行驶证号</dt><dd>{{ detail.vehicleLicenseNo || '—' }}</dd><dt>能源</dt><dd>{{ displayValue('energyType', detail.energyType) }}</dd><dt>最大载重</dt><dd>{{ detail.maxLoad }} 吨</dd><dt>达标比例</dt><dd>{{ detail.loadStandardType === 'PERCENT' ? `${displayedPercent(detail.loadStandardPercent)}%` : '—' }}</dd><dt>达标吨数</dt><dd>{{ thresholdTons(detail) == null ? '待核对' : `${thresholdTons(detail)} 吨` }}</dd><dt>当前司机</dt><dd>{{ detail.currentDriverName || '未绑定' }}</dd><dt>当前车挂</dt><dd>{{ detail.currentTrailerPlateNo || '未绑定' }}</dd></template><template v-else><dt>车挂编号</dt><dd>{{ detail.trailerNo }}</dd><dt>当前车辆</dt><dd>{{ detail.currentVehiclePlateNo || '未绑定' }}</dd><dt>当前司机</dt><dd>{{ detail.currentDriverName || '未绑定' }}</dd></template></dl>
-        <template v-if="type === 'vehicles' && can('PAGE_BINDING')"><h3>绑定历史</h3><div v-if="!history.length" class="ui-empty">暂无绑定历史</div><ol v-else class="ui-timeline"><li v-for="item in history" :key="`${item.kind}-${item.id}`"><strong>{{ item.kind }}：{{ item.subjectName }} ↔ {{ item.targetName }}</strong><p>绑定 {{ item.bindTime }} · 操作人 {{ item.bindByPhone || '未记录' }}</p><p v-if="item.unbindTime">解绑 {{ item.unbindTime }} · 操作人 {{ item.unbindByPhone || '未记录' }} · {{ item.unbindReason || '未填写原因' }}</p></li></ol></template>
+      <template v-if="detail"><p class="ui-detail-lead">{{ detail.plateNo || detail.trailerNo }}</p><p v-if="type === 'vehicles' && detail.loadStandardType === 'FIXED' && invalidFixedStandard(detail.maxLoad, detail.loadStandardMinLoad)" class="ui-warning">原达标吨数超出限载，请核对；在确认前不要据此判断达标结果。</p><h3>车辆资料与当前关系</h3><dl class="ui-detail-grid"><dt>状态</dt><dd><StatusTag :value="detail.status" /></dd><dt>保险</dt><dd><StatusTag :value="detail.insuranceComplete ? '保险完整' : '保险不完整'" /></dd><template v-if="type === 'vehicles'"><dt>行驶证号</dt><dd>{{ detail.vehicleLicenseNo || '—' }}</dd><dt>能源</dt><dd>{{ displayValue('energyType', detail.energyType) }}</dd><dt>最大载重</dt><dd>{{ detail.maxLoad }} 吨</dd><dt>达标比例</dt><dd>{{ detail.loadStandardType === 'PERCENT' ? `${displayedPercent(detail.loadStandardPercent)}%` : '—' }}</dd><dt>达标吨数</dt><dd>{{ thresholdTons(detail) == null ? '待核对' : `${thresholdTons(detail)} 吨` }}</dd><dt>当前司机</dt><dd>{{ detail.currentDriverName || '未绑定' }}</dd><dt>当前车挂</dt><dd>{{ detail.currentTrailerPlateNo || '未绑定' }}</dd></template><template v-else><dt>车挂编号</dt><dd>{{ detail.trailerNo }}</dd><dt>当前车辆</dt><dd>{{ detail.currentVehiclePlateNo || '未绑定' }}</dd><dt>当前司机</dt><dd>{{ detail.currentDriverName || '未绑定' }}</dd></template></dl>
+        <template v-if="type === 'vehicles' && can('PAGE_BINDING')"><h3>绑定历史</h3><div v-if="!history.length" class="ui-empty">暂无绑定历史</div><ol v-else class="ui-timeline"><li v-for="item in history" :key="`${item.kind}-${item.id}`"><strong>{{ item.kind }}：{{ item.subjectName }} ↔ {{ item.targetName }}</strong><p>绑定 {{ formatDateTime(item.bindTime) }} · 操作人 {{ item.bindByPhone || '未记录' }}</p><p v-if="item.unbindTime">解绑 {{ formatDateTime(item.unbindTime) }} · 操作人 {{ item.unbindByPhone || '未记录' }} · {{ item.unbindReason || '未填写原因' }}</p></li></ol></template>
       </template>
     </DetailDrawer>
     <ConfirmDialog :open="!!toggleTarget" :title="`${toggleTarget?.enabled ? '停用' : '启用'}货物`" :message="`确认${toggleTarget?.enabled ? '停用' : '启用'} ${toggleTarget?.name || ''}？停用后不能用于新模板。`" :busy="busy" :danger="!!toggleTarget?.enabled" @cancel="toggleTarget = null" @confirm="toggleStatus" />

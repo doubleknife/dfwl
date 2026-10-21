@@ -11,4 +11,4 @@
 .mp-approval-row { display: flex; flex-direction: column; gap: 6rpx; padding: 18rpx 0; border-bottom: 1rpx solid #e6eeeb; }
 .mp-approval-name { color: #18332e; font-size: 30rpx; font-weight: 600; }
 .mp-approval-meta { color: #526d65; font-size: 25rpx; }
-.mp-approval-action { display: flex; align-items: center; justify-content: center; min-height: 86rpx; margin-top: 20rpx; color: #fff; background: #147466; border-radius: 12rpx; font-size: 29rpx; }
+.mp-approval-action { display: flex; align-items: center; justify-content: center; margin-top: 20rpx; }

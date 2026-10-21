@@ -125,6 +125,19 @@ public class TireV3Controller {
             @AuthenticationPrincipal AuthenticatedUser user) {
         return ok(tires.submitRequest(input, user));
     }
+    @PostMapping("/api/v1/tire-requests/validate")
+    @FunctionAccess(anyOf={"BUTTON_MINI_TIRE_REQUEST_SUBMIT"})
+    public ApiResponse<Map<String, Object>> validate(@RequestBody TireV3Service.TireRequestInput input,
+            @AuthenticationPrincipal AuthenticatedUser user) {
+        return ok(tires.validateRequest(input, user));
+    }
+    @PostMapping("/api/v1/tire-requests/approvals/{id}/resubmit")
+    @FunctionAccess(anyOf={"BUTTON_MINI_TIRE_REQUEST_SUBMIT"})
+    public ApiResponse<Map<String, Object>> resubmit(@PathVariable long id,
+            @RequestBody TireV3Service.TireResubmission input,
+            @AuthenticationPrincipal AuthenticatedUser user) {
+        return ok(tires.resubmitRequest(id, input, user));
+    }
     @GetMapping("/api/v1/tire-requests/{id}")
     @FunctionAccess(anyOf={"PAGE_MINI_TIRE_REQUEST", "PAGE_APPROVALS_TODO", "PAGE_APPROVALS_HISTORY"})
     public ApiResponse<Map<String, Object>> requestDetail(@PathVariable long id,

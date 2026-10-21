@@ -1,46 +1,68 @@
 <view class="tire-page">
-  <view class="title">换胎申请</view>
-  <view class="intro">拍照识别胎号，核对库存后提交审批。</view>
-  <view wx:if="{{error}}" class="feedback error">{{error}} <text wx:if="{{stage==='PHOTO'}}" bindtap="load">重试</text></view>
+  <view class="title">{{resubmitId?'修改换胎申请':'换胎申请'}}</view>
+  <view class="intro">{{resubmitId?'请为每个胎号重新上传照片，核对胎号并校验库存后重新提交原审批。':'选择审批流程，逐张识别轮胎照片，全部通过库存校验后提交。'}}</view>
+  <view wx:if="{{error}}" class="feedback error">{{error}}</view>
   <view wx:if="{{loading}}" class="feedback">正在读取本人车辆与审批流程…</view>
   <view wx:if="{{denied}}" class="card">当前账号不能发起换胎申请。</view>
-  <block wx:elif="{{!loading}}">
-    <view class="steps">拍照 → 确认胎号 → 匹配库存 → 提交审批</view>
-    <view wx:if="{{stage==='PHOTO' || stage==='CONFIRM'}}" class="card">
-      <view class="heading">1. 拍摄轮胎胎号</view>
-      <view class="hint">请让胎号完整入镜，光线不足时可重新拍摄。</view>
-      <image wx:if="{{photoPath}}" class="photo" src="{{photoPath}}" mode="aspectFill" bindtap="previewPhoto" />
-      <button class="secondary" disabled="{{busy}}" bindtap="takePhoto">{{busy?'上传识别中…':photoPath?'重新拍摄':'拍照或选择照片'}}</button>
-      <view wx:if="{{stage==='CONFIRM'}}">
-        <view class="label">识别结果</view><view class="readonly">{{recognizedText || '暂无识别结果'}}</view>
-        <view class="hint">{{ocrHint}}</view>
-        <view class="label">确认胎号</view>
-        <input class="field" value="{{confirmedTireNo}}" placeholder="照着图片核对胎号" bindinput="onTireNo" />
-        <button class="primary" disabled="{{busy || !confirmedTireNo}}" bindtap="confirmNumber">{{busy?'匹配库存中…':'确认胎号并匹配库存'}}</button>
-      </view>
-    </view>
-    <view wx:if="{{stage==='FORM' || stage==='REVIEW'}}" class="card">
-      <view class="heading">2. 核对申请</view>
+  <block wx:else>
+    <block wx:if="{{!loading}}">
+    <view class="steps">{{resubmitId?'重新上传照片 → 校验库存 → 重新提交':'选择流程 → 上传照片并确认胎号 → 校验库存 → 提交审批'}}</view>
+    <view wx:if="{{stage==='FLOW'}}" class="card">
+      <view class="heading">1. 选择换胎审批流程</view>
       <view class="label">申请司机</view><view class="readonly">{{driverName}}</view>
       <view class="label">当前公司车牌</view><view class="readonly">{{plateNo}}</view>
-      <view class="label">匹配到的可用胎号</view><view class="readonly">{{confirmedTireNo}}</view>
-      <view wx:if="{{stage==='FORM'}}">
-        <view class="label">换胎审批流程</view>
-        <picker mode="selector" range="{{templates}}" range-key="name" bindchange="onTemplate">
-          <view class="field">{{templateIndex>=0?templates[templateIndex].name:'请选择流程'}}</view>
-        </picker>
-        <button class="primary" bindtap="review">核对并继续</button>
+      <view class="label">换胎审批流程</view>
+      <search-select title="选择换胎审批流程" options="{{templates}}" label-key="name" value-key="id"
+        current-value="{{templateIndex>=0?templates[templateIndex].id:''}}"
+        display-text="{{templateIndex>=0?templates[templateIndex].name:''}}"
+        placeholder="请选择流程" bind:change="onTemplate" />
+      <button class="primary" disabled="{{templateIndex===-1}}" bindtap="continueToPhotos">下一步：上传照片</button>
+      <button class="secondary" bindtap="cancel">取消</button>
+    </view>
+    <view wx:if="{{stage==='ITEMS'}}" class="card">
+      <view class="heading">2. 识别与核对胎号</view>
+      <view class="hint">{{resubmitId?'原照片仅供对照，每条保留的胎号都必须重新上传照片；也可删除后新增，最多 20 张。':'每张照片对应一个胎号。可修改、删除或重新上传，最多 20 张。'}}</view>
+      <view wx:for="{{items}}" wx:key="ocrRecordId" class="tire-item">
+        <view class="item-title">第 {{index+1}} 条 <text class="{{item.valid?'valid':'invalid'}}">{{item.message}}</text></view>
+        <image class="photo" src="{{item.photoPath}}" mode="aspectFill" data-index="{{index}}" bindtap="previewPhoto" />
+        <view class="label">确认胎号</view>
+        <input class="field" value="{{item.confirmedTireNo}}" maxlength="128" data-index="{{index}}" bindinput="onItemNumber" />
+        <view class="item-actions">
+          <button class="secondary" disabled="{{busy}}" data-index="{{index}}" bindtap="takePhoto">重新上传</button>
+          <button class="mp-danger" disabled="{{busy}}" data-index="{{index}}" bindtap="removeItem">删除</button>
+        </view>
       </view>
-      <view wx:else>
-        <view class="hint">提交后进入审批；审批通过前不改变轮胎正式状态，待审期间不可重复申领。</view>
-        <button class="secondary" disabled="{{busy}}" bindtap="backForm">返回修改</button>
-        <button class="primary" disabled="{{busy}}" bindtap="submit">{{busy?'正在提交…':'确认提交换胎申请'}}</button>
+      <button class="secondary" disabled="{{busy || items.length>=20}}" bindtap="takePhoto">{{busy?'识别中…':'继续上传照片'}}</button>
+      <view class="footer-actions">
+        <button class="secondary" disabled="{{busy}}" bindtap="cancel">取消</button>
+        <button class="primary" disabled="{{busy || !items.length}}" bindtap="submit">{{busy?'校验并提交中…':resubmitId?'重新提交审批':'提交换胎审批'}}</button>
       </view>
     </view>
     <view wx:if="{{stage==='DONE'}}" class="card">
-      <view class="heading">申请已提交</view>
-      <view class="hint">请到审批中心查看处理进度；轮胎将在审批通过后正式生效。</view>
-      <navigator class="primary link" url="/pages/approvals/index">查看审批中心</navigator>
+      <view class="heading">{{resubmitId?'申请已重新提交':'申请已提交'}}</view>
+      <view class="hint">本次 {{items.length}} 个胎号已进入同一审批流程；审批通过后统一生效。</view>
+      <navigator class="mp-detail-button link" url="/pages/approvals/index">查看审批中心 ›</navigator>
     </view>
+    </block>
   </block>
+  <view wx:if="{{candidatePickerOpen}}" class="candidate-overlay">
+    <view class="candidate-dialog">
+      <view class="heading">选择照片中的胎号</view>
+      <view class="hint">请对照照片上的标签。候选结果可能包含规格、日期，可在下方手动修改。</view>
+      <scroll-view wx:if="{{candidateOptions.length}}" class="candidate-list" scroll-y="true">
+        <view wx:for="{{candidateOptions}}" wx:key="candidate" data-index="{{index}}" bindtap="chooseCandidate"
+          class="candidate-option {{candidateDraft===item.candidate?'selected':''}}">
+          <text>{{item.candidate}}</text><text wx:if="{{item.inventoryMatched}}" class="candidate-match">库存匹配</text>
+        </view>
+      </scroll-view>
+      <view wx:else class="hint">没有识别候选，请对照照片填写。</view>
+      <view class="label">确认胎号</view>
+      <input class="field" value="{{candidateDraft}}" maxlength="128" placeholder="请输入完整胎号" bindinput="onCandidateDraft" />
+      <view wx:if="{{candidateError}}" class="candidate-error">{{candidateError}}</view>
+      <view class="candidate-actions">
+        <button class="secondary" bindtap="closeCandidatePicker">取消</button>
+        <button class="primary" bindtap="confirmCandidate">加入列表</button>
+      </view>
+    </view>
+  </view>
 </view>

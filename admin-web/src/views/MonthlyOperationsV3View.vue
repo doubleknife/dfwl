@@ -11,6 +11,7 @@ import DetailDrawer from '../components/DetailDrawer.vue';
 import SummaryCards from '../components/SummaryCards.vue';
 import VehicleMonthlyGrid from '../components/VehicleMonthlyGrid.vue';
 import { dayFact } from '../components/vehicleMonthlyGrid.js';
+import { formatDateTime } from '../utils/dateTime.js';
 
 const props = defineProps({ scope: { type: String, required: true } });
 const attendance = computed(() => props.scope === 'ATTENDANCE');
@@ -20,7 +21,7 @@ const today = new Date();
 const filters = reactive({ month: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`, driverId: '' });
 const activeMonth = ref(filters.month);
 const rows = ref([]);
-const pageNo = ref(1);
+const pageNo = ref(1); const pageSize = ref(20);
 const total = ref(0);
 const monthTotal = ref(0);
 const daysInMonth = ref(31);
@@ -43,8 +44,8 @@ async function load(next = 1, requestedMonth = next === 1 ? filters.month : acti
   loading.value = true; error.value = '';
   try {
     const result = attendance.value
-      ? await attendanceApi.list({ month: requestedMonth, driverId: filters.driverId }, next)
-      : await dispatchLedgerApi.list(props.scope, { month: requestedMonth }, next);
+      ? await attendanceApi.list({ month: requestedMonth, driverId: filters.driverId }, next, pageSize.value)
+      : await dispatchLedgerApi.list(props.scope, { month: requestedMonth }, next, pageSize.value);
     rows.value = result.records || [];
     activeMonth.value = result.month || requestedMonth;
     pageNo.value = next;
@@ -108,10 +109,10 @@ onMounted(() => load());
       <p v-if="loading" class="ui-loading" role="status">正在加载月度数据…</p>
       <p v-else-if="!rows.length" class="ui-empty" role="status">当前月份暂无记录</p>
     </div>
-    <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="(next) => load(next, activeMonth)" />
+    <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="(next) => load(next, activeMonth)" @change-size="(size) => { pageSize = size; load(1, activeMonth); }" />
     <DetailDrawer :open="!!selected" :title="`${selected?.day || ''}日实际发车任务`" @close="selected = null">
       <template #subtitle>{{ selected?.title }}</template>
-      <div v-for="task in selected?.tasks || []" :key="`${task.taskId}-${task.departedAt}`" class="v3-month-task"><strong>{{ task.taskNo }}</strong><span>{{ task.templateName }} · {{ task.customerName }}</span><small>发车：{{ task.departedAt }}</small></div>
+      <div v-for="task in selected?.tasks || []" :key="`${task.taskId}-${task.departedAt}`" class="v3-month-task"><strong>{{ task.taskNo }}</strong><span>{{ task.templateName }} · {{ task.customerName }}</span><small>发车：{{ formatDateTime(task.departedAt) }}</small></div>
     </DetailDrawer>
   </main>
 </template>

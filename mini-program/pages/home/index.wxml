@@ -15,7 +15,7 @@
           <text class="mp-approval-name">{{item.templateName || '审批申请'}}</text>
           <text class="mp-approval-meta">{{item.currentStepName || '当前步骤待处理'}} · {{item.approvalNo}}</text>
         </view>
-        <button class="mp-approval-action" bindtap="openApprovals">进入审批中心处理</button>
+        <button class="mp-approval-action mp-detail-button" bindtap="openApprovals">进入审批中心处理 ›</button>
       </block>
     </view>
     <view class="mp-section-heading">常用功能</view>

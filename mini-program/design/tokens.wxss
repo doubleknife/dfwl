@@ -15,4 +15,10 @@ page {
   --mp-success-soft: #e9f6ed;
   --mp-radius-card: 20rpx;
   --mp-radius-control: 12rpx;
+  --mp-button-height: 88rpx;
+  --mp-button-radius: 16rpx;
+  --mp-button-primary: #155e50;
+  --mp-button-primary-pressed: #104c41;
+  --mp-button-border: #cbded5;
+  --mp-button-text: #24483e;
 }

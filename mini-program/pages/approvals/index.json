@@ -1,4 +1,7 @@
 {
   "navigationBarTitleText": "审批中心",
-  "usingComponents": { "status-tag": "../../components/status-tag/index" }
+  "usingComponents": {
+    "status-tag": "../../components/status-tag/index",
+    "search-select": "../../components/search-select/index"
+  }
 }

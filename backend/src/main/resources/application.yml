@@ -3,8 +3,8 @@ spring:
     name: fleet-ops-backend
   datasource:
     url: jdbc:mysql://localhost:3306/fleet_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username:
-    password:
+    username: fleet_ops
+    password: ${FLEET_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:
     enabled: true
@@ -37,6 +37,6 @@ fleet:
   ocr:
     provider: TENCENT
     tencent:
-      secret-id:
-      secret-key:
+      secret-id: ${FLEET_OCR_TENCENT_SECRET_ID:}
+      secret-key: ${FLEET_OCR_TENCENT_SECRET_KEY:}
       region: ap-guangzhou

@@ -46,7 +46,7 @@ module.exports = [
       currentVehicleId: null, permissions: [] })).vehicle, null);
     assert.equal((await homeData({ driverId: null, permissions: [] })).driver, null);
   }],
-  ['home exposes V3-D expense and approval only to eligible internal drivers', () => {
+  ['home exposes driver expense and approval actions according to permission and driver type', () => {
     const user = { permissions: ['PAGE_MINI_TIRE_REQUEST', 'PAGE_MINI_EXPENSE_APPLY', 'PAGE_MINI_ROUTES', 'BUTTON_MINI_TIRE_REQUEST_SUBMIT', 'PAGE_MINI_SALARY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT'] };
     assert.deepEqual(visibleHomeActions(user, { driverType: 'INTERNAL' }, [{}]).map((card) => card.key),
       ['routes', 'expense', 'approval', 'salary']);

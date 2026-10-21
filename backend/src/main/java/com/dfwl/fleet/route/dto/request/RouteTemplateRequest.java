@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 
 /** Defaults belong to the template; published tasks retain their own copied amounts. */
 public record RouteTemplateRequest(
-        @NotBlank @Size(max = 64) String stableCode,
         @NotBlank @Size(max = 128) String name,
         @NotBlank @Size(max = 128) String customerName,
         @NotNull Long productId,

@@ -38,14 +38,14 @@ paths:
         - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
         - {name: tireNo, in: query, schema: {type: string}}
         - {name: status, in: query, schema: {type: string, enum: [AVAILABLE, CLAIMED]}}
-      responses: {'200': {description: 轮胎库存与分页信息}}
+      responses: {'200': {description: 轮胎库存与分页信息；已申领轮胎返回申请人和目前所在车辆}}
   /tires/{id}:
     get:
       tags: [Tires]
-      summary: 轮胎详情及维护历史
+      summary: 轮胎详情、维护历史及换胎审批链；已申领轮胎显示申请人和目前所在车辆
       x-function-any-of: [PAGE_TIRES]
       parameters: [{$ref: '#/components/parameters/Id'}]
-      responses: {'200': {description: 轮胎详情}}
+      responses: {'200': {description: 轮胎详情；approvalChain 按时间列出各次提交、审批操作与当前待处理节点，包含操作人手机号、角色、时间及意见}}
     patch:
       tags: [Tires]
       summary: 授权维护可用轮胎入库信息并生成历史和审计
@@ -124,11 +124,22 @@ paths:
       summary: 按确认胎号匹配可用库存
       x-function-any-of: [PAGE_MINI_TIRE_REQUEST]
       responses: {'200': {description: 可用轮胎}}
+  /tire-requests/validate:
+    post:
+      tags: [Tires]
+      summary: 逐项校验换胎草稿的库存、待审批状态和批内重复；不创建申请
+      x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TireRequestInput'}
+      responses: {'200': {description: 每项有效状态及具体错误原因}}
   /tire-requests:
     post:
       tags: [Tires]
-      summary: 司机端提交换胎申请并进入 TIRE_REPLACEMENT 审批
-      description: 使用当前有效的换胎审批模板及其冻结流程版本；审批节点角色由流程配置决定，不固定为管理员。
+      summary: 司机端一次提交一至二十条换胎明细并进入同一个 TIRE_REPLACEMENT 审批
+      description: 服务端重验全部照片及胎号，任一失败不创建审批；审批通过整批原子申领。使用当前有效的换胎审批模板及其冻结流程版本。
       x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
       requestBody:
         required: true
@@ -136,6 +147,15 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/TireRequestInput'}
       responses: {'200': {description: 审批实例详情}}
+  /tire-requests/approvals/{id}/resubmit:
+    post:
+      tags: [Tires]
+      summary: 被打回的原申请人重新上传照片并核对胎号后在原审批实例重新提交
+      description: 每条保留的胎号必须使用新上传且未关联过提交版本的照片；重新校验胎号与库存，形成新 Submission Version，既有审批动作保留；通过后仅当前批次生效。
+      x-function-any-of: [BUTTON_MINI_TIRE_REQUEST_SUBMIT]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TireResubmission'}}}}
+      responses: {'200': {description: 更新后的原审批实例详情}}
   /tire-requests/{id}:
     get:
       tags: [Tires]
@@ -421,7 +441,7 @@ paths:
   /drivers/{id}/unbind-vehicle:
     post:
       tags: [Drivers]
-      summary: 解绑车辆
+      summary: 解绑司机车辆；当前司机有待发车、待接手或在途任务时拒绝并提示先联系调度处理
       x-function-any-of: [BUTTON_BINDING_UNBIND_DRIVER]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
@@ -515,10 +535,11 @@ paths:
       responses: {'200': {description: OK}}
     post:
       tags: [RouteTemplates]
-      summary: 创建线路模板
+      summary: 创建线路模板；服务端自动生成 L 加 7 位数字的编号
+      description: 客户、货物、装卸货地、默认含税单价、默认信息费和默认司机工资完全相同的模板不可重复保存，名称、编号、启停状态和备注不参与判断。
       x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
-      responses: {'200': {description: OK}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /route-templates/{id}:
     get:
       tags: [RouteTemplates]
@@ -527,10 +548,11 @@ paths:
       responses: {'200': {description: OK}}
     patch:
       tags: [RouteTemplates]
+      description: 修改业务字段时，若与另一模板的客户、货物、装卸货地及三项默认金额完全相同，拒绝保存。
       x-function-any-of: [BUTTON_TEMPLATES_MANAGE]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RouteTemplateRequest'}}}}
-      responses: {'200': {description: OK}}
+      responses: {'200': {description: OK}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /route-templates/{id}/enable:
     post:
       tags: [RouteTemplates]
@@ -553,7 +575,7 @@ paths:
   /dispatch-batches/driver-options:
     get:
       tags: [TransportTasks]
-      summary: 调度工作台分页查询有效司机候选；仅返回派车所需字段，不包含身份证及驾驶证号
+      summary: 调度工作台分页查询有效司机候选；返回姓名、周岁及派车所需字段，不包含身份证及驾驶证号
       x-function-any-of: [PAGE_DISPATCH]
       parameters:
         - {name: pageNo, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
@@ -634,7 +656,7 @@ paths:
   /transport-tasks:
     get:
       tags: [TransportTasks]
-      summary: 管理端任务分页；司机使用专用脱敏接口
+      summary: 管理端任务分页，含有效重量版本的达标结果（待判定、达标、未达标、不适用）；司机使用专用脱敏接口
       x-function-any-of: [PAGE_ROUTES]
       parameters:
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
@@ -727,20 +749,20 @@ paths:
   /driver/transport-tasks:
     get:
       tags: [TransportTasks]
-      summary: 本人参与任务分页；仅返回脱敏 DriverTask
+      summary: 本人参与任务分页；脱敏 DriverTask 包含当前参与司机姓名 currentDriverName
       x-function-any-of: [PAGE_MINI_ROUTES]
       responses: {'200': {description: OK}}
   /driver/transport-tasks/{id}:
     get:
       tags: [TransportTasks]
-      summary: 本人参与任务详情；无单价、工资、收入、利润和达标字段
+      summary: 本人参与任务详情；返回当前参与司机姓名，无单价、工资、收入、利润和达标字段
       x-function-any-of: [PAGE_MINI_ROUTES]
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
   /driver-salaries:
     get:
       tags: [DriverSalaries]
-      summary: Participant 工资台账；服务端筛选与分页
+      summary: 已完成卸货任务的有效 Participant 工资台账；服务端筛选与分页
       x-function-any-of: [PAGE_SALARIES, PAGE_SALARY_TRANSFERS]
       parameters:
         - {name: driverId, in: query, schema: {type: integer, format: int64}}
@@ -755,7 +777,7 @@ paths:
   /driver-salaries/summary:
     get:
       tags: [DriverSalaries]
-      summary: 与工资台账相同筛选口径的全量汇总
+      summary: 与已完成卸货任务工资台账相同筛选口径的全量汇总
       x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: month, in: query, schema: {type: string}}
@@ -768,7 +790,7 @@ paths:
   /driver-salaries/filter-options:
     get:
       tags: [DriverSalaries]
-      summary: 工资域司机、模板与任务可搜索筛选选项；无需额外主数据权限
+      summary: 已完成卸货任务的工资域司机、模板与任务可搜索筛选选项；无需额外主数据权限
       x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: kind, in: query, required: true, schema: {type: string, enum: [DRIVER, TEMPLATE, TASK]}}
@@ -780,7 +802,7 @@ paths:
   /driver-salaries/drivers:
     get:
       tags: [DriverSalaries]
-      summary: 按司机汇总 Participant 工资，可用同一组台账筛选条件
+      summary: 按司机汇总已完成卸货任务的有效 Participant 工资，可用同一组台账筛选条件
       x-function-any-of: [PAGE_SALARIES]
       parameters:
         - {name: month, in: query, schema: {type: string}}
@@ -795,7 +817,7 @@ paths:
   /driver-salaries/export:
     get:
       tags: [DriverSalaries]
-      summary: 导出完整筛选结果 Excel，非当前分页
+      summary: 导出已完成卸货任务的完整工资台账筛选结果 Excel，非当前分页
       x-function-any-of: [BUTTON_SALARIES_EXPORT]
       parameters:
         - {name: month, in: query, schema: {type: string}}
@@ -936,7 +958,7 @@ paths:
       x-self-access: true
       tags: [Attachments]
       summary: 上传原始文件
-      description: 当前仅允许 TASK 的原始卸货磅单与重量纠错证据上传；每次上传生成独立附件，后端按任务归属和权限校验。
+      description: 每张图片单独上传。审批申请图片使用 ownerType=APPROVAL_UPLOAD、ownerId=当前用户 ID、purpose=APPROVAL_APPLICATION；节点处理图片同一临时 ownerType/ownerId，purpose=APPROVAL_ACTION。提交或处理时以 attachmentIds 绑定实际提交版本或 Approval Action；后端校验 Purpose、上传人、权限与业务归属。任务原始卸货磅单与重量纠错证据沿用原有独立规则。
       requestBody:
         required: true
         content:
@@ -1039,16 +1061,17 @@ paths:
     get:
       x-self-access: true
       tags: [Approvals]
-      summary: 待我处理、我的申请或审批记录
-      description: TODO 仅返回当前有效、具有相应统一审批动作权限且符合冻结节点角色及可选指定人的任务；管理员不因角色编码而绕过节点资格。
+      summary: 待我处理、我发起的、我处理过的或管理端审批记录
+      description: TODO 返回本人有权处理的当前节点或被打回本人修改的申请；PROCESSED 仅按实际审批操作人查询，不计申请提交；MINE 仅查申请人本人。列表返回业务摘要及最近处理时间。
       parameters:
-        - {name: scope, in: query, schema: {type: string, enum: [TODO, MINE, HISTORY]}}
+        - {name: scope, in: query, schema: {type: string, enum: [TODO, MINE, PROCESSED, HISTORY]}}
         - {name: pageNo, in: query, schema: {type: integer, minimum: 1}}
         - {name: pageSize, in: query, schema: {type: integer, minimum: 1}}
       responses: {'200': {description: 审批分页}}
     post:
       tags: [Approvals]
-      summary: 发起 DAILY/TASK 费用申请；换胎由 /tire-requests 发起并进入同一审批链
+      summary: 发起 DAILY/TASK 费用申请；管理端 DAILY 可多条混合明细，小程序 DAILY/TASK 各一条；换胎由 /tire-requests 发起并进入同一审批链
+      description: 能源费用逐项校验公司车辆能源类型。选填 attachmentIds 只接收已成功上传的 APPROVAL_APPLICATION 图片，事务内绑定首次 Submission Version；无图片时可省略或传空数组。
       x-function-any-of: [BUTTON_EXPENSE_APPLY_SUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
       requestBody:
         required: true
@@ -1058,7 +1081,8 @@ paths:
     get:
       x-self-access: true
       tags: [Approvals]
-      summary: 审批详情、明细、Submission、时间线和附件
+      summary: 审批详情含发起人姓名/手机号、发起时间及发起人当前角色；任务费用明细同时返回关联任务的只读业务概要，并返回当前换胎批次、Submission、含实际操作人和节点的时间线及附件
+      description: attachments 按 submission_version_id 保留各次提交图片；actionAttachments 按 actionId 保留各次处理图片，不覆盖历史版本或其它节点。
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: 审批详情}}
   /approvals/{id}/returnable-steps:
@@ -1096,7 +1120,7 @@ paths:
   /approvals/{id}/resubmit:
     post:
       tags: [Approvals]
-      summary: 原申请人修改后形成新 Submission Version
+      summary: 原申请人修改后形成新 Submission Version；费用明细重新校验车辆能源类型
       x-function-any-of: [BUTTON_APPROVALS_MINE_RESUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
       parameters: [{$ref: '#/components/parameters/Id'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ApprovalResubmission'}}}}
@@ -1113,14 +1137,21 @@ paths:
       tags: [ExpenseApplications]
       summary: 日常/任务费用的正式司机、公司车辆选择项
       x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY, PAGE_APPROVALS_FLOWS]
-      responses: {'200': {description: 司机、公司车辆与当前启用的正式费用大类；外协司机拒绝}}
+      responses: {'200': {description: 司机、含 energyType 的公司车辆与当前启用的正式费用大类；外协司机拒绝}}
   /expense-applications/task-candidates:
     get:
       tags: [ExpenseApplications]
       summary: 指定司机正式参与的任务候选；司机账号只能查本人
       x-function-any-of: [PAGE_EXPENSE_APPLY, PAGE_MINI_EXPENSE_APPLY]
       parameters: [{name: driverId, in: query, required: true, schema: {type: integer, format: int64}}]
-      responses: {'200': {description: 任务候选}}
+      responses: {'200': {description: 任务候选含 taskId、businessDate、templateName、loadingPlace、unloadingPlace、plateNo、vehicleId；选择仍按 taskId 提交}}
+  /expense-applications/trailer-check:
+    post:
+      tags: [ExpenseApplications]
+      summary: 批量校验可选车挂号是否存在于当前车挂资料
+      x-function-any-of: [BUTTON_EXPENSE_APPLY_SUBMIT, BUTTON_MINI_EXPENSE_APPLY_SUBMIT]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [trailerNos], properties: {trailerNos: {type: array, maxItems: 500, items: {type: string, maxLength: 64}}}}}}}
+      responses: {'200': {description: 按车挂号返回布尔值；已删除或不存在返回 false}}
   /expense-applications/daily-template:
     get:
       tags: [ExpenseApplications]
@@ -1350,14 +1381,14 @@ paths:
     get:
       x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
-      summary: 不可变结算事实的服务端分页明细
+      summary: 不可变结算事实的服务端分页明细，按快照中的任务完成时间或正式费用入账创建时间倒序、同时间按明细 ID 倒序
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 业务明细}}
   /settlements/versions/{id}/diff:
     get:
       x-function-any-of: [PAGE_SETTLEMENTS]
       tags: [Settlement]
-      summary: 与前一版本的业务化差异、金额影响、原因和操作信息
+      summary: 与前一版本的业务化差异、金额影响、原因和操作信息；费用审批来源含 approvalId，可按审批详情权限查询
       parameters: [{name: id, in: path, required: true, schema: {type: integer, format: int64}}]
       responses: {'200': {description: 差异分页}}
 components:
@@ -1385,12 +1416,35 @@ components:
         reason: {type: string}
     TireRequestInput:
       type: object
-      required: [templateId, ocrRecordId, confirmedTireNo, requestKey]
+      required: [templateId, requestKey, items]
       properties:
         templateId: {type: integer, format: int64}
-        ocrRecordId: {type: integer, format: int64}
-        confirmedTireNo: {type: string}
         requestKey: {type: string}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            required: [ocrRecordId, confirmedTireNo]
+            properties:
+              ocrRecordId: {type: integer, format: int64}
+              confirmedTireNo: {type: string, maxLength: 128}
+    TireResubmission:
+      type: object
+      required: [items, expectedVersion]
+      properties:
+        expectedVersion: {type: integer}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            required: [ocrRecordId, confirmedTireNo]
+            properties:
+              ocrRecordId: {type: integer, format: int64}
+              confirmedTireNo: {type: string, maxLength: 128}
     ApprovalTemplateInput:
       type: object
       description: 新建仅接受 EXPENSE 或 TIRE_REPLACEMENT。稳定业务编号及模板名称由服务端生成；费用模板名称由正式费用大类生成，同类型同大类只允许一份有效模板。已有 GENERAL 模板仅供历史读取。
@@ -1416,7 +1470,7 @@ components:
       required: [businessDate, vehicleId, driverId, amount]
       properties:
         businessDate: {type: string, format: date}
-        vehicleId: {type: integer, format: int64}
+        vehicleId: {type: integer, format: int64, description: 电费和临时电费仅 ELECTRIC 车辆；气费和临时气费仅 GAS 车辆，按模板费用大类逐项校验}
         driverId: {type: integer, format: int64}
         targetTaskId: {type: integer, format: int64, nullable: true}
         amount: {type: number, exclusiveMinimum: 0, multipleOf: 0.01}
@@ -1425,6 +1479,7 @@ components:
         invoiceNo: {type: string, nullable: true}
         remark: {type: string, nullable: true}
         stationName: {type: string, nullable: true}
+        trailerNo: {type: string, maxLength: 64, nullable: true, description: 日常费用可选的车挂号快照，手工与固定 Excel 明细共用}
     ApprovalApplication:
       type: object
       required: [templateId, requestKey]
@@ -1432,10 +1487,10 @@ components:
         templateId: {type: integer, format: int64}
         requestKey: {type: string}
         applicationScope: {type: string, enum: [DAILY, TASK], nullable: true}
-        items: {type: array, items: {$ref: '#/components/schemas/ApprovalExpenseItem'}}
+        items: {type: array, items: {$ref: '#/components/schemas/ApprovalExpenseItem'}, description: Web DAILY 可多条手工与固定 Excel 混合明细；Web TASK 与小程序 DAILY/TASK 每次各一条}
         generalSnapshot: {type: object, additionalProperties: true}
         tireRequestId: {type: integer, format: int64, nullable: true}
-        attachmentIds: {type: array, items: {type: integer, format: int64}}
+        attachmentIds: {type: array, items: {type: integer, format: int64}, description: 本次提交版本的已上传 APPROVAL_APPLICATION 图片 ID；选填，可多张}
     ApprovalAction:
       type: object
       required: [expectedVersion]
@@ -1443,13 +1498,13 @@ components:
         expectedVersion: {type: integer}
         comment: {type: string}
         targetFlowNodeId: {type: integer, format: int64, nullable: true}
-        attachmentIds: {type: array, items: {type: integer, format: int64}}
+        attachmentIds: {type: array, items: {type: integer, format: int64}, description: 本次审批动作的已上传 APPROVAL_ACTION 图片 ID；选填，可多张}
     ApprovalResubmission:
       type: object
       properties:
         items: {type: array, items: {$ref: '#/components/schemas/ApprovalExpenseItem'}}
         generalSnapshot: {type: object, additionalProperties: true}
-        attachmentIds: {type: array, items: {type: integer, format: int64}}
+        attachmentIds: {type: array, items: {type: integer, format: int64}, description: 新提交版本的已上传 APPROVAL_APPLICATION 图片 ID；历史版本附件不覆盖}
     ApiResponse:
       type: object
       required: [code, message]
@@ -1524,10 +1579,10 @@ components:
           items: {$ref: '#/components/schemas/FunctionCode'}
     TaskStatus:
       type: string
-      enum: [UNPUBLISHED, PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]
+      enum: [PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]
     AttachmentPurpose:
       type: string
-      enum: [WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, IMPORT_FILE]
+      enum: [WEIGHT_ADJUST, ROUTE_UNLOAD_WEIGHT_TICKET, IMPORT_FILE, TIRE_OCR, APPROVAL_APPLICATION, APPROVAL_ACTION]
     Attachment:
       type: object
       required: [id, ownerType, ownerId, purpose, storageKey, originalFilename, fileSize, fileHash, uploadedBy, uploadedAt]
@@ -1578,9 +1633,8 @@ components:
         status: {type: integer, enum: [0, 1]}
     RouteTemplateRequest:
       type: object
-      required: [stableCode, name, customerName, productId, loadingPlace, unloadingPlace, defaultUnitPrice, defaultInformationFee, defaultDriverSalary]
+      required: [name, customerName, productId, loadingPlace, unloadingPlace, defaultUnitPrice, defaultInformationFee, defaultDriverSalary]
       properties:
-        stableCode: {type: string, maxLength: 64}
         name: {type: string, maxLength: 128}
         customerName: {type: string, maxLength: 128}
         productId: {type: integer, format: int64}

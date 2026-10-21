@@ -16,7 +16,7 @@ const today = new Date(); const filters = reactive({ month: `${today.getFullYear
 const title = computed(() => ({ TASK: '任务经营', TEMPLATE: '线路模板经营', COMPANY: '公司经营' })[props.scope]);
 const rows = ref([]); const company = ref(null); const selected = ref(null);
 const selectedTemplate = ref(null);
-const pageNo = ref(1); const total = ref(0); const loading = ref(false); const error = ref('');
+const pageNo = ref(1); const pageSize = ref(20); const total = ref(0); const loading = ref(false); const error = ref('');
 const taskCols = [
   { key: 'task_no', label: '任务号' }, { key: 'template_name_snapshot', label: '线路模板' },
   { key: 'customer_name_snapshot', label: '客户' }, { key: 'income_amount', label: '收入', numeric: true },
@@ -67,8 +67,8 @@ const load = async (page = 1) => {
     if (props.scope === 'COMPANY') { company.value = await v3FinanceApi.company(filters.month); rows.value = []; total.value = 0; }
     else {
       const result = props.scope === 'TASK' || selectedTemplate.value
-        ? await v3FinanceApi.tasks({ month: filters.month, templateId: selectedTemplate.value?.template_id }, page)
-        : await v3FinanceApi.templates({ month: filters.month }, page);
+        ? await v3FinanceApi.tasks({ month: filters.month, templateId: selectedTemplate.value?.template_id }, page, pageSize.value)
+        : await v3FinanceApi.templates({ month: filters.month }, page, pageSize.value);
       rows.value = result.records || []; total.value = Number(result.total || 0);
     }
     pageNo.value = page;
@@ -88,7 +88,7 @@ onMounted(() => load());
 
 <template>
   <main class="ui-page-container">
-    <PageHeader :title="title" description="收入、信息费、参与工资与正式费用取自同一业务事实；历史版本由月结保存。"><template #actions><button type="button" @click="load(pageNo)">刷新</button></template></PageHeader>
+    <PageHeader :title="title" description="收入、信息费、参与工资与正式费用取自同一业务事实；历史版本由月结保存。"><template #actions><button type="button" @click="load(pageNo)">刷新</button><button v-if="selectedTemplate" type="button" class="ui-return-button" @click="backToTemplates">← 返回线路模板汇总</button></template></PageHeader>
     <ErrorState v-if="error" :message="error" @retry="load(pageNo)" />
     <FilterBar><label>月份<input v-model="filters.month" type="month" /></label><button type="button" @click="load(1)">查询</button></FilterBar>
     <template v-if="scope === 'COMPANY'">
@@ -97,9 +97,8 @@ onMounted(() => load());
       <p v-else-if="loading" class="ui-loading">正在加载经营汇总…</p>
     </template>
     <template v-else>
-      <button v-if="selectedTemplate" type="button" @click="backToTemplates">← 返回线路模板汇总</button>
       <p class="muted">{{ scope === 'TASK' ? '按完成月份查看已完成任务经营事实。' : '按已完成任务汇总线路模板经营，模板默认金额不回写历史任务。' }}</p>
-      <DataTable :columns="scope === 'TASK' || selectedTemplate ? taskCols : templateCols" :rows="rows" :row-key="scope === 'TASK' || selectedTemplate ? 'task_id' : 'template_id'" :loading="loading" empty-text="当前月份暂无已完成任务经营数据">
+      <DataTable class="finance-report-table ui-paged-table" :columns="scope === 'TASK' || selectedTemplate ? taskCols : templateCols" :rows="rows" :row-key="scope === 'TASK' || selectedTemplate ? 'task_id' : 'template_id'" :loading="loading" empty-text="当前月份暂无已完成任务经营数据">
         <template #net_weight="{ row }">{{ row.net_weight == null ? '—' : `${row.net_weight} 吨` }}</template>
         <template #weight_total="{ row }">{{ row.weight_total }} 吨</template>
         <template #actual_unit_price="{ row }">{{ money(row.actual_unit_price) }} / 吨</template>
@@ -109,9 +108,9 @@ onMounted(() => load());
         <template #income_total="{ row }">{{ money(row.income_total) }}</template><template #information_fee_total="{ row }">{{ money(row.information_fee_total) }}</template>
         <template #salary_total="{ row }">{{ money(row.salary_total) }}</template><template #task_expense_total="{ row }">{{ money(row.task_expense_total) }}</template>
         <template #profit_total="{ row }">{{ money(row.profit_total) }}</template>
-        <template #actions="{ row }"><button type="button" @click="scope === 'TASK' || selectedTemplate ? openTask(row.task_id) : showTemplate(row)">{{ scope === 'TASK' || selectedTemplate ? '查看档案' : '查看任务明细' }}</button></template>
+        <template #actions="{ row }"><button type="button" class="ui-detail-button" @click="scope === 'TASK' || selectedTemplate ? openTask(row.task_id) : showTemplate(row)">{{ scope === 'TASK' || selectedTemplate ? '查看档案' : '查看任务明细' }}</button></template>
       </DataTable>
-      <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="load" />
+      <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="load" @change-size="(size) => { pageSize = size; load(1); }" />
     </template>
     <DetailDrawer :open="!!selected" title="任务经营档案" @close="selected = null">
       <template #subtitle>{{ selected?.summary?.task_no }}</template>
@@ -144,7 +143,8 @@ onMounted(() => load());
 .finance-insight-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,.75fr); gap:18px; align-items:start; }
 .finance-insight-grid h2 { margin:0 0 8px; font-size:16px; }
 .finance-insight-grid p { margin:0 0 11px; font-size:13px; color:var(--ui-text-secondary); line-height:1.6; }
-.finance-insight-grid .ui-page-actions { flex-wrap:wrap; gap:8px; }
+.finance-insight-grid .ui-page-actions { justify-content:flex-end; flex-wrap:wrap; gap:8px; }
 .finance-scope-note { padding:12px 14px; border:1px solid var(--ui-border); border-radius:8px; background:#f8fbf9; }
+.finance-report-table :deep(.ui-data-table .ui-number) { text-align: left; }
 @media (max-width:1000px) { .finance-insight-grid { grid-template-columns:1fr; } }
 </style>

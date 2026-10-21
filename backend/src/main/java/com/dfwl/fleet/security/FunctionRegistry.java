@@ -54,7 +54,7 @@ public final class FunctionRegistry {
         page("系统设置", "", "audit", "操作日志", "审计日志");
         page("小程序", "", "mini-routes", "司机我的线路", "本人当前参与任务，不含经营和工资字段");
         page("小程序", "", "mini-salary", "司机工资单", "本人薪资");
-        page("小程序", "", "mini-expense-apply", "司机费用申请", "本人费用申请");
+        page("小程序", "", "mini-expense-apply", "费用申请", "本人费用申请");
         page("小程序", "", "mini-approvals", "小程序审批中心", "本人申请及符合节点资格的待办");
         page("小程序", "", "mini-tire-request", "司机换胎申请", "本人换胎申请");
 
@@ -108,7 +108,7 @@ public final class FunctionRegistry {
         button("roles", "grant", "配置角色权限");
         button("mini-routes", "depart", "司机确认发车");
         button("mini-routes", "unload", "司机确认卸货");
-        button("mini-expense-apply", "submit", "司机提交费用申请");
+        button("mini-expense-apply", "submit", "发起费用申请");
         button("mini-approvals", "approve", "小程序审批通过");
         button("mini-approvals", "return", "小程序打回审批");
         button("mini-approvals", "withdraw", "小程序撤回申请");

@@ -36,10 +36,10 @@ public class DispatchBatchController {
         this.users = users;
     }
 
-    public record DriverOption(Long id, String driverType, String name, String phone, Integer status,
+    public record DriverOption(Long id, String driverType, String name, String phone, Integer age, Integer status,
                                Long currentVehicleId, String currentVehiclePlateNo) {
         static DriverOption from(DriverResponse driver) {
-            return new DriverOption(driver.id(), driver.driverType(), driver.name(), driver.phone(), driver.status(),
+            return new DriverOption(driver.id(), driver.driverType(), driver.name(), driver.phone(), driver.age(), driver.status(),
                     driver.currentVehicleId(), driver.currentVehiclePlateNo());
         }
     }

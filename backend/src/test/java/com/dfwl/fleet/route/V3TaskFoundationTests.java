@@ -68,6 +68,8 @@ class V3TaskFoundationTests {
     @Autowired MockMvc mvc;
     @Autowired TokenAuthenticationService tokens;
 
+    private String templateCode;
+
     @BeforeEach
     void setup() {
         long driverRole = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='DRIVER'", Long.class);
@@ -89,8 +91,8 @@ class V3TaskFoundationTests {
         jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (11, 501, 'INTERNAL', '自有司机', '13911111111', '110105199001010117', 'TEST-DL-011', 1)");
         jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (12, 502, 'OUTSOURCED', '外协司机', '13922222222', '110105199001010125', 'TEST-DL-012', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (11, 10, CURRENT_TIMESTAMP, 1)");
-        templates.create(new RouteTemplateRequest("TEMP-001", "昆明至曲靖", "昆明客户", 1L,
-                "昆明", "曲靖", money("100.00"), money("20.00"), money("30.00"), null, null), 1);
+        templateCode = templates.create(new RouteTemplateRequest("昆明至曲靖", "昆明客户", 1L,
+                "昆明", "曲靖", money("100.00"), money("20.00"), money("30.00"), null, null), 1).stableCode();
     }
 
     @Test
@@ -103,6 +105,7 @@ class V3TaskFoundationTests {
         assertThat(published.rows()).hasSize(1);
         long id = published.rows().getFirst().taskId();
         var task = tasks.find(id);
+        assertThat(task.standardResult()).isEqualTo("PENDING");
         assertThat(task.templateName()).isEqualTo("昆明至曲靖");
         assertThat(task.customerName()).isEqualTo("昆明客户");
         assertThat(task.actualUnitPrice()).isEqualByComparingTo("100.00");
@@ -113,11 +116,27 @@ class V3TaskFoundationTests {
                 .isEqualTo(published.batchId());
 
         var template = templates.list().getFirst();
-        templates.update(template.id(), new RouteTemplateRequest("TEMP-001", "新名称", "新客户", 1L,
+        templates.update(template.id(), new RouteTemplateRequest("新名称", "新客户", 1L,
                 "新装货地", "新卸货地", money("150.00"), money("60.00"), money("70.00"), null,
                 template.version()), 1);
         assertThat(tasks.find(id).templateName()).isEqualTo("昆明至曲靖");
         assertThat(tasks.find(id).actualUnitPrice()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void pendingDeparturePreventsDriverVehicleUnbindUntilTaskIsHandled() {
+        DispatchBatchRequest request = batch(false);
+        long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "pending-unbind", request), 1).rows().getFirst().taskId();
+        assertThatThrownBy(() -> masterService.unbindDriverVehicle(11, 1, "换车"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("待发车");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM driver_vehicle_current WHERE driver_id=11",
+                Integer.class)).isEqualTo(1);
+        tasks.cancel(id, new TaskCancelRequest("调度取消后换车", tasks.find(id).version(), "pending-cancel"), 1);
+        masterService.unbindDriverVehicle(11, 1, "调度已处理任务");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM driver_vehicle_current WHERE driver_id=11",
+                Integer.class)).isZero();
     }
 
     @Test
@@ -226,7 +245,7 @@ class V3TaskFoundationTests {
     void invalidRowAbortsWholeBatchAndOutsourcedRequiresRealPlate() {
         DispatchBatchRequest valid = batch(false);
         DispatchBatchRequest all = new DispatchBatchRequest(valid.businessDate(), List.of(valid.rows().getFirst(),
-                new DispatchBatchRequest.Row("TEMP-001", 12L, null, null, null, money("0.00"), null)));
+                new DispatchBatchRequest.Row(templateCode, 12L, null, null, null, money("0.00"), null)));
         var preview = dispatch.preview(all, 1);
         assertThat(preview.valid()).isFalse();
         assertThatThrownBy(() -> dispatch.confirm(new DispatchConfirmRequest(preview.previewId(), "bad-batch", all), 1))
@@ -276,10 +295,15 @@ class V3TaskFoundationTests {
                 new TaskUnloadRequest(money("30"), money("5"), List.of(100L), "unload-1"), driver);
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(completed.netWeight()).isEqualByComparingTo("25");
+        assertThat(tasks.list(1, 20, null, null, null, null, null).records().getFirst().standardResult())
+                .isEqualTo("NOT_MET");
         assertThat(masterData.hasInTransitDriverOrVehicle(11, 10)).isFalse();
         assertThat(masterData.hasInTransitVehicleOrTrailer(10, -1)).isFalse();
         assertThat(tasks.weightVersions(id).getFirst().originalTicketAttachmentIds()).containsExactly(100L);
         assertThat(tasks.findForDriver(driver, id).toString()).doesNotContain("actualUnitPrice", "actualInformationFee", "salary");
+        tasks.adjustWeight(id, new TaskWeightAdjustmentRequest(money("33"), money("5"),
+                "核对重量", List.of(), tasks.find(id).version()), 1);
+        assertThat(tasks.find(id).standardResult()).isEqualTo("MET");
     }
 
     @Test
@@ -310,6 +334,7 @@ class V3TaskFoundationTests {
                 """, id);
         tasks.unload(id, new TaskUnloadRequest(money("31"), money("5"), List.of(101L), "unload-second"), secondDriver);
         assertThat(tasks.find(id).status()).isEqualTo("COMPLETED");
+        assertThat(tasks.find(id).standardResult()).isEqualTo("NOT_APPLICABLE");
         assertThat(tasks.weightVersions(id).getFirst().standardResult()).isEqualTo("NOT_APPLICABLE");
         tasks.adjustWeight(id, new TaskWeightAdjustmentRequest(money("32"), money("5"),
                 "计量纠错", List.of(), tasks.find(id).version()), 1);
@@ -363,6 +388,7 @@ class V3TaskFoundationTests {
         mvc.perform(get("/api/v1/driver/transport-tasks/" + id).header("Authorization", "Bearer " + driverToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.taskNo").exists())
+                .andExpect(jsonPath("$.data.currentDriverName").value("自有司机"))
                 .andExpect(jsonPath("$.data.actualUnitPrice").doesNotExist())
                 .andExpect(jsonPath("$.data.actualInformationFee").doesNotExist());
         mvc.perform(get("/api/v1/driver/transport-tasks/" + id).header("Authorization", "Bearer " + otherToken))
@@ -377,17 +403,68 @@ class V3TaskFoundationTests {
     }
 
     @Test
+    void ownSalarySlipMatchesCompletedTaskLedgerAcrossTaskStatuses() {
+        var request = batch(false);
+        long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
+                "own-salary-status", request), 1).rows().getFirst().taskId();
+        var driver = new AuthenticatedUser(501L, "13911111111", driverRoleId(),
+                "DRIVER", "司机", Set.of());
+        var filter = new SalaryLedgerService.Filter("2026-09", null, null, null, null, null);
+        for (String status : List.of("PUBLISHED", "IN_TRANSIT", "TRANSFER_PENDING", "CANCELLED")) {
+            jdbc.update("UPDATE transport_task SET status=? WHERE id=?", status, id);
+            var slip = salaries.slip(driver, "2026-09", 1, 20);
+            assertThat(slip.summary().entryCount()).as(status).isZero();
+            assertThat(slip.summary().totalAmount()).as(status).isEqualByComparingTo("0.00");
+            assertThat(slip.details().total()).as(status).isZero();
+            assertThat(salaryLedger.list(filter, 1, 20).total()).as(status).isZero();
+        }
+        jdbc.update("UPDATE transport_task SET status='COMPLETED' WHERE id=?", id);
+        var slip = salaries.slip(driver, "2026-09", 1, 20);
+        assertThat(slip.summary().entryCount()).isEqualTo(1);
+        assertThat(slip.details().total()).isEqualTo(1);
+        assertThat(slip.summary().totalAmount()).isEqualByComparingTo(
+                slip.details().records().getFirst().salaryAmount());
+        assertThat(salaryLedger.summary(filter).salaryTotal()).isEqualByComparingTo(
+                slip.summary().totalAmount());
+    }
+
+    @Test
     void salaryLedgerUsesEveryParticipantAndTransferChainWithMatchingExport() throws Exception {
         var request = batch(false);
         long id = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(request, 1).previewId(),
                 "salary-ledger", request), 1).rows().getFirst().taskId();
+        var filter = new SalaryLedgerService.Filter("2026-09", null, null, null, null, true);
+        assertThat(salaryLedger.list(filter, 1, 20).total()).isZero();
+        assertThat(salaryLedger.summary(filter).salaryTotal()).isEqualByComparingTo("0.00");
         var first = tasks.participants(id, true).getFirst();
         tasks.depart(id, new TaskDepartRequest("ledger-depart", tasks.find(id).version()),
                 new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机", Set.of()));
         tasks.transfer(id, new TaskTransferRequest(12L, "外协A002",
                 List.of(new TaskTransferRequest.SalaryDecision(first.id(), money("10.00"))), money("0.00"),
                 "临时转派", tasks.find(id).version(), first.id()), 1);
-        var filter = new SalaryLedgerService.Filter("2026-09", null, null, null, null, true);
+        var originalDriver = new AuthenticatedUser(501L, "13911111111", 2L, "DRIVER", "司机", Set.of());
+        assertThat(tasks.findForDriver(originalDriver, id).currentDriverName()).isEqualTo("外协司机");
+        assertThat(tasks.listForDriver(originalDriver, 1, 20, null).records().getFirst().currentDriverName())
+                .isEqualTo("外协司机");
+        assertThat(salaryLedger.list(filter, 1, 20).total()).isZero();
+        assertThat(salaryLedger.summary(filter).salaryTotal()).isEqualByComparingTo("0.00");
+        assertThat(salaryLedger.drivers(filter, 1, 20).total()).isZero();
+        assertThat(salaryLedger.options("TASK", "", "2026-09", 1, 20).total()).isZero();
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                new java.io.ByteArrayInputStream(salaryLedger.export(filter)))) {
+            assertThat(book.getSheetAt(0).getLastRowNum()).isZero();
+        }
+        var secondDriver = new AuthenticatedUser(502L, "13922222222", 2L, "DRIVER", "司机", Set.of());
+        tasks.depart(id, new TaskDepartRequest("ledger-second-depart", tasks.find(id).version()), secondDriver);
+        assertThat(salaryLedger.list(filter, 1, 20).total()).isZero();
+        jdbc.update("""
+                INSERT INTO file_attachment (id, owner_type, owner_id, purpose, storage_key,
+                    original_filename, content_type, file_size, uploaded_by)
+                VALUES (102, 'TASK', ?, 'ROUTE_UNLOAD_WEIGHT_TICKET', 'test/ledger.png',
+                    'ledger.png', 'image/png', 12, 502)
+                """, id);
+        tasks.unload(id, new TaskUnloadRequest(money("30"), money("5"), List.of(102L),
+                "ledger-unload"), secondDriver);
         var page = salaryLedger.list(filter, 1, 20);
         assertThat(page.records()).hasSize(2);
         assertThat(page.records()).allMatch(SalaryLedgerService.Row::transferTask);
@@ -476,7 +553,7 @@ class V3TaskFoundationTests {
                 """, taskId);
         tasks.unload(taskId, new TaskUnloadRequest(money("30"), money("5"), List.of(122L), "external-unload"), externalDriver);
         var second = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
-                new DispatchBatchRequest.Row("TEMP-001", 12L, "外协B002", null, null, money("0.00"), null)));
+                new DispatchBatchRequest.Row(templateCode, 12L, "外协B002", null, null, money("0.00"), null)));
         long secondId = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(second, 1).previewId(),
                 "external-month-second", second), 1).rows().getFirst().taskId();
         tasks.depart(secondId, new TaskDepartRequest("external-depart-two", tasks.find(secondId).version()), externalDriver);
@@ -540,7 +617,7 @@ class V3TaskFoundationTests {
         jdbc.update("INSERT INTO driver (id, user_id, driver_type, name, phone, id_card_no, driving_license_no, status) VALUES (13, 503, 'INTERNAL', '第二司机', '13933333333', '110105199001010133', 'TEST-DL-013', 1)");
         jdbc.update("INSERT INTO driver_vehicle_current (driver_id, vehicle_id, bound_at, bound_by) VALUES (13, 10, CURRENT_TIMESTAMP, 1)");
         var second = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
-                new DispatchBatchRequest.Row("TEMP-001", 13L, null, null, null, null, null)));
+                new DispatchBatchRequest.Row(templateCode, 13L, null, null, null, null, null)));
         long secondTask = dispatch.confirm(new DispatchConfirmRequest(dispatch.preview(second, 1).previewId(),
                 "same-car-second", second), 1).rows().getFirst().taskId();
         tasks.depart(secondTask, new TaskDepartRequest("same-car-depart-2", tasks.find(secondTask).version()),
@@ -559,7 +636,7 @@ class V3TaskFoundationTests {
 
     private DispatchBatchRequest batch(boolean outsourced) {
         return new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
-                new DispatchBatchRequest.Row("TEMP-001", outsourced ? 12L : 11L,
+                new DispatchBatchRequest.Row(templateCode, outsourced ? 12L : 11L,
                         outsourced ? "外协A001" : null, null, null,
                         outsourced ? money("0.00") : null, null)));
     }

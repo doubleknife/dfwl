@@ -37,6 +37,53 @@ function route(id, status = 'PUBLISHED') {
 }
 
 module.exports = [
+  ['approval consent returns to the refreshed list and failure keeps the detail', async () => {
+    let failApproval = false;
+    await pageScenario('approvals', async ({ url, method }) => {
+      if (method === 'POST' && url.endsWith('/approve')) {
+        if (failApproval) throw new Error('审批处理失败');
+        return {};
+      }
+      if (url.startsWith('/approvals?')) return { records: [{ id: 8, businessType: 'EXPENSE', status: 'PENDING' }], total: 1 };
+      throw new Error(`Unexpected request: ${url}`);
+    }, async (page) => {
+      const detail = { approval: { id: 7, version: 0 }, canProcess: true };
+      page.setData({ detail, comment: '同意' });
+      failApproval = true;
+      await page.act({ currentTarget: { dataset: { kind: 'APPROVE' } } });
+      assert.equal(page.data.detail, detail);
+      assert.equal(page.data.error, '审批处理失败');
+      failApproval = false;
+      await page.act({ currentTarget: { dataset: { kind: 'APPROVE' } } });
+      assert.equal(page.data.detail, null);
+      assert.deepEqual(page.data.rows.map((row) => row.id), [8]);
+      assert.equal(page.data.pageNo, 1);
+    }, { showModal({ success }) { success({ confirm: true }); } });
+  }],
+  ['approval history and notification timestamps omit ISO separators and milliseconds', async () => {
+    await pageScenario('approvals', async () => ({
+      approval: { id: 1, status: 'RETURNED_TO_APPLICANT', business_type: 'TIRE_REPLACEMENT', applicant_user_id: 1 },
+      actions: [
+        { id: 2, action_type: 'APPROVE', operated_at: '2026-10-21T02:20:00.000' },
+        { id: 3, action_type: 'RETURN_APPLICANT', operated_at: '2026-10-21T02:22:25.544' }
+      ],
+      tasks: [], submissions: [], expenseItems: [], attachments: [], returnableSteps: []
+    }), async (page) => {
+      page.data.user = { id: 1, permissions: [] };
+      await page.open({ currentTarget: { dataset: { id: 1 } } });
+      assert.equal(page.data.detail.actions[0].operatedLabel, '2026-10-21 02:22:25');
+      assert.equal(page.data.detail.returnAction.operatedLabel, '2026-10-21 02:22:25');
+      assert.deepEqual(page.data.detail.actions.map((action) => action.id), [3, 2]);
+    });
+    await pageScenario('notifications', async ({ url }) => url.includes('unread-count')
+      ? { unreadCount: 1 } : { total: 2, records: [{ id: 1, createdAt: '2026-10-21T03:46:59.659' }] },
+    async (page) => {
+      await page.load();
+      assert.equal(page.data.records[0].createdLabel, '2026-10-21 03:46:59');
+      await page.loadMore();
+      assert.equal(page.data.records[1].createdLabel, '2026-10-21 03:46:59');
+    });
+  }],
   ['home and profile show the nested role returned by me', async () => {
     const previousGetApp = global.getApp;
     global.getApp = () => ({ globalData: {} });
@@ -126,6 +173,134 @@ module.exports = [
       assert.equal(urls.some((url) => url.startsWith('/approvals?') || url === '/pages/approvals/index'), false);
     } finally { global.getApp = previousGetApp; }
   }],
+  ['finance can open expense application and select the driver for a task expense', async () => {
+    const { visibleHomeActions } = require('../utils/permissions');
+    const finance = { id: 8, roleCode: 'FINANCE', permissions: ['PAGE_MINI_EXPENSE_APPLY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT'] };
+    assert.equal(visibleHomeActions(finance, null).some((item) => item.key === 'expense'), true);
+    assert.equal(visibleHomeActions({ ...finance, permissions: ['PAGE_MINI_EXPENSE_APPLY'] }, null)
+      .some((item) => item.key === 'expense'), false);
+    const urls = [];
+    await pageScenario('expense-apply', async ({ url }) => {
+      urls.push(url);
+      if (url === '/me') return finance;
+      if (url === '/approval-templates/available') return [{ id: 5, business_type: 'EXPENSE', name: '维修费申请' }];
+      if (url === '/expense-applications/options') return {
+        drivers: [{ id: 10, name: '张三' }], vehicles: [{ id: 20, plateNo: '云A100' }]
+      };
+      if (url === '/expense-applications/task-candidates?driverId=10') return [{ taskId: 30,
+        taskNo: 'T30', businessDate: '2026-10-21', templateName: '昆明至曲靖',
+        loadingPlace: '昆明', unloadingPlace: '曲靖', plateNo: '云A100', vehicleId: 20 }];
+      throw new Error(`Unexpected URL: ${url}`);
+    }, async (page) => {
+      await page.load();
+      assert.equal(page.data.denied, false);
+      page.onDriver({ detail: { index: 0, value: 10 } });
+      assert.equal(page.data.driverId, 10);
+      page.onScope({ currentTarget: { dataset: { scope: 'TASK' } } });
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(page.data.tasks[0].taskNo, 'T30');
+      assert.equal(page.data.tasks[0].taskLabel, '2026-10-21 · 昆明至曲靖 · 昆明 → 曲靖 · 云A100');
+      assert.equal(page.data.visibleTasks[0].taskLabel, page.data.tasks[0].taskLabel);
+      page.onTemplate({ detail: { index: 0, value: 5 } });
+      page.onTask({ detail: { index: 0, value: 30 } });
+      assert.equal(page.data.tasks[page.data.taskIndex].taskId, 30);
+      page.setData({ amount: '12.50' });
+      page.review();
+      assert.equal(page.data.step, 2);
+    });
+    assert.equal(urls.includes('/expense-applications/task-candidates?driverId=10'), true);
+    const expenseView = fs.readFileSync(path.join(__dirname, '../pages/expense-apply/index.wxml'), 'utf8');
+    assert.match(expenseView, /label-key="taskLabel" value-key="taskId"/);
+    assert.doesNotMatch(expenseView, /tasks\[taskIndex\]\.taskNo/);
+  }],
+  ['expense form keeps its task draft when image selection returns to the page', async () => {
+    const urls = [];
+    await pageScenario('expense-apply', async ({ url }) => {
+      urls.push(url);
+      if (url === '/me') return { id: 8, roleCode: 'FINANCE',
+        permissions: ['PAGE_MINI_EXPENSE_APPLY', 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT'] };
+      if (url === '/approval-templates/available') return [
+        { id: 5, business_type: 'EXPENSE', expense_type: 'REPAIR', name: '维修费申请' }];
+      if (url === '/expense-applications/options') return {
+        drivers: [{ id: 10, name: '张三' }], vehicles: [{ id: 20, plateNo: '云A100' }]
+      };
+      if (url === '/expense-applications/task-candidates?driverId=10') return [{ taskId: 30,
+        businessDate: '2026-10-21', templateName: '昆明至曲靖', vehicleId: 20 }];
+      throw new Error(`Unexpected URL: ${url}`);
+    }, async (page) => {
+      await page.onShow();
+      page.onDriver({ detail: { index: 0 } });
+      page.onTemplate({ detail: { index: 0 } });
+      page.onScope({ currentTarget: { dataset: { scope: 'TASK' } } });
+      await new Promise((resolve) => setImmediate(resolve));
+      page.onTask({ detail: { index: 0 } });
+      page.setData({ amount: '100', description: '维修', images: [{ id: 99, path: 'photo.png' }], uploading: true });
+      const requestCount = urls.length;
+      await page.onShow();
+      page.setData({ uploading: false });
+      assert.equal(urls.length, requestCount);
+      assert.equal(page.data.scope, 'TASK');
+      assert.equal(page.data.templateIndex, 0);
+      assert.equal(page.data.driverId, 10);
+      assert.equal(page.data.taskIndex, 0);
+      assert.equal(page.data.vehicleIndex, 0);
+      assert.equal(page.data.amount, '100');
+      assert.equal(page.data.description, '维修');
+      assert.deepEqual(page.data.images, [{ id: 99, path: 'photo.png' }]);
+    });
+  }],
+  ['expense category switch clears stale daily plate or task and only offers matching energy', async () => {
+    await pageScenario('expense-apply', async () => { throw new Error('Unexpected request'); }, async (page) => {
+      page.setData({
+        templates: [
+          { expense_type: 'REPAIR' }, { expense_type: 'ELECTRIC' },
+          { expense_type: 'TEMP_ELECTRIC' }, { expense_type: 'GAS' }, { expense_type: 'TEMP_GAS' }
+        ], templateIndex: 0,
+        vehicles: [
+          { id: 10, plateNo: '电车', energyType: 'ELECTRIC' },
+          { id: 20, plateNo: '气车', energyType: 'GAS' }
+        ], vehicleIndex: 0, visibleVehicles: [],
+        tasks: [{ taskId: 1, vehicleId: 10 }, { taskId: 2, vehicleId: 20 }],
+        taskIndex: 0, scope: 'DAILY'
+      });
+      page.onTemplate({ detail: { index: 3 } });
+      assert.equal(page.data.vehicleIndex, -1);
+      assert.deepEqual(page.data.visibleVehicles.map((row) => row.id), [20]);
+      assert.equal(page.data.error, '');
+      page.onVehicle({ detail: { index: 0, value: 20 } });
+      assert.equal(page.data.vehicleIndex, 1);
+      page.onTemplate({ detail: { index: 4 } });
+      assert.equal(page.data.vehicleIndex, -1);
+
+      page.setData({ scope: 'TASK', templateIndex: 0, taskIndex: 0, vehicleIndex: 0 });
+      page.onTemplate({ detail: { index: 2 } });
+      assert.equal(page.data.taskIndex, -1);
+      assert.equal(page.data.vehicleIndex, -1);
+      assert.deepEqual(page.data.visibleTasks.map((row) => row.taskId), [1]);
+      page.onTask({ detail: { index: 0, value: 1 } });
+      assert.equal(page.data.taskIndex, 0);
+      assert.equal(page.data.vehicleIndex, 0);
+      page.onTemplate({ detail: { index: 3 } });
+      assert.deepEqual(page.data.visibleTasks.map((row) => row.taskId), [2]);
+      assert.equal(page.data.taskIndex, -1);
+      assert.equal(page.data.vehicleIndex, -1);
+    });
+  }],
+  ['expense and approval submission wait for every selected image upload', async () => {
+    let posts = 0;
+    await pageScenario('expense-apply', async () => { posts += 1; return {}; }, async (page) => {
+      page.setData({ uploading: true, busy: false });
+      await page.submit();
+      assert.equal(posts, 0);
+      assert.equal(page.data.busy, false);
+    });
+    await pageScenario('approvals', async () => { posts += 1; return {}; }, async (page) => {
+      page.setData({ uploading: true, busy: false, detail: { canProcess: true, approval: { id: 1, version: 0 } } });
+      await page.act({ currentTarget: { dataset: { kind: 'APPROVE' } } });
+      assert.equal(posts, 0);
+      assert.equal(page.data.busy, false);
+    });
+  }],
   ['BIZ1B home ignores historical participant and presents current transfer', () => {
     assert.equal(currentTask([{ ...route(1, 'IN_TRANSIT'), currentParticipant: false }], 1), null);
     assert.equal(currentTask([route(2, 'TRANSFER_PENDING')], 1).nextAction, '确认发车');
@@ -214,6 +389,37 @@ module.exports = [
       assert.equal(page.data.confirming, false);
     }, { showModal(options) { modal = options; } });
   }],
+  ['route detail explains missing vehicle binding and departure validation failure', async () => {
+    await pageScenario('route-detail', ({ url }) => url === '/me'
+      ? { driverId: 1, driverType: 'INTERNAL', currentVehicleId: null,
+          permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] }
+      : route(4), async (page) => {
+      page.data.id = 4;
+      await page.load();
+      assert.equal(page.data.vehicleLabel, '暂未绑定');
+      assert.match(page.data.error, /未绑定公司车辆.*联系调度/);
+    });
+    let modal;
+    await pageScenario('route-detail', async ({ url }) => {
+      if (url === '/me') return { driverId: 1, driverType: 'INTERNAL', currentVehicleId: 7,
+        currentPlateNo: '云A12345', permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
+      if (url.endsWith('/depart')) {
+        const error = new Error('司机车辆校验失败');
+        error.code = 'ROUTE_003';
+        error.statusCode = 409;
+        throw error;
+      }
+      return route(4);
+    }, async (page) => {
+      page.data.id = 4;
+      await page.load();
+      page.depart();
+      await modal.success({ confirm: true });
+      assert.match(page.data.error, /核对车辆绑定和证照/);
+      assert.doesNotMatch(page.data.error, /结果未确认/);
+      assert.equal(page._departKey, null);
+    }, { showModal(options) { modal = options; } });
+  }],
   ['UI3 detail does not depart after cancel or on wrong status or missing permission', async () => {
     let modal;
     let posts = 0;
@@ -252,12 +458,13 @@ module.exports = [
   ['BIZ1B only current transfer driver may depart while waiting for handoff', async () => {
     await pageScenario('route-detail', ({ url }) => {
       if (url === '/me') return { driverId: 1, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };
-      return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: false };
+      return { ...route(8, 'TRANSFER_PENDING'), currentParticipant: false, currentDriverName: '接手的外协司机' };
     }, async (page) => {
       page.data.id = 8;
       await page.load();
       assert.equal(page.data.canDepart, false);
       assert.equal(page.data.route.nextAction, '等待接手司机发车');
+      assert.equal(page.data.driverLabel, '接手的外协司机');
     });
     await pageScenario('route-detail', ({ url }) => {
       if (url === '/me') return { driverId: 2, permissions: ['PAGE_MINI_ROUTES', 'BUTTON_MINI_ROUTES_DEPART'] };

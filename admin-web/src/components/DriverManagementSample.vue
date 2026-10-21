@@ -15,8 +15,8 @@ import ImportResultFilter from './ImportResultFilter.vue';
 import SummaryCards from './SummaryCards.vue';
 import ImportCompletionSummary from './ImportCompletionSummary.vue';
 
-const props = defineProps({ drivers: { type: Array, default: () => [] }, pageNo: Number, total: Number, loading: Boolean });
-const emit = defineEmits(['refresh', 'page-change', 'search']);
+const props = defineProps({ drivers: { type: Array, default: () => [] }, pageNo: Number, pageSize: { type: Number, default: 20 }, total: Number, loading: Boolean });
+const emit = defineEmits(['refresh', 'page-change', 'size-change', 'search']);
 const filters = reactive({ keyword: '', driverType: '', status: '' });
 const form = reactive({ name: '', phone: '', driverType: 'INTERNAL', status: 1, initialPassword: '', drivingLicenseNo: '', idCardNo: '' });
 const openCreate = ref(false);
@@ -162,16 +162,16 @@ async function update() {
       <label>状态<select v-model="filters.status"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label>
       <button class="primary" type="button" @click="emit('search', { ...filters })">查询</button>
     </FilterBar>
-    <DataTable :columns="[{ key: 'name', label: '姓名' }, { key: 'phone', label: '手机号' }, { key: 'driverType', label: '类型' }, { key: 'idCardNo', label: '身份证号' }, { key: 'drivingLicenseNo', label: '驾驶证号' }, { key: 'birthDate', label: '出生日期' }, { key: 'age', label: '年龄' }, { key: 'currentVehicleId', label: '当前车辆' }, { key: 'currentTrailerPlateNo', label: '当前车挂' }, { key: 'status', label: '状态' }, { key: 'actions', label: '操作' }]" :rows="drivers" :loading="loading" empty-text="当前条件下没有司机">
+    <DataTable class="ui-paged-table" :columns="[{ key: 'name', label: '姓名' }, { key: 'phone', label: '手机号' }, { key: 'driverType', label: '类型' }, { key: 'idCardNo', label: '身份证号' }, { key: 'drivingLicenseNo', label: '驾驶证号' }, { key: 'birthDate', label: '出生日期' }, { key: 'age', label: '年龄' }, { key: 'currentVehicleId', label: '当前车辆' }, { key: 'currentTrailerPlateNo', label: '当前车挂' }, { key: 'status', label: '状态' }, { key: 'actions', label: '操作' }]" :rows="drivers" :loading="loading" empty-text="当前条件下没有司机">
       <template #driverType="{ value }">{{ value === 'INTERNAL' ? '自有司机' : value === 'OUTSOURCED' ? '外协司机' : '—' }}</template>
       <template #currentVehicleId="{ row }">{{ vehicleName(row) }}</template>
       <template #currentTrailerPlateNo="{ row }">{{ trailerName(row) }}</template>
       <template #birthDate="{ row }">{{ driverBirthDate(row) || (row.idCardNo ? '身份证待核对' : '未填写') }}</template>
       <template #age="{ row }">{{ fullAge(driverBirthDate(row)) == null ? '待核对' : `${fullAge(driverBirthDate(row))} 岁` }}</template>
       <template #status="{ value }"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template>
-      <template #actions="{ row }"><div class="ui-inline-actions"><button type="button" @click="selected = row">查看详情</button><button v-if="can('BUTTON_DRIVERS_EDIT')" type="button" @click="openEdit(row)">编辑</button></div></template>
+      <template #actions="{ row }"><div class="ui-inline-actions"><button type="button" class="ui-detail-button" @click="selected = row">查看详情</button><button v-if="can('BUTTON_DRIVERS_EDIT')" type="button" @click="openEdit(row)">编辑</button></div></template>
     </DataTable>
-    <PaginationBar :page-no="pageNo" :page-size="20" :total="total" @change="emit('page-change', $event)" />
+    <PaginationBar :page-no="pageNo" :page-size="pageSize" :total="total" @change="emit('page-change', $event)" @change-size="emit('size-change', $event)" />
     <FormDialog :open="openCreate" title="新增司机" :busy="saving" @close="closeForm">
       <form @submit.prevent="create"><div class="ui-form-grid">
         <label class="ui-form-field">姓名<input v-model.trim="form.name" required maxlength="50" placeholder="请输入司机姓名" /></label>

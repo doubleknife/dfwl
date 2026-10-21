@@ -10,6 +10,6 @@ public record TransportTaskResponse(
         LocalDate businessDate, String status, BigDecimal actualUnitPrice,
         BigDecimal actualInformationFee, Long currentParticipantId, String currentDriverName,
         String currentVehiclePlate, BigDecimal grossWeight, BigDecimal tareWeight,
-        BigDecimal netWeight, Long effectiveWeightVersionId, LocalDateTime completedAt,
+        BigDecimal netWeight, Long effectiveWeightVersionId, String standardResult, LocalDateTime completedAt,
         int version
 ) {}

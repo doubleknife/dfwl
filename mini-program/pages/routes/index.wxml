@@ -17,7 +17,7 @@
     </view>
     <feedback-state wx:if="{{moreError}}" kind="error" message="{{moreError}}" bind:retry="loadMore" />
     <view wx:if="{{loadingMore}}" class="mp-routes-more">正在加载更多…</view>
-    <button wx:elif="{{hasMore && !moreError}}" class="mp-routes-more-button" bindtap="loadMore">加载更多线路</button>
+    <button wx:elif="{{hasMore && !moreError}}" class="mp-routes-more-button secondary" bindtap="loadMore">加载更多线路</button>
     <view wx:elif="{{records.length > 0 && !hasMore}}" class="mp-routes-more">已加载全部 {{total}} 条线路</view>
   </block>
 </view>

@@ -21,7 +21,7 @@ public class TransportTaskRepository {
             SELECT t.*, d.name AS current_driver_name,
                    CASE WHEN p.driver_type_snapshot = 'OUTSOURCED' THEN p.outsourced_plate_no
                         ELSE p.vehicle_plate_snapshot END AS current_plate,
-                   w.gross_weight, w.tare_weight, w.net_weight
+                   w.gross_weight, w.tare_weight, w.net_weight, w.load_standard_met
             FROM transport_task t
             LEFT JOIN transport_participant p ON p.id = t.current_participant_id
             LEFT JOIN driver d ON d.id = p.driver_id
@@ -71,12 +71,14 @@ public class TransportTaskRepository {
         pageArgs.add(pageSize);
         pageArgs.add((pageNo - 1) * pageSize);
         List<DriverTaskResponse> records = jdbc.query("""
-                SELECT t.*, p.driver_id AS current_driver_id, p.driver_type_snapshot,
+                SELECT t.*, p.driver_id AS current_driver_id, d.name AS current_driver_name,
+                       p.driver_type_snapshot,
                        CASE WHEN p.driver_type_snapshot = 'OUTSOURCED' THEN p.outsourced_plate_no
                             ELSE p.vehicle_plate_snapshot END AS current_plate,
                        w.gross_weight, w.tare_weight, w.net_weight
                 FROM transport_task t
                 LEFT JOIN transport_participant p ON p.id = t.current_participant_id
+                LEFT JOIN driver d ON d.id = p.driver_id
                 LEFT JOIN task_weight_version w ON w.id = t.effective_weight_version_id
                 """ + condition + " ORDER BY t.id DESC LIMIT ? OFFSET ?", (rs, row) -> mapDriver(rs, driverId),
                 pageArgs.toArray());
@@ -85,12 +87,14 @@ public class TransportTaskRepository {
 
     public Optional<DriverTaskResponse> findForDriver(long id, long driverId) {
         return jdbc.query("""
-                SELECT t.*, p.driver_id AS current_driver_id, p.driver_type_snapshot,
+                SELECT t.*, p.driver_id AS current_driver_id, d.name AS current_driver_name,
+                       p.driver_type_snapshot,
                        CASE WHEN p.driver_type_snapshot = 'OUTSOURCED' THEN p.outsourced_plate_no
                             ELSE p.vehicle_plate_snapshot END AS current_plate,
                        w.gross_weight, w.tare_weight, w.net_weight
                 FROM transport_task t
                 LEFT JOIN transport_participant p ON p.id = t.current_participant_id
+                LEFT JOIN driver d ON d.id = p.driver_id
                 LEFT JOIN task_weight_version w ON w.id = t.effective_weight_version_id
                 WHERE t.id = ? AND t.deleted_at IS NULL
                   AND EXISTS (SELECT 1 FROM transport_participant x WHERE x.task_id = t.id AND x.driver_id = ?)
@@ -134,6 +138,9 @@ public class TransportTaskRepository {
     }
 
     private TransportTaskResponse mapTask(ResultSet rs, int row) throws SQLException {
+        Long weightVersionId = optionalLong(rs, "effective_weight_version_id");
+        Boolean met = rs.getObject("load_standard_met") == null ? null : rs.getInt("load_standard_met") == 1;
+        String standardResult = weightVersionId == null ? "PENDING" : met == null ? "NOT_APPLICABLE" : met ? "MET" : "NOT_MET";
         return new TransportTaskResponse(rs.getLong("id"), rs.getString("task_no"), rs.getLong("template_id"),
                 rs.getString("template_code_snapshot"), rs.getString("template_name_snapshot"),
                 rs.getString("customer_name_snapshot"), rs.getString("product_name_snapshot"),
@@ -142,7 +149,7 @@ public class TransportTaskRepository {
                 rs.getBigDecimal("actual_unit_price"), rs.getBigDecimal("actual_information_fee"),
                 optionalLong(rs, "current_participant_id"), rs.getString("current_driver_name"),
                 rs.getString("current_plate"), rs.getBigDecimal("gross_weight"), rs.getBigDecimal("tare_weight"),
-                rs.getBigDecimal("net_weight"), optionalLong(rs, "effective_weight_version_id"),
+                rs.getBigDecimal("net_weight"), weightVersionId, standardResult,
                 toDateTime(rs, "completed_at"), rs.getInt("version"));
     }
 
@@ -153,7 +160,8 @@ public class TransportTaskRepository {
                 rs.getString("customer_name_snapshot"), rs.getString("product_name_snapshot"),
                 rs.getString("loading_place_snapshot"), rs.getString("unloading_place_snapshot"),
                 rs.getDate("business_date").toLocalDate(), rs.getString("status"),
-                rs.getString("current_plate"), rs.getBigDecimal("gross_weight"), rs.getBigDecimal("tare_weight"),
+                rs.getString("current_driver_name"), rs.getString("current_plate"),
+                rs.getBigDecimal("gross_weight"), rs.getBigDecimal("tare_weight"),
                 rs.getBigDecimal("net_weight"), current, rs.getInt("version"));
     }
 
