@@ -34,7 +34,7 @@ file outside `src/main/resources` (for example, ignored
 Production can likewise supply `/etc/dfwl/application.yml` as an external
 override; change that file without modifying the JAR. The production profile,
 `FLEET_STORAGE_ROOT`, and server-side OCR variables remain available. See
-`../docs/11-R8-1-部署配置与敏感信息.md`.
+`../docs/08-系统架构与部署说明_V3.0.md`.
 
 Flyway migrations live in `src/main/resources/db/migration`.
 
