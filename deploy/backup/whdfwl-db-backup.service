@@ -1,0 +1,15 @@
+[Unit]
+Description=WHDFWL production MySQL database backup
+After=mysql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/opt/whdfwl/scripts/backup-database.sh
+TimeoutStartSec=2h
+Nice=10
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
