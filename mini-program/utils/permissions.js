@@ -45,6 +45,8 @@ function visibleHomeCards(user, driver) {
 
 function visibleHomeActions(user, driver) {
   const actions = [];
+  if (!driver && !isDriver(user) && hasPermission(user, 'PAGE_MINI_DISPATCH'))
+    actions.push({ key: 'dispatch', title: '单人派单', icon: '派', url: '/pages/dispatch/index' });
   if (driver && hasPermission(user, 'PAGE_MINI_ROUTES')) actions.push({ key: 'routes', title: '我的线路', icon: '线', url: '/pages/routes/index' });
   if (!isOutsourcedDriver(driver) && hasPermission(user, 'BUTTON_MINI_EXPENSE_APPLY_SUBMIT')) actions.push({ key: 'expense', title: '发起费用申请', icon: '费', url: '/pages/expense-apply/index' });
   if (!isOutsourcedDriver(driver) && (hasPermission(user, 'PAGE_MINI_APPROVALS')

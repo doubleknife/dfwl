@@ -229,6 +229,96 @@ paths:
       parameters: [{$ref: '#/components/parameters/Id'}]
       responses: {'200': {description: OK}}
 
+  /mini-dispatch/templates:
+    get:
+      tags: [TransportTasks]
+      summary: 读取已启用线路模板及默认金额
+      x-function-any-of: [PAGE_MINI_DISPATCH]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/driver-options:
+    get:
+      tags: [TransportTasks]
+      summary: 分页读取有效司机的精简候选；本地搜索已加载文字
+      x-function-any-of: [PAGE_MINI_DISPATCH]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      parameters:
+        - {in: query, name: pageNo, schema: {type: integer, minimum: 1, default: 1}}
+        - {in: query, name: pageSize, schema: {type: integer, minimum: 1, maximum: 200}}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/tasks:
+    get:
+      tags: [TransportTasks]
+      summary: 按businessDate分页读取授权非司机可见任务摘要
+      x-function-any-of: [PAGE_MINI_DISPATCH]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      parameters:
+        - {in: query, name: pageNo, schema: {type: integer, minimum: 1, default: 1}}
+        - {in: query, name: pageSize, schema: {type: integer, minimum: 1, maximum: 200}}
+        - {in: query, name: businessDate, schema: {type: string, format: date}}
+        - {name: status, in: query, schema: {type: string, enum: [PUBLISHED, IN_TRANSIT, TRANSFER_PENDING, COMPLETED, CANCELLED]}, description: 省略或空值表示全部状态}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/tasks/{id}:
+    get:
+      tags: [TransportTasks]
+      summary: 查看单人派单任务只读详情
+      x-function-any-of: [PAGE_MINI_DISPATCH]
+      description: 仅授权非司机；复用正式任务查询，不开放司机发车卸货、任务编辑或其他业务操作。
+      parameters:
+      - {name: id, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 标准ApiResponse包裹只读详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {$ref: '#/components/schemas/MiniTaskDetail'}
+        '403': {description: 无权限或司机账号}
+        '409': {description: 任务不存在，业务码ROUTE_001}
+  /mini-dispatch/preview:
+    post:
+      tags: [TransportTasks]
+      summary: 预览恰好一趟任务
+      x-function-any-of: [BUTTON_MINI_DISPATCH_PUBLISH]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SingleDispatchRequest'}}}}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/confirm:
+    post:
+      tags: [TransportTasks]
+      summary: 幂等发布恰好一趟任务
+      x-function-any-of: [BUTTON_MINI_DISPATCH_PUBLISH]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/SingleDispatchConfirmRequest'}}}}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/tasks/{id}/transfer-context:
+    get:
+      tags: [TransportTasks]
+      summary: 读取合法转单的版本、当前参与人及全部工资核定项
+      x-function-any-of: [BUTTON_MINI_DISPATCH_TRANSFER]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/tasks/{id}/transfer:
+    post:
+      tags: [TransportTasks]
+      summary: 复用正式转派规则
+      x-function-any-of: [BUTTON_MINI_DISPATCH_TRANSFER]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskTransferRequest'}}}}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
+  /mini-dispatch/tasks/{id}/cancel:
+    post:
+      tags: [TransportTasks]
+      summary: 复用正式未发车取消规则
+      x-function-any-of: [BUTTON_MINI_DISPATCH_CANCEL]
+      description: 仅授权非司机；按钮同时要求PAGE_MINI_DISPATCH，沿用会话权限刷新；不授予Web业务接口访问权。
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TaskCancelRequest'}}}}
+      responses: {'200': {description: 成功，标准ApiResponse包裹数据}, '403': {description: 无权限或司机账号}, '409': {$ref: '#/components/responses/BusinessConflict'}}
   /users:
     get:
       tags: [System]
@@ -1532,6 +1622,7 @@ components:
       properties:
         id: {type: integer, format: int64}
         phone: {type: string}
+        name: {type: string, maxLength: 128, description: 非司机使用sys_user.name，司机使用driver.name；个人信息只读；用户管理输入去首尾空格且必填}
         role:
           type: object
           properties:
@@ -1560,9 +1651,10 @@ components:
         expectedVersion: {type: [integer, 'null']}
     UserRequest:
       type: object
-      required: [phone, roleId, status]
+      required: [name, phone, roleId, status]
       properties:
-        phone: {type: string}
+        phone: {type: string, description: 登录账号；新增时填写，编辑必须保持原值，服务端拒绝修改}
+        name: {type: string, maxLength: 128, description: 非司机使用sys_user.name，司机使用driver.name；个人信息只读；用户管理输入去首尾空格且必填}
         password: {type: [string, 'null'], minLength: 6, description: 新增账号必填；编辑账号不使用该字段重置密码}
         roleId: {type: integer, format: int64}
         status: {type: integer, enum: [0, 1]}
@@ -1647,6 +1739,43 @@ components:
         defaultDriverSalary: {$ref: '#/components/schemas/DecimalMoney'}
         remark: {type: [string, 'null']}
         expectedVersion: {type: [integer, 'null'], description: 更新时必填}
+    SingleDispatchRequest:
+      allOf:
+        - {$ref: '#/components/schemas/DispatchBatchRequest'}
+        - type: object
+          properties:
+            rows: {type: array, minItems: 1, maxItems: 1}
+    SingleDispatchConfirmRequest:
+      allOf:
+        - {$ref: '#/components/schemas/DispatchConfirmRequest'}
+        - type: object
+          properties:
+            batch: {$ref: '#/components/schemas/SingleDispatchRequest'}
+    MiniTaskDetail:
+      type: object
+      properties:
+        task: {$ref: '#/components/schemas/MiniTaskSummary'}
+        customerName: {type: string}
+        productName: {type: string}
+        loadingPlace: {type: string}
+        unloadingPlace: {type: string}
+        actualUnitPrice: {type: number, description: 元/吨}
+        actualInformationFee: {type: number, description: 元}
+        grossWeight: {type: [number, 'null'], description: 吨}
+        tareWeight: {type: [number, 'null'], description: 吨}
+        netWeight: {type: [number, 'null'], description: 吨}
+        completedAt: {type: [string, 'null'], format: date-time}
+    MiniTaskSummary:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        taskNo: {type: string}
+        businessDate: {type: string, format: date}
+        templateName: {type: string}
+        driverName: {type: string}
+        plateNo: {type: string}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+        version: {type: integer}
     DispatchBatchRequest:
       type: object
       required: [businessDate, rows]
@@ -1783,6 +1912,10 @@ components:
         - PAGE_USERS
         - PAGE_ROLES
         - PAGE_AUDIT
+        - PAGE_MINI_DISPATCH
+        - BUTTON_MINI_DISPATCH_PUBLISH
+        - BUTTON_MINI_DISPATCH_TRANSFER
+        - BUTTON_MINI_DISPATCH_CANCEL
         - PAGE_MINI_ROUTES
         - PAGE_MINI_SALARY
         - PAGE_MINI_EXPENSE_APPLY

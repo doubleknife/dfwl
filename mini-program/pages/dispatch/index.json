@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "单人派单",
+  "usingComponents": {
+    "search-select": "../../components/search-select/index"
+  }
+}

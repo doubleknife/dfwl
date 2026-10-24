@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { systemApi } from '../api/modules.js';
 import { authStore, can } from '../stores/auth.js';
@@ -39,7 +40,7 @@ const userDetail = ref(null);
 const userInitial = ref('');
 const roleInitial = ref('');
 const discardTarget = ref('');
-const userForm = reactive({ id: '', phone: '', password: '', roleId: '', status: 1 });
+const userForm = reactive({ id: '', phone: '', name: '', password: '', roleId: '', status: 1 });
 const resetTarget = ref(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -121,7 +122,7 @@ async function loadPermissions() {
   finally { loading.value = false; }
 }
 function changeTab(value) { tab.value = value; error.value = ''; if (value === 'users') loadUsers(1); if (value === 'roles') loadRoles(1); if (value === 'permissions') loadPermissions(); }
-function openUser(row = null) { Object.assign(userForm, { id: row?.id || '', phone: row?.phone || '', password: '', roleId: row?.roleId || '', status: row?.status ?? 1 }); userInitial.value = JSON.stringify(userForm); userDialog.value = true; }
+function openUser(row = null) { Object.assign(userForm, { id: row?.id || '', phone: row?.phone || '', name: row?.name || '', password: '', roleId: row?.roleId || '', status: row?.status ?? 1 }); userInitial.value = JSON.stringify(userForm); userDialog.value = true; }
 function requestCloseUser() { if (busy.value) return; if (JSON.stringify(userForm) !== userInitial.value) discardTarget.value = 'user'; else userDialog.value = false; }
 function requestCloseReset() { if (busy.value) return; if (newPassword.value || confirmPassword.value) discardTarget.value = 'reset'; else resetTarget.value = null; }
 function requestCloseRole() { if (busy.value) return; if (JSON.stringify(roleForm) !== roleInitial.value) discardTarget.value = 'role'; else roleDialog.value = false; }
@@ -139,7 +140,7 @@ async function saveUser() {
   if (!userForm.roleId) { error.value = '请选择用户角色'; return; }
   busy.value = true; error.value = ''; success.value = '';
   try {
-    const body = { phone: userForm.phone, password: userForm.id ? null : userForm.password, roleId: Number(userForm.roleId), status: Number(userForm.status) };
+    const body = { name: userForm.name.trim(), phone: userForm.phone, password: userForm.id ? null : userForm.password, roleId: Number(userForm.roleId), status: Number(userForm.status) };
     if (userForm.id) await systemApi.updateUser(userForm.id, body); else await systemApi.createUser(body);
     userDialog.value = false; await loadUsers(userPage.value);
     if (!error.value) success.value = userForm.id ? '用户资料已保存' : '用户已新增';
@@ -231,9 +232,9 @@ onMounted(async () => {
     <section v-if="tab === 'users' && can('PAGE_USERS')">
       <div class="ui-list-heading"><h2>用户列表</h2><button class="primary" type="button" @click="openUser()">＋ 新增用户</button></div>
       <FilterBar><label class="ui-search">手机号<input v-model.trim="filters.user" type="search" placeholder="搜索手机号" /></label><label>角色<select v-model="filters.userRole"><option value="">全部角色</option><option v-for="role in roles" :key="role.id" :value="String(role.id)">{{ role.roleName }}</option></select></label><label>状态<select v-model="filters.userStatus"><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></select></label></FilterBar>
-      <DataTable v-if="!error" class="ui-paged-table" :columns="[{key:'phone',label:'登录账号'},{key:'roleName',label:'角色'},{key:'status',label:'状态'},{key:'lastLoginAt',label:'最近登录'},{key:'actions',label:'操作'}]" :rows="userRows" :loading="loading" :empty-text="filters.user || filters.userRole || filters.userStatus ? '当前页没有匹配用户' : '暂无用户'">
+      <DataTable v-if="!error" class="ui-paged-table" :columns="[{key:'phone',label:'登录账号'},{key:'name',label:'姓名'},{key:'roleName',label:'角色'},{key:'status',label:'状态'},{key:'lastLoginAt',label:'最近登录'},{key:'actions',label:'操作'}]" :rows="userRows" :loading="loading" :empty-text="filters.user || filters.userRole || filters.userStatus ? '当前页没有匹配用户' : '暂无用户'">
         <template #status="{value}"><StatusTag :value="value === 1 ? '启用' : '停用'" /></template><template #lastLoginAt="{value}">{{ displayTime(value) }}</template>
-        <template #actions="{row}"><div class="ui-inline-actions"><button type="button" class="ui-detail-button" @click="userDetail = row">查看详情</button><button type="button" @click="openUser(row)">编辑</button><button type="button" @click="userMore = row">更多</button></div></template>
+        <template #actions="{row}"><div class="ui-inline-actions"><button type="button" class="ui-detail-button" @click="userDetail = row">查看详情</button><span v-if="row.roleCode === 'DRIVER'" class="muted">请在司机管理维护</span><template v-else><button type="button" @click="openUser(row)">编辑</button><button type="button" @click="userMore = row">更多</button></template></div></template>
       </DataTable><PaginationBar :page-no="userPage" :page-size="userPageSize" :total="userTotal" @change="loadUsers" @change-size="(size) => { userPageSize = size; loadUsers(1); }" />
     </section>
     <section v-if="tab === 'roles' && can('PAGE_ROLES')">
@@ -256,10 +257,10 @@ onMounted(async () => {
       </DataTable>
     </section>
     <AuditLogsUi2 v-if="tab === 'audits' && can('PAGE_AUDIT')" />
-    <DetailDrawer :open="!!userDetail" title="用户详情" @close="userDetail = null"><dl v-if="userDetail" class="ui-detail-grid"><dt>登录账号</dt><dd>{{ userDetail.phone }}</dd><dt>角色</dt><dd>{{ userDetail.roleName || '未配置' }}</dd><dt>状态</dt><dd><StatusTag :value="userDetail.status" /></dd><dt>最近登录</dt><dd>{{ displayTime(userDetail.lastLoginAt) }}</dd></dl></DetailDrawer>
+    <DetailDrawer :open="!!userDetail" title="用户详情" @close="userDetail = null"><dl v-if="userDetail" class="ui-detail-grid"><dt>姓名</dt><dd>{{ userDetail.name }}</dd><dt>登录账号</dt><dd>{{ userDetail.phone }}</dd><dt>角色</dt><dd>{{ userDetail.roleName || '未配置' }}</dd><dt>状态</dt><dd><StatusTag :value="userDetail.status" /></dd><dt>最近登录</dt><dd>{{ displayTime(userDetail.lastLoginAt) }}</dd></dl></DetailDrawer>
     <FormDialog :open="!!userMore" title="用户操作" @close="userMore = null"><div v-if="userMore"><p>{{ userMore.phone }} · {{ userMore.roleName }}</p><div class="ui-object-actions"><button type="button" @click="openReset(userMore)">重置密码</button></div></div></FormDialog>
-    <FormDialog :open="userDialog" :title="userForm.id ? '编辑用户' : '新增用户'" :busy="busy" @close="requestCloseUser"><form @submit.prevent="saveUser"><div class="ui-form-grid"><label class="ui-form-field">手机号<input v-model.trim="userForm.phone" required inputmode="tel" /></label><label v-if="!userForm.id" class="ui-form-field">初始密码<input v-model="userForm.password" required minlength="6" type="password" autocomplete="new-password" /></label><label class="ui-form-field">角色<SearchableRoleSelect v-model="userForm.roleId" :load-page="systemApi.roles" :selected-label="roleName(userForm.roleId)" /></label><label class="ui-form-field">状态<select v-model.number="userForm.status"><option :value="1">启用</option><option :value="0">停用</option></select></label></div><div class="ui-dialog-actions"><button type="button" @click="requestCloseUser">取消</button><button class="primary" :disabled="busy">{{ busy ? '正在保存…' : '保存用户' }}</button></div></form></FormDialog>
-    <FormDialog :open="!!resetTarget" title="重置密码" :busy="busy" @close="requestCloseReset"><form v-if="resetTarget" @submit.prevent="savePassword"><p>账号：<strong>{{ resetTarget.phone }}</strong> · {{ resetTarget.roleName }}</p><p class="muted">重置后旧密码将无法继续用于登录。</p><label class="ui-form-field">新密码<input v-model="newPassword" required minlength="6" type="password" autocomplete="new-password" /></label><label class="ui-form-field">确认新密码<input v-model="confirmPassword" required minlength="6" type="password" autocomplete="new-password" /></label><div class="ui-dialog-actions"><button type="button" @click="requestCloseReset">取消</button><button class="ui-danger-button" :disabled="busy">确认重置密码</button></div></form></FormDialog>
+    <FormDialog :open="userDialog" :title="userForm.id ? '编辑用户' : '新增用户'" :busy="busy" @close="requestCloseUser"><form @submit.prevent="saveUser"><div class="ui-form-grid"><label class="ui-form-field">登录账号<input class="user-login-account" v-model.trim="userForm.phone" required inputmode="tel" :disabled="!!userForm.id" /></label><label class="ui-form-field">姓名<input v-model.trim="userForm.name" required maxlength="128" /></label><label v-if="!userForm.id" class="ui-form-field">初始密码<PasswordInput v-model="userForm.password" required minlength="6" autocomplete="new-password" /></label><label class="ui-form-field">角色<SearchableRoleSelect v-model="userForm.roleId" :load-page="systemApi.roles" :selected-label="roleName(userForm.roleId)" /></label><label class="ui-form-field">状态<select v-model.number="userForm.status"><option :value="1">启用</option><option :value="0">停用</option></select></label></div><div class="ui-dialog-actions"><button type="button" @click="requestCloseUser">取消</button><button class="primary" :disabled="busy">{{ busy ? '正在保存…' : '保存用户' }}</button></div></form></FormDialog>
+    <FormDialog :open="!!resetTarget" title="重置密码" :busy="busy" @close="requestCloseReset"><form v-if="resetTarget" @submit.prevent="savePassword"><p>账号：<strong>{{ resetTarget.phone }}</strong> · {{ resetTarget.roleName }}</p><p class="muted">重置后旧密码将无法继续用于登录。</p><label class="ui-form-field">新密码<PasswordInput v-model="newPassword" required minlength="6" autocomplete="new-password" /></label><label class="ui-form-field">确认新密码<PasswordInput v-model="confirmPassword" required minlength="6" autocomplete="new-password" /></label><div class="ui-dialog-actions"><button type="button" @click="requestCloseReset">取消</button><button class="ui-danger-button" :disabled="busy">确认重置密码</button></div></form></FormDialog>
     <ConfirmDialog :open="!!userToggle" :title="userToggle?.status === 1 ? '停用账号' : '启用账号'" :message="userToggle ? `${userToggle.status === 1 ? '停用' : '启用'} ${userToggle.phone}（${userToggle.roleName}）？停用后该账号无法使用系统。` : ''" :danger="userToggle?.status === 1" :busy="busy" @cancel="userToggle = null" @confirm="toggleUser" />
     <FormDialog :open="roleDialog" :title="roleForm.id ? '编辑角色' : '新增角色'" :busy="busy" @close="requestCloseRole"><form @submit.prevent="saveRole"><div class="ui-form-grid"><label class="ui-form-field">角色名称<input v-model.trim="roleForm.roleName" required /></label><p v-if="roleForm.id" class="ui-form-field muted">角色编码：{{ roleForm.roleCode }}（系统生成）</p><label class="ui-form-field">状态<select v-model.number="roleForm.status"><option :value="1">启用</option><option :value="0">停用</option></select></label></div><div class="ui-dialog-actions"><button type="button" @click="requestCloseRole">取消</button><button class="primary" :disabled="busy">保存角色</button></div></form></FormDialog>
     <FormDialog :open="!!roleMore" title="角色操作" @close="roleMore = null"><div v-if="roleMore"><p>{{ roleMore.roleName }} · {{ roleMore.roleCode }}</p><div class="ui-object-actions"><button type="button" @click="openRoleEdit(roleMore)">编辑角色</button><button type="button" :class="roleMore.status === 1 ? 'ui-danger-link' : ''" @click="openRoleToggle(roleMore)">{{ roleMore.status === 1 ? '停用' : '启用' }}</button></div></div></FormDialog>
@@ -281,3 +282,7 @@ onMounted(async () => {
     <ConfirmDialog :open="!!discardTarget" title="放弃未保存修改" message="当前内容尚未保存。确定放弃本次修改吗？" @cancel="discardTarget = ''" @confirm="discardChanges" />
   </div>
 </template>
+
+<style scoped>
+.user-login-account:disabled { background-color: #f0f2f2; color: #85918d; border-color: #dfe5e2; cursor: not-allowed; opacity: 1; -webkit-text-fill-color: #85918d; }
+</style>

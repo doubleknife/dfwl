@@ -1,6 +1,6 @@
-"""Sync Flyway V1 and the H2 test schema from the V3 MySQL initialization SQL.
+"""Sync only the H2 test schema from the V3 MySQL initialization SQL.
 
-Run at the repository root. H2 runs in MySQL mode; indexes without constraints
+Run at the repository root. Published Flyway migrations are immutable; never regenerate V1. H2 runs in MySQL mode; indexes without constraints
 are omitted while table columns, keys, checks, and seed permissions are retained.
 """
 
@@ -9,11 +9,7 @@ import re
 
 source = Path("database/database.sql").read_text(encoding="utf-8")
 source = source[source.index("CREATE TABLE sys_role ("):]
-Path("backend/src/main/resources/db/migration/V1__baseline_schema.sql").write_text(
-    "-- V3 first-release single baseline. No development user or password is seeded.\n\n"
-    + source,
-    encoding="utf-8",
-)
+source = source.split("-- FLYWAY SNAPSHOT BASELINE:", 1)[0]
 source = re.sub(r"^\s*--[^\n]*\n", "", source, flags=re.M)
 source = re.sub(r"\bBIGINT UNSIGNED\b", "BIGINT", source)
 source = re.sub(r"\bINT UNSIGNED\b", "INT", source)

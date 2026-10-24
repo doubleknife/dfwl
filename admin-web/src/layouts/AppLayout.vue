@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { authStore, clearSession } from '../stores/auth.js';
 import { activeRoute, navigate, navigationTrail, routerStore, visibleNavigation } from '../router/routes.js';
@@ -131,8 +132,8 @@ async function changePassword() {
           </div>
         </details>
         <details ref="accountMenu" class="user-menu">
-          <summary><span class="user-avatar">{{ (authStore.user?.name || authStore.user?.phone || '用').slice(0, 1) }}</span>{{ authStore.user?.name || authStore.user?.phone || '用户' }}<span class="user-role">{{ authStore.user?.role?.name || authStore.user?.roleName || '角色未配置' }}</span><span aria-hidden="true">⌄</span></summary>
-          <div class="user-dropdown"><button type="button" :disabled="syncing" @click="refreshPermissions">{{ syncing ? '正在刷新…' : '刷新我的权限' }}</button><button type="button" @click="openPassword">修改密码</button><button type="button" @click="authStore.logout">退出登录</button></div>
+          <summary><span class="user-account">{{ authStore.user?.phone }}</span><span class="user-name">{{ authStore.user?.name }}</span><span class="user-role">{{ authStore.user?.role?.name || authStore.user?.roleName || '角色未配置' }}</span><span aria-hidden="true">⌄</span></summary>
+          <div class="user-dropdown"><div class="user-profile" aria-label="个人信息"><div>登录账号：{{ authStore.user?.phone }}</div><div>姓名：{{ authStore.user?.name }}</div></div><button type="button" :disabled="syncing" @click="refreshPermissions">{{ syncing ? '正在刷新…' : '刷新我的权限' }}</button><button type="button" @click="openPassword">修改密码</button><button type="button" @click="authStore.logout">退出登录</button></div>
         </details>
       </header>
       <p v-if="feedback" class="ui-success-message" role="status">{{ feedback }}</p>
@@ -142,9 +143,9 @@ async function changePassword() {
     <FormDialog :open="passwordOpen" title="修改密码" :busy="passwordBusy" @close="passwordOpen = false">
       <form @submit.prevent="changePassword">
         <p class="muted">修改后当前登录会失效，请使用新密码重新登录。</p>
-        <label class="ui-form-field">当前密码<input v-model="passwordForm.oldPassword" type="password" autocomplete="current-password" required /></label>
-        <label class="ui-form-field">新密码<input v-model="passwordForm.newPassword" type="password" autocomplete="new-password" required minlength="6" /></label>
-        <label class="ui-form-field">确认新密码<input v-model="passwordForm.confirmPassword" type="password" autocomplete="new-password" required minlength="6" /></label>
+        <label class="ui-form-field">当前密码<PasswordInput v-model="passwordForm.oldPassword" autocomplete="current-password" required /></label>
+        <label class="ui-form-field">新密码<PasswordInput v-model="passwordForm.newPassword" autocomplete="new-password" required minlength="6" /></label>
+        <label class="ui-form-field">确认新密码<PasswordInput v-model="passwordForm.confirmPassword" autocomplete="new-password" required minlength="6" /></label>
         <div class="ui-dialog-actions"><button type="button" :disabled="passwordBusy" @click="passwordOpen = false">取消</button><button class="primary" type="submit" :disabled="passwordBusy">{{ passwordBusy ? '正在修改…' : '确认修改' }}</button></div>
       </form>
     </FormDialog>
@@ -152,6 +153,8 @@ async function changePassword() {
 </template>
 
 <style scoped>
+.user-account { display: inline-flex; align-items: center; min-height: 33px; padding: 0 12px; border-radius: 18px; background: #dceee5; color: #195e50; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.user-name { color: #173b36; font-weight: 700; white-space: nowrap; }
 .notification-menu { margin-left:auto; }
 .notification-icon { width:18px; height:18px; flex:none; }
 .notification-count { margin-left:6px; border-radius:12px; padding:1px 6px; background:#c43f31; color:#fff; font-size:12px; }

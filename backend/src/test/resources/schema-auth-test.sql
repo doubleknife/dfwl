@@ -12,6 +12,7 @@ CREATE TABLE sys_role (
 );
 
 CREATE TABLE sys_user (
+  name VARCHAR(128) NULL,
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   phone VARCHAR(32) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,

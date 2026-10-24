@@ -57,6 +57,22 @@ public class TransportTaskRepository {
         return new PageResponse<>(pageNo, pageSize, total == null ? 0 : total, records);
     }
 
+    public record LastIdentity(String driverName, String plateNo) { }
+    public java.util.Map<Long, LastIdentity> lastIdentities(List<Long> ids) {
+        if (ids.isEmpty()) return java.util.Map.of();
+        var result = new java.util.HashMap<Long, LastIdentity>();
+        String marks = String.join(",", ids.stream().map(id -> "?").toList());
+        jdbc.query("""
+                SELECT p.task_id, d.name, CASE WHEN p.driver_type_snapshot='OUTSOURCED'
+                  THEN p.outsourced_plate_no ELSE p.vehicle_plate_snapshot END AS plate
+                FROM transport_participant p JOIN driver d ON d.id=p.driver_id
+                WHERE p.task_id IN (%s) AND NOT EXISTS
+                  (SELECT 1 FROM transport_participant newer WHERE newer.task_id=p.task_id AND newer.sequence_no>p.sequence_no)
+                """.formatted(marks), (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                result.put(rs.getLong("task_id"), new LastIdentity(rs.getString("name"), rs.getString("plate"))), ids.toArray());
+        return result;
+    }
+
     public PageResponse<DriverTaskResponse> listForDriver(long driverId, int pageNo, int pageSize, String status) {
         String extra = status == null || status.isBlank() ? "" : " AND t.status = ?";
         List<Object> args = new ArrayList<>(List.of(driverId));

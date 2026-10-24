@@ -21,6 +21,10 @@ public class UserAccountRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public String findName(long id) {
+        return jdbcTemplate.queryForObject("SELECT name FROM sys_user WHERE id = ?", String.class, id);
+    }
+
     public Optional<UserAccount> findByPhone(String phone) {
         return findOne("""
                 SELECT u.id, u.phone, u.password_hash, u.role_id, u.status, u.last_login_at,

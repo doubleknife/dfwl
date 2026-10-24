@@ -1,4 +1,6 @@
--- Fleet Operations MySQL 8.0 schema for the V3 first release.
+-- Fleet Operations current V3 schema (Flyway baseline version 2).
+-- Fresh databases only: run this complete script, then start the backend.
+-- Existing databases: never replay this file; let Flyway apply pending migrations.
 -- Business enum columns intentionally use VARCHAR and are validated by Java Enum + backend rules.
 
 CREATE DATABASE IF NOT EXISTS fleet_ops
@@ -20,6 +22,7 @@ CREATE TABLE sys_role (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE sys_user (
+  name VARCHAR(128) NULL,
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   phone VARCHAR(32) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
@@ -915,3 +918,23 @@ CREATE TABLE in_app_notification (
   KEY idx_notification_user_unread (user_id, read_at),
   CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES sys_user(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- FLYWAY SNAPSHOT BASELINE: this final schema already includes V1 and V2.
+-- Register only after every schema statement above has succeeded. Do not use mysql --force.
+CREATE TABLE flyway_schema_history (
+  installed_rank INT NOT NULL,
+  version VARCHAR(50),
+  description VARCHAR(200) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  script VARCHAR(1000) NOT NULL,
+  checksum INT,
+  installed_by VARCHAR(100) NOT NULL,
+  installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  execution_time INT NOT NULL,
+  success BOOLEAN NOT NULL,
+  PRIMARY KEY (installed_rank),
+  KEY flyway_schema_history_s_idx (success)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+INSERT INTO flyway_schema_history
+  (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
+VALUES (1, '2', '<< Flyway Baseline >>', 'BASELINE', '<< Flyway Baseline >>', NULL, CURRENT_USER(), 0, TRUE);

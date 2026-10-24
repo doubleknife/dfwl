@@ -64,6 +64,10 @@ public class TransportTaskService {
                 businessDate, status, templateId, driverId, taskNo);
     }
 
+    public java.util.Map<Long, com.dfwl.fleet.route.repository.TransportTaskRepository.LastIdentity> lastIdentities(List<Long> ids) {
+        return tasks.lastIdentities(ids);
+    }
+
     public PageResponse<DriverTaskResponse> listForDriver(AuthenticatedUser user, int pageNo, int pageSize, String status) {
         return tasks.listForDriver(users.requireDriver(user).driverId(), Math.max(pageNo, 1),
                 Math.min(Math.max(pageSize, 1), 200), status);
@@ -158,7 +162,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse transfer(long id, TaskTransferRequest request, long actor) {
-        authorization.require(actor, "BUTTON_ROUTES_TRANSFER");
+        authorization.require(actor, "BUTTON_ROUTES_TRANSFER", "BUTTON_MINI_DISPATCH_TRANSFER");
         lockTask(id);
         TransportTaskResponse task = find(id);
         if (request.expectedVersion() != task.version()
@@ -259,7 +263,7 @@ public class TransportTaskService {
 
     @Transactional
     public TransportTaskResponse cancel(long id, TaskCancelRequest request, long actor) {
-        authorization.require(actor, "BUTTON_ROUTES_CANCEL");
+        authorization.require(actor, "BUTTON_ROUTES_CANCEL", "BUTTON_MINI_DISPATCH_CANCEL");
         lockTask(id);
         if (repeat(id, "CANCEL", request.requestKey(), request.toString())) return find(id);
         TransportTaskResponse task = find(id);

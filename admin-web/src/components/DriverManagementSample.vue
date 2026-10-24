@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from './PasswordInput.vue';
 import { computed, reactive, ref } from 'vue';
 import { birthDateFromIdCard, fullAge, idCardValidationMessage } from '../utils/driverIdentity.js';
 import { masterApi } from '../api/modules.js';
@@ -179,7 +180,7 @@ async function update() {
         <label class="ui-form-field">司机类型<select v-model="form.driverType"><option value="INTERNAL">自有司机</option><option value="OUTSOURCED">外协司机</option></select></label>
         <label class="ui-form-field">身份证号<input v-model.trim="form.idCardNo" required maxlength="18" :aria-invalid="!!idCardError" @input="idCardError = ''" @blur="form.idCardNo = form.idCardNo.toUpperCase(); idCardError = idCardValidationMessage(form.idCardNo)" /><span v-if="idCardError" class="ui-field-error" role="alert">{{ idCardError }}</span></label>
         <label class="ui-form-field">驾驶证号<input v-model.trim="form.drivingLicenseNo" required /></label>
-        <label class="ui-form-field">初始密码<input v-model="form.initialPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="至少 6 位" /></label>
+        <label class="ui-form-field">初始密码<PasswordInput v-model="form.initialPassword" autocomplete="new-password" minlength="6" required placeholder="至少 6 位" /></label>
       </div><p v-if="formError" class="ui-form-error" role="alert">{{ formError }}</p><div class="ui-dialog-actions"><button type="button" :disabled="saving" @click="closeForm">取消</button><button class="primary" :disabled="saving">{{ saving ? '正在保存…' : '保存司机' }}</button></div></form>
     </FormDialog>
     <FormDialog :open="!!editing" title="编辑司机" :busy="saving" @close="closeForm">

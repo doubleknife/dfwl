@@ -1,5 +1,7 @@
 package com.dfwl.fleet.system;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import static com.dfwl.fleet.security.TestFunctionGrants.grants;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -195,10 +197,11 @@ class SystemManagementContractTests {
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"phone":"13900000000","password":"newPass","roleId":2,"status":1}
+                                {"name":"  财务姓名  ","phone":"13900000000","password":"newPass","roleId":2,"status":1}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.roleId").value(2));
+                .andExpect(jsonPath("$.data.roleId").value(2))
+                .andExpect(jsonPath("$.data.name").value("财务姓名"));
 
         mockMvc.perform(get("/api/v1/users")
                         .header("Authorization", bearer(token)))
@@ -226,10 +229,28 @@ class SystemManagementContractTests {
                         .header("Authorization", bearer(token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"phone":"13900000001","roleId":1,"status":1}
+                                {"name":"  更新姓名  ","phone":"13900000000","roleId":1,"status":1}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.roleId").value(1));
+                .andExpect(jsonPath("$.data.roleId").value(1))
+                .andExpect(jsonPath("$.data.name").value("更新姓名"));
+    }
+
+    @Test
+    void changingLoginAccountIsRejectedWithoutChangingOtherFields() throws Exception {
+        String token = token("BUTTON_USERS_EDIT");
+        jdbcTemplate.update("UPDATE sys_user SET name='原姓名' WHERE id=1");
+        mockMvc.perform(put("/api/v1/users/1").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"不应保存","phone":"13900000001","roleId":2,"status":0}
+                    """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("登录账号创建后不可修改"));
+        assertThat(jdbcTemplate.queryForObject("SELECT phone FROM sys_user WHERE id=1", String.class)).isEqualTo("13800000000");
+        assertThat(jdbcTemplate.queryForObject("SELECT name FROM sys_user WHERE id=1", String.class)).isEqualTo("原姓名");
+        assertThat(jdbcTemplate.queryForObject("SELECT role_id FROM sys_user WHERE id=1", Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM sys_user WHERE id=1", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -442,6 +463,39 @@ class SystemManagementContractTests {
                 .andExpect(status().isUnauthorized());
         org.junit.jupiter.api.Assertions.assertTrue(passwordEncoder.matches("nextSecret99",
                 jdbcTemplate.queryForObject("SELECT password_hash FROM sys_user WHERE id = 1", String.class)));
+    }
+
+    @Test
+    void namesAreReadFromTheirAuthoritativeSourceAndBlankNamesRejected() throws Exception {
+        String token = token("BUTTON_USERS_ADD");
+        jdbcTemplate.update("UPDATE sys_user SET name='系统姓名' WHERE id=1");
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("系统姓名"));
+        jdbcTemplate.update("INSERT INTO driver(id,user_id,driver_type,name,phone,id_card_no,driving_license_no,status) "
+                + "VALUES(91,1,'OUTSOURCED','司机姓名','13800000000','110105199001010117','TEST-91',1)");
+        mockMvc.perform(get("/api/v1/me").header("Authorization", bearer(token)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.name").value("司机姓名"));
+        assertThat(jdbcTemplate.queryForObject("SELECT name FROM sys_user WHERE id=1", String.class)).isEqualTo("系统姓名");
+        token = token("BUTTON_USERS_ADD");
+        mockMvc.perform(post("/api/v1/users").header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                {"name":"   ","phone":"13900000000","password":"testPass","roleId":2,"status":1}
+                """)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void oneTimeNameSqlFillsOnlyNonDriverAccounts() throws Exception {
+        jdbcTemplate.update("INSERT INTO sys_user(id,phone,password_hash,role_id,status) VALUES(2,'13900000002','test',2,1)");
+        jdbcTemplate.update("INSERT INTO driver(id,user_id,driver_type,name,phone,id_card_no,driving_license_no,status) "
+                + "VALUES(91,1,'INTERNAL','司机姓名','13800000000','110105199001010117','TEST-91',1)");
+        // Remove the baseline column only in this isolated H2 test to exercise the exact upgrade script.
+        jdbcTemplate.execute("ALTER TABLE sys_user DROP COLUMN name");
+        String sql = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/resources/db/migration/V2__user_name.sql"));
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new org.springframework.core.io.ByteArrayResource(sql.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .execute(jdbcTemplate.getDataSource());
+        assertThat(jdbcTemplate.queryForObject("SELECT name FROM sys_user WHERE id=1", String.class)).isNull();
+        assertThat(jdbcTemplate.queryForObject("SELECT name FROM sys_user WHERE id=2", String.class)).isEqualTo("13900000002");
     }
 
     private String token(String... permissions) {

@@ -16,7 +16,7 @@ Page({
       currentPlateNo: user.currentPlateNo
     } : null;
     const vehicle = user.currentVehicleId ? { id: user.currentVehicleId, plateNo: user.currentPlateNo } : null;
-    this.setData({ user, driver, vehicle, initial: (driver?.name || user.driverName || user.phone || '我').charAt(0),
+    this.setData({ user, driver, vehicle, initial: (user.name || user.phone || '我').charAt(0),
       roleName: user.role?.name || user.roleName || '角色未配置',
       driverTypeLabel: user.driverType === 'INTERNAL' ? '自有司机' : user.driverType === 'OUTSOURCED' ? '外协司机'
         : (user.role?.name || user.roleName || '管理人员'),

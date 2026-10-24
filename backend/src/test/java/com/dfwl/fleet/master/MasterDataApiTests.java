@@ -316,6 +316,8 @@ class MasterDataApiTests {
         long vehicleId = createVehicle("京A10006");
         jdbcTemplate.update("INSERT INTO driver (driver_type,name,phone,id_card_no,driving_license_no,status) VALUES ('OUTSOURCED','外协司机','13810000006','110105199001010061','TEST-DL-006',1)");
         long driverId = jdbcTemplate.queryForObject("SELECT id FROM driver WHERE phone='13810000006'", Long.class);
+        mockMvc.perform(get("/api/v1/drivers/binding-candidates").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(0));
         mockMvc.perform(post("/api/v1/drivers/%d/bind-vehicle".formatted(driverId))
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)

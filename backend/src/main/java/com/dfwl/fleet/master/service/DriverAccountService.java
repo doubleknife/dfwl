@@ -50,7 +50,7 @@ public class DriverAccountService {
         }
         long userId;
         try {
-            userId = users.createUser(new UserRequest(driver.phone(), null, roleId, driver.status()),
+            userId = users.createUser(new UserRequest(driver.phone(), null, null, roleId, driver.status()),
                     passwordEncoder.encode(initialPassword), operatorId);
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException("DATA_002", "该手机号已有登录账号，不能新增司机");

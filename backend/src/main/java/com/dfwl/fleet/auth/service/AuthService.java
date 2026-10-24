@@ -120,6 +120,7 @@ public class AuthService {
         return new CurrentUserResponse(
                 user.id(),
                 user.phone(),
+                driver == null ? userAccountRepository.findName(user.id()) : driver.driverName(),
                 new RoleSummary(user.roleId(), user.roleCode(), user.roleName()),
                 user.permissions(),
                 driver == null ? null : driver.driverId(),

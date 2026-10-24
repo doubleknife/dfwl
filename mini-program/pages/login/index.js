@@ -1,9 +1,10 @@
 const { request } = require('../../utils/request');
 
 Page({
-  data: { phone: '', password: '', loading: false, error: '' },
+  data: { phone: '', password: '', showPassword: false, loading: false, error: '' },
   onPhone(e) { this.setData({ phone: e.detail.value }); },
   onPassword(e) { this.setData({ password: e.detail.value }); },
+  togglePasswordVisibility() { this.setData({ showPassword: !this.data.showPassword }); },
   async login() {
     if (this.data.loading) return;
     this.setData({ loading: true, error: '' });

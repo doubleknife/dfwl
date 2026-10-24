@@ -27,7 +27,7 @@ Page({
           .then((value) => ({ value })).catch((cause) => ({ error: cause.message || '审批待办加载失败，请重试' })) : Promise.resolve(null),
         request({ url: '/notifications/unread-count' }).catch(() => ({ unreadCount: 0 }))
       ]);
-      const displayName = user.driverName || user.name || user.phone || '我的工作台';
+      const displayName = user.name || user.phone || '我的工作台';
       const roleLabel = driver ? (driver.driverType === 'INTERNAL' ? '自有司机' : '外协司机')
         : (user.role?.name || user.roleName || '管理人员');
       this.setData({ user, driver, vehicle, displayName, initial: displayName.charAt(0), roleLabel,

@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue';
 import { reactive, ref } from 'vue';
 import { authStore } from '../stores/auth.js';
 import IcpFooter from '../components/IcpFooter.vue';
@@ -23,7 +24,7 @@ async function submit() {
       <p>登录后按账号权限加载菜单和按钮。</p>
       <p v-if="notice" class="ui-success-message" role="status">{{ notice }}</p>
       <label>手机号<input v-model.trim="form.phone" autocomplete="username" /></label>
-      <label>密码<input v-model="form.password" type="password" autocomplete="current-password" /></label>
+      <label>密码<PasswordInput v-model="form.password" autocomplete="current-password" /></label>
       <button class="primary" :disabled="authStore.loading">登录</button>
     </form>
     <IcpFooter />

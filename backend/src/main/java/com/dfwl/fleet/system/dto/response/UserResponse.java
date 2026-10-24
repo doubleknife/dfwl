@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public record UserResponse(
         long id,
         String phone,
+        String name,
         long roleId,
         String roleCode,
         String roleName,

@@ -634,6 +634,143 @@ class V3TaskFoundationTests {
         assertThat(monthlyOperations.attendance(month, null, 1, 20).monthTotal()).isEqualTo(2);
     }
 
+    private String miniToken(String... codes) {
+        long role = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='ADMIN'", Long.class);
+        jdbc.update("MERGE INTO sys_user(id,name,phone,password_hash,role_id,status) KEY(id) VALUES(901,'调度','13900000901','test',?,1)", role);
+        return tokens.issueToken(new AuthenticatedUser(901L, "13900000901", role, "ADMIN", "管理员", grants(codes)), "MINI");
+    }
+
+    @Test
+    void miniDispatchHttpPublishesOneTaskWithIndependentAmountsAndIdempotency() throws Exception {
+        String token = miniToken("BUTTON_MINI_DISPATCH_PUBLISH");
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        for (boolean external : List.of(false, true)) {
+            var row = new DispatchBatchRequest.Row(templateCode, external ? 12L : 11L,
+                    external ? "实际外协001" : null, money("123.45"), money("0.00"), money("67.89"), null);
+            var batch = new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(row));
+            var previewResult = mvc.perform(post("/api/v1/mini-dispatch/preview").header("Authorization", "Bearer " + token)
+                    .contentType("application/json").content(mapper.writeValueAsString(batch)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.valid").value(true)).andReturn();
+            String previewId = mapper.readTree(previewResult.getResponse().getContentAsString()).path("data").path("previewId").asText();
+            String body = mapper.writeValueAsString(new DispatchConfirmRequest(previewId, "mini-"+external, batch));
+            for (int retry = 0; retry < 2; retry++)
+                mvc.perform(post("/api/v1/mini-dispatch/confirm").header("Authorization", "Bearer " + token)
+                        .contentType("application/json").content(body)).andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.rows.length()").value(1));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transport_task", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT actual_unit_price FROM transport_task", BigDecimal.class))
+                .allSatisfy(v -> assertThat(v).isEqualByComparingTo("123.45"));
+        assertThat(jdbc.queryForList("SELECT salary_amount FROM transport_participant", BigDecimal.class))
+                .allSatisfy(v -> assertThat(v).isEqualByComparingTo("67.89"));
+        assertThat(jdbc.queryForList("SELECT actual_information_fee FROM transport_task", BigDecimal.class))
+                .allSatisfy(v -> assertThat(v).isEqualByComparingTo("0"));
+        mvc.perform(get("/api/v1/mini-dispatch/tasks?businessDate=2026-09-30").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.records[0].actualUnitPrice").doesNotExist());
+        mvc.perform(get("/api/v1/mini-dispatch/tasks?businessDate=2026-10-01").header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$.data.total").value(0));
+        mvc.perform(get("/api/v1/mini-dispatch/driver-options").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.records[0].idCardNo").doesNotExist());
+        mvc.perform(get("/api/v1/drivers").header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/mini-dispatch/preview").header("Authorization", "Bearer " + token)
+                .contentType("application/json").content(mapper.writeValueAsString(new DispatchBatchRequest(
+                    LocalDate.of(2026,9,30), List.of(batch(false).rows().getFirst(), batch(true).rows().getFirst())))))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void miniDispatchRequiresBothPageAndButtonAndRejectsDrivers() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        String pageOnly = miniToken("PAGE_MINI_DISPATCH");
+        mvc.perform(post("/api/v1/mini-dispatch/preview").header("Authorization", "Bearer " + pageOnly)
+                .contentType("application/json").content(mapper.writeValueAsString(batch(false))))
+                .andExpect(status().isForbidden());
+        long role = jdbc.queryForObject("SELECT id FROM sys_role WHERE role_code='ADMIN'", Long.class);
+        String buttonOnly = tokens.issueToken(new AuthenticatedUser(901L,"13900000901",role,"ADMIN","管理员",
+                Set.of("BUTTON_MINI_DISPATCH_PUBLISH")));
+        mvc.perform(get("/api/v1/mini-dispatch/tasks").header("Authorization", "Bearer " + buttonOnly))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/mini-dispatch/preview").header("Authorization", "Bearer " + buttonOnly)
+                .contentType("application/json").content(mapper.writeValueAsString(batch(false))))
+                .andExpect(status().isForbidden());
+        String driver = tokens.issueToken(new AuthenticatedUser(501L,"13911111111",driverRoleId(),"DRIVER","司机",
+                grants("BUTTON_MINI_DISPATCH_PUBLISH")));
+        mvc.perform(get("/api/v1/mini-dispatch/driver-options").header("Authorization", "Bearer " + driver))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void miniDispatchReadOnlyDetailAndStatusFilterRespectPermissions() throws Exception {
+        String token = miniToken("PAGE_MINI_DISPATCH");
+        var b = batch(false);
+        long id = dispatch.confirmSingle(new DispatchConfirmRequest(dispatch.previewSingle(b,901).previewId(),"mini-detail",b),901)
+                .rows().getFirst().taskId();
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.task.id").value(id))
+                .andExpect(jsonPath("$.data.task.status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.task.driverName").isNotEmpty())
+                .andExpect(jsonPath("$.data.loadingPlace").isNotEmpty())
+                .andExpect(jsonPath("$.data.salary").doesNotExist());
+        for (String state : List.of("PUBLISHED","IN_TRANSIT","TRANSFER_PENDING","COMPLETED","CANCELLED")) {
+            mvc.perform(get("/api/v1/mini-dispatch/tasks").param("businessDate", b.businessDate().toString()).param("status",state)
+                    .header("Authorization","Bearer "+token)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.total").value(state.equals("PUBLISHED")?1:0));
+        }
+        mvc.perform(get("/api/v1/mini-dispatch/tasks").param("status","INVALID").header("Authorization","Bearer "+token))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/99999999").header("Authorization","Bearer "+token))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id)).andExpect(status().isUnauthorized());
+        String noPermission = miniToken();
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id).header("Authorization","Bearer "+noPermission))
+                .andExpect(status().isForbidden());
+        String driver = tokens.issueToken(new AuthenticatedUser(501L,"13911111111",driverRoleId(),"DRIVER","司机",
+                grants("PAGE_MINI_DISPATCH")));
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id).header("Authorization","Bearer "+driver))
+                .andExpect(status().isForbidden());
+        var current = tasks.find(id);
+        tasks.cancel(id,new TaskCancelRequest("详情测试取消",current.version(),"detail-cancel"),901);
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id).header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.task.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.data.task.driverName").isNotEmpty());
+    }
+
+    @Test
+    void miniTransferAndCancelUseFormalTaskRules() throws Exception {
+        String token = miniToken("BUTTON_MINI_DISPATCH_TRANSFER", "BUTTON_MINI_DISPATCH_CANCEL");
+        var b = batch(false);
+        long id = dispatch.confirmSingle(new DispatchConfirmRequest(dispatch.previewSingle(b,901).previewId(),"mini-transfer",b),901)
+                .rows().getFirst().taskId();
+        var initial = tasks.find(id);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        String cancel = mapper.writeValueAsString(new TaskCancelRequest("业务取消", initial.version(), "mini-cancel"));
+        tasks.depart(id, new TaskDepartRequest("depart-mini",initial.version()),
+                new AuthenticatedUser(501L,"13911111111",driverRoleId(),"DRIVER","司机", Set.of()));
+        mvc.perform(post("/api/v1/mini-dispatch/tasks/"+id+"/cancel").header("Authorization", "Bearer "+token)
+                .contentType("application/json").content(cancel)).andExpect(status().isConflict());
+        var current = tasks.find(id);
+        var person = tasks.participants(id,true).getFirst();
+        var transfer = new TaskTransferRequest(12L,"接手实际002",List.of(new TaskTransferRequest.SalaryDecision(person.id(),money("10"))),
+                money("20"),"换司机",current.version(),current.currentParticipantId());
+        mvc.perform(get("/api/v1/mini-dispatch/tasks/"+id+"/transfer-context").header("Authorization","Bearer "+token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.participants[0].driverName").value("自有司机"));
+        String body = mapper.writeValueAsString(transfer);
+        mvc.perform(post("/api/v1/mini-dispatch/tasks/"+id+"/transfer").header("Authorization","Bearer "+token)
+                .contentType("application/json").content(body)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("TRANSFER_PENDING"));
+        mvc.perform(post("/api/v1/mini-dispatch/tasks/"+id+"/transfer").header("Authorization","Bearer "+token)
+                .contentType("application/json").content(body)).andExpect(status().isConflict());
+        assertThat(tasks.participants(id,true)).hasSize(2);
+        var other = batch(true);
+        long cancelId = dispatch.confirmSingle(new DispatchConfirmRequest(dispatch.previewSingle(other,901).previewId(),"mini-cancel-task",other),901)
+                .rows().getFirst().taskId();
+        String cancelBody = mapper.writeValueAsString(new TaskCancelRequest("取消未发车",tasks.find(cancelId).version(),"cancel-twice"));
+        for(int retry=0;retry<2;retry++) mvc.perform(post("/api/v1/mini-dispatch/tasks/"+cancelId+"/cancel")
+                .header("Authorization","Bearer "+token).contentType("application/json").content(cancelBody))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("CANCELLED"));
+    }
+
     private DispatchBatchRequest batch(boolean outsourced) {
         return new DispatchBatchRequest(LocalDate.of(2026, 9, 30), List.of(
                 new DispatchBatchRequest.Row(templateCode, outsourced ? 12L : 11L,

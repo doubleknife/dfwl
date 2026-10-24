@@ -6,6 +6,7 @@ import java.util.Set;
 public record CurrentUserResponse(
         Long id,
         String phone,
+        String name,
         RoleSummary role,
         Set<String> permissions,
         Long driverId,

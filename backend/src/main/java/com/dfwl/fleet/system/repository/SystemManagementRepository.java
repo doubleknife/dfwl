@@ -28,14 +28,17 @@ public class SystemManagementRepository {
     public PageResponse<UserResponse> listUsers(int pageNo, int pageSize) {
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user", Long.class);
         List<UserResponse> records = jdbcTemplate.query("""
-                SELECT u.*, r.role_code, r.role_name
+                SELECT u.*, r.role_code, r.role_name,
+                       COALESCE((SELECT d.name FROM driver d WHERE d.deleted_at IS NULL
+                           AND (d.user_id=u.id OR (d.user_id IS NULL AND d.phone=u.phone))
+                           ORDER BY CASE WHEN d.user_id=u.id THEN 0 ELSE 1 END LIMIT 1), u.name) AS display_name
                 FROM sys_user u
                 JOIN sys_role r ON r.id = u.role_id
                 ORDER BY u.id DESC
                 LIMIT ? OFFSET ?
                 """, (rs, rowNum) -> new UserResponse(
                 rs.getLong("id"),
-                rs.getString("phone"),
+                rs.getString("phone"), rs.getString("display_name"),
                 rs.getLong("role_id"),
                 rs.getString("role_code"),
                 rs.getString("role_name"),
@@ -50,13 +53,16 @@ public class SystemManagementRepository {
 
     public Optional<UserResponse> findUser(long id) {
         return jdbcTemplate.query("""
-                SELECT u.*, r.role_code, r.role_name
+                SELECT u.*, r.role_code, r.role_name,
+                       COALESCE((SELECT d.name FROM driver d WHERE d.deleted_at IS NULL
+                           AND (d.user_id=u.id OR (d.user_id IS NULL AND d.phone=u.phone))
+                           ORDER BY CASE WHEN d.user_id=u.id THEN 0 ELSE 1 END LIMIT 1), u.name) AS display_name
                 FROM sys_user u
                 JOIN sys_role r ON r.id = u.role_id
                 WHERE u.id = ?
                 """, (rs, rowNum) -> new UserResponse(
                 rs.getLong("id"),
-                rs.getString("phone"),
+                rs.getString("phone"), rs.getString("display_name"),
                 rs.getLong("role_id"),
                 rs.getString("role_code"),
                 rs.getString("role_name"),
@@ -91,11 +97,14 @@ public class SystemManagementRepository {
 
     public Optional<UserResponse> findUserByPhoneForUpdate(String phone) {
         return jdbcTemplate.query("""
-                SELECT u.*, r.role_code, r.role_name
+                SELECT u.*, r.role_code, r.role_name,
+                       COALESCE((SELECT d.name FROM driver d WHERE d.deleted_at IS NULL
+                           AND (d.user_id=u.id OR (d.user_id IS NULL AND d.phone=u.phone))
+                           ORDER BY CASE WHEN d.user_id=u.id THEN 0 ELSE 1 END LIMIT 1), u.name) AS display_name
                 FROM sys_user u JOIN sys_role r ON r.id = u.role_id
                 WHERE u.phone = ? FOR UPDATE
                 """, (rs, ignored) -> new UserResponse(
-                rs.getLong("id"), rs.getString("phone"), rs.getLong("role_id"),
+                rs.getLong("id"), rs.getString("phone"), rs.getString("display_name"), rs.getLong("role_id"),
                 rs.getString("role_code"), rs.getString("role_name"), rs.getInt("status"),
                 rs.getTimestamp("last_login_at") == null ? null : rs.getTimestamp("last_login_at").toLocalDateTime(),
                 readLong(rs, "created_by"), rs.getTimestamp("created_at").toLocalDateTime(),
@@ -107,14 +116,15 @@ public class SystemManagementRepository {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
-                    INSERT INTO sys_user (phone, password_hash, role_id, status, created_by)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO sys_user (phone, password_hash, role_id, status, created_by, name)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, request.phone());
             ps.setString(2, passwordHash);
             ps.setLong(3, request.roleId());
             ps.setInt(4, request.status());
             ps.setLong(5, operatorId);
+            ps.setString(6, request.name());
             return ps;
         }, keyHolder);
         return keyHolder.getKey().longValue();
@@ -123,11 +133,11 @@ public class SystemManagementRepository {
     public int updateUser(long id, UserRequest request, long operatorId) {
         return jdbcTemplate.update("""
                 UPDATE sys_user
-                SET phone = ?, role_id = ?, status = ?, updated_by = ?, version = version + 1,
+                SET name = ?, role_id = ?, status = ?, updated_by = ?, version = version + 1,
                     auth_version = auth_version + CASE WHEN role_id <> ? OR status <> ? THEN 1 ELSE 0 END,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-                """, request.phone(), request.roleId(), request.status(), operatorId,
+                """, request.name(), request.roleId(), request.status(), operatorId,
                 request.roleId(), request.status(), id);
     }
 

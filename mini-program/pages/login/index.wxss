@@ -4,3 +4,8 @@
   line-height: 1.5;
   margin: 0 0 20rpx;
 }
+
+ .password-input-row { position: relative; }
+.password-input-row .password-input { width: 100%; box-sizing: border-box; padding-right: 88rpx; }
+.password-visibility { position: absolute; right: 4rpx; top: 0; bottom: 0; width: 80rpx; display: flex; align-items: center; justify-content: center; }
+.password-eye { width: 36rpx; height: 36rpx; }

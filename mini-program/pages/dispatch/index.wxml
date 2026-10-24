@@ -1,0 +1,78 @@
+<view class="dispatch-page">
+  <view class="title">单人派单</view>
+  <view wx:if="{{loading}}" class="feedback">正在加载…</view>
+  <view wx:if="{{denied && !loading}}" class="feedback">当前账号没有单人派单权限。</view>
+  <view wx:if="{{error}}" class="feedback error">{{error}}</view>
+  <view wx:if="{{notice}}" class="feedback success">{{notice}}</view>
+  <view wx:if="{{!denied && !detailOpen}}" class="card">
+    <view class="tabs"><button class="{{tab==='new'?'active':''}}" data-tab="new" bindtap="switchTab" disabled="{{busy}}">新增任务</button><button class="{{tab==='sent'?'active':''}}" data-tab="sent" bindtap="switchTab" disabled="{{busy}}">已派单</button></view>
+    <view wx:if="{{tab==='new'}}">
+      <view class="hint">每次发布一趟。金额允许0，最多两位小数。</view>
+      <view class="label">运输业务日期 *</view><picker mode="date" value="{{form.businessDate}}" data-field="businessDate" bindchange="input" disabled="{{busy}}"><view class="field">{{form.businessDate}}</view></picker>
+      <view class="label">已启用线路模板 *</view><search-select options="{{templates}}" value-key="stableCode" current-value="{{form.templateStableCode}}" display-text="{{template.label}}" bind:change="chooseTemplate" disabled="{{busy}}" />
+      <view class="label">司机 *</view><button class="secondary" bindtap="refreshDrivers" disabled="{{busy || driversLoading}}">{{driversLoading ? '刷新中…' : '刷新司机'}}</button><view wx:if="{{driverError}}" class="feedback error">{{driverError}}</view><search-select title="选择司机（搜索已加载候选）" options="{{drivers}}" value-key="id" current-value="{{form.driverId}}" display-text="{{driver.label}}" bind:change="chooseDriver" disabled="{{busy || driversLoading || !driversFresh}}" />
+      <button wx:if="{{drivers.length<driverTotal}}" class="secondary" bindtap="loadDrivers" disabled="{{busy}}">加载更多司机（已加载{{drivers.length}}/{{driverTotal}}）</button>
+      <view wx:if="{{driver.driverType==='INTERNAL'}}" class="hint">当前绑定车辆：{{driver.currentVehiclePlateNo || '未绑定，不能发布'}}</view>
+      <block wx:if="{{driver.driverType==='OUTSOURCED'}}"><view class="label">本次实际外协车牌 *</view><input class="field" maxlength="32" value="{{form.outsourcedPlateNo}}" data-field="outsourcedPlateNo" bindinput="input" disabled="{{busy}}" /></block>
+      <view class="label">运输单价（元/吨）*</view><input class="field" type="digit" value="{{form.actualUnitPrice}}" data-field="actualUnitPrice" bindinput="input" disabled="{{busy}}" />
+      <view class="label">信息费（元）*</view><input class="field" type="digit" value="{{form.actualInformationFee}}" data-field="actualInformationFee" bindinput="input" disabled="{{busy}}" />
+      <view class="label">司机工资（元）*</view><input class="field" type="digit" value="{{form.initialSalary}}" data-field="initialSalary" bindinput="input" disabled="{{busy}}" />
+      <button wx:if="{{canPublish}}" class="primary" bindtap="publish" disabled="{{busy || loading || driversLoading || !driversFresh}}">{{busy?'正在处理…':'核对并发布'}}</button>
+      <view wx:else class="hint">当前账号仅可查看，未授权发布任务。</view>
+    </view>
+    <view wx:else>
+      <view class="label">运输日期</view><picker mode="date" value="{{date}}" bindchange="changeDate" disabled="{{busy}}"><view class="field">{{date}}</view></picker>
+      <view class="label">任务状态</view><picker range="{{statusOptions}}" value="{{statusIndex}}" bindchange="changeStatus" disabled="{{busy}}"><view class="field">{{statusOptions[statusIndex]}}</view></picker>
+      <button class="secondary" bindtap="loadTasks" disabled="{{busy}}">刷新列表</button>
+      <view wx:if="{{listLoading}}" class="feedback">正在加载任务…</view>
+      <view wx:if="{{listError}}" class="feedback error">{{listError}}</view>
+      <view wx:if="{{!listLoading && !tasks.length && !listError}}" class="hint">当前日期和状态下暂无任务。</view>
+      <view wx:for="{{tasks}}" wx:key="id" id="task-{{item.id}}" class="task {{item.highlighted?'highlight':''}}">
+        <view class="heading">{{item.taskNo}} <text wx:if="{{item.highlighted}}"> · 本次操作</text></view>
+        <view>{{item.businessDate}} · {{item.statusLabel}}</view><view>{{item.templateName}}</view>
+        <view>{{item.driverName}} · {{item.plateNo}}</view>
+        <view class="actions"><button class="secondary" data-id="{{item.id}}" bindtap="openDetail" disabled="{{busy}}">查看详情</button><button wx:if="{{canTransfer && (item.status==='IN_TRANSIT' || item.status==='TRANSFER_PENDING')}}" class="secondary" data-type="transfer" data-id="{{item.id}}" bindtap="openAction" disabled="{{busy}}">转单</button><button wx:if="{{canCancel && item.status==='PUBLISHED'}}" class="mp-danger" data-type="cancel" data-id="{{item.id}}" bindtap="openAction" disabled="{{busy}}">取消任务</button></view>
+      </view>
+      <view class="actions"><button bindtap="previous" disabled="{{pageNo<=1 || busy}}">上一页</button><text>第{{pageNo}}页 / 共{{total}}条</text><button bindtap="next" disabled="{{pageNo*20>=total || busy}}">下一页</button></view>
+    </view>
+    <view wx:if="{{action}}" id="action-panel" class="action-panel">
+      <view wx:if="{{error}}" class="feedback error">{{error}}</view>
+      <view class="heading">{{action.type==='transfer'?'转单':'取消任务'}} · {{action.task.taskNo}}</view>
+      <block wx:if="{{action.type==='transfer'}}">
+        <view class="label">接手司机 *</view><button class="secondary" bindtap="refreshDrivers" disabled="{{busy || driversLoading}}">{{driversLoading ? '刷新中…' : '刷新司机'}}</button><view wx:if="{{driverError}}" class="feedback error">{{driverError}}</view><search-select options="{{drivers}}" value-key="id" current-value="{{transferDriverId}}" display-text="{{transferDriver.label}}" bind:change="chooseTransferDriver" disabled="{{busy || driversLoading || !driversFresh}}" />
+        <button wx:if="{{drivers.length<driverTotal}}" bindtap="loadDrivers" disabled="{{busy}}">加载更多司机</button>
+        <view wx:if="{{transferDriver.driverType==='INTERNAL'}}" class="hint">当前绑定车辆：{{transferDriver.currentVehiclePlateNo || '未绑定，不能转单'}}</view>
+        <block wx:if="{{transferDriver.driverType==='OUTSOURCED'}}"><view class="label">接手实际外协车牌 *</view><input class="field" value="{{transferPlate}}" data-field="transferPlate" bindinput="actionInput" disabled="{{busy}}" /></block>
+        <view class="label">接手司机工资（元）*</view><input class="field" type="digit" value="{{newSalary}}" data-field="newSalary" bindinput="actionInput" disabled="{{busy}}" />
+        <view class="hint">转单须核定所有已有参与人工资。</view>
+        <view wx:for="{{participants}}" wx:key="id"><view class="label">{{item.driverName}} 工资（元）*</view><input class="field" type="digit" value="{{item.amount}}" data-index="{{index}}" bindinput="salaryInput" disabled="{{busy}}" /></view>
+      </block>
+      <view class="label">原因 *</view><textarea class="field reason" value="{{reason}}" data-field="reason" bindinput="actionInput" disabled="{{busy}}" maxlength="500" />
+      <view class="actions"><button bindtap="closeAction" disabled="{{busy}}">返回</button><button class="primary" bindtap="submitAction" disabled="{{busy}}">{{busy?'正在处理…':'核对并确认'}}</button></view>
+    </view>
+  </view>
+  <view wx:if="{{!denied && detailOpen}}" class="card">
+    <view class="heading">任务详情</view>
+    <button class="secondary" bindtap="closeDetail">返回已派单</button>
+    <view wx:if="{{detailLoading}}" class="feedback">正在加载详情…</view>
+    <view wx:if="{{detailError}}" class="feedback error">{{detailError}}<button bindtap="loadDetail">重试</button></view>
+    <view wx:if="{{detail && !detailLoading}}">
+      <view class="detail-row"><text class="detail-label">任务编号</text><text>{{detail.taskNo || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">运输日期</text><text>{{detail.businessDate || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">任务状态</text><text>{{detail.statusLabel || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">线路模板</text><text>{{detail.templateName || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">客户</text><text>{{detail.customerName || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">货物</text><text>{{detail.productName || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">装货地</text><text>{{detail.loadingPlace || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">卸货地</text><text>{{detail.unloadingPlace || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">司机</text><text>{{detail.driverName || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">车牌号</text><text>{{detail.plateNo || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">运输单价（元/吨）</text><text>{{detail.actualUnitPrice || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">信息费（元）</text><text>{{detail.actualInformationFee || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">毛重（吨）</text><text>{{detail.grossWeight || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">皮重（吨）</text><text>{{detail.tareWeight || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">净重（吨）</text><text>{{detail.netWeight || '—'}}</text></view>
+      <view class="detail-row"><text class="detail-label">完成时间</text><text>{{detail.completedAt || '—'}}</text></view>
+    </view>
+  </view>
+</view>

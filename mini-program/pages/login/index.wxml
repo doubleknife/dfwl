@@ -7,7 +7,10 @@
     </view>
     <view class="field">
       <text class="label">密码</text>
-      <input value="{{password}}" bindinput="onPassword" password />
+      <view class="password-input-row">
+        <input class="password-input" value="{{password}}" bindinput="onPassword" password="{{!showPassword}}" />
+        <view class="password-visibility" role="button" aria-label="{{showPassword ? '隐藏密码' : '显示密码'}}" bindtap="togglePasswordVisibility"><image class="password-eye" src="/assets/icons/{{showPassword ? 'eye-off' : 'eye'}}.svg" mode="aspectFit" /></view>
+      </view>
     </view>
     <view wx:if="{{error}}" class="login-error" role="alert">{{error}}</view>
     <button class="primary" loading="{{loading}}" bindtap="login">登录</button>

@@ -11,7 +11,8 @@
     "pages/salary/index",
     "pages/profile/index",
     "pages/change-password/index",
-    "pages/notifications/index"
+    "pages/notifications/index",
+    "pages/dispatch/index"
   ],
   "window": {
     "navigationBarTitleText": "车队司机端",

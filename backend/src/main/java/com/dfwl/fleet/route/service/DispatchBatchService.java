@@ -72,6 +72,27 @@ public class DispatchBatchService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public DispatchBatchResponse confirm(DispatchConfirmRequest request, long actor) {
         authorization.require(actor, "BUTTON_DISPATCH_PUBLISH", "BUTTON_TASK_IMPORTS_SUBMIT");
+        return confirmAuthorized(request, actor);
+    }
+
+    public DispatchPreviewResponse previewSingle(DispatchBatchRequest batch, long actor) {
+        requireSingle(batch);
+        return preview(batch, actor);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public DispatchBatchResponse confirmSingle(DispatchConfirmRequest request, long actor) {
+        authorization.require(actor, "BUTTON_MINI_DISPATCH_PUBLISH");
+        requireSingle(request == null ? null : request.batch());
+        return confirmAuthorized(request, actor);
+    }
+
+    private void requireSingle(DispatchBatchRequest batch) {
+        if (batch == null || batch.rows() == null || batch.rows().size() != 1)
+            throw new BusinessException(ErrorCode.SYS_002);
+    }
+
+    private DispatchBatchResponse confirmAuthorized(DispatchConfirmRequest request, long actor) {
         if (request == null || request.batch() == null || request.requestKey() == null
                 || request.requestKey().isBlank() || request.requestKey().length() > 128)
             throw new BusinessException(ErrorCode.SYS_002);

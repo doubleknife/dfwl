@@ -5,7 +5,7 @@
   <block wx:else>
     <view class="profile-card">
       <view class="profile-identity"><view class="profile-avatar">{{initial}}</view>
-        <view><view class="profile-name">{{driver.name || user.driverName || user.phone}}</view><view class="profile-role">{{driverTypeLabel}}</view></view></view>
+        <view><view class="profile-name">{{user.name || user.phone}}</view><view class="profile-role">{{driverTypeLabel}}</view></view></view>
       <view class="profile-fact"><text>手机号</text><text>{{user.phone}}</text></view>
       <view class="profile-fact"><text>当前车辆</text><text>{{bindingLabel}}</text></view>
       <view class="profile-fact"><text>角色</text><text>{{roleName}}</text></view>

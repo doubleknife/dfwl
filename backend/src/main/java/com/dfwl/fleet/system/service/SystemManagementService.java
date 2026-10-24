@@ -50,6 +50,7 @@ public class SystemManagementService {
 
     @Transactional
     public UserResponse createUser(UserRequest request, long operatorId) {
+        if (!StringUtils.hasText(request.name()) || request.name().length() > 128) throw new BusinessException(ErrorCode.SYS_002);
         if (!StringUtils.hasText(request.password()) || request.password().length() < 6) {
             throw new BusinessException("SYS_002", "初始密码至少 6 位");
         }
@@ -64,19 +65,21 @@ public class SystemManagementService {
 
     @Transactional
     public UserResponse updateUser(long id, UserRequest request, long operatorId) {
+        if (!StringUtils.hasText(request.name()) || request.name().length() > 128) throw new BusinessException(ErrorCode.SYS_002);
         if ("DRIVER".equals(repository.userRoleCode(id))) {
             throw new BusinessException(ErrorCode.AUTH_003);
         }
         validateRole(request.roleId());
         try {
             UserResponse before = findUser(id);
+            if (!before.phone().equals(request.phone())) {
+                throw new BusinessException("SYS_002", "登录账号创建后不可修改");
+            }
             if (repository.updateUser(id, request, operatorId) != 1) {
                 throw new BusinessException(ErrorCode.USER_001);
             }
             if (before.roleId() != request.roleId() || before.status() != request.status()) {
                 tokens.revokeUserTokens(id);
-            } else if (!before.phone().equals(request.phone())) {
-                tokens.invalidateUserSnapshot(id);
             }
             return findUser(id);
         } catch (DataIntegrityViolationException ex) {
