@@ -1,5 +1,6 @@
 App({
   globalData: {
+    // baseUrl: 'https://whdfwl.cn/api/v1',
     baseUrl: 'http://localhost:8080/api/v1',
     token: wx.getStorageSync('token') || '',
     user: wx.getStorageSync('user') || null
